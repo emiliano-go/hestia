@@ -18,7 +18,7 @@ ACTIONS: list[dict] = [
             "The conversation in the Chat tab: answers questions, inspects the "
             "repo and GitHub, recalls and writes Totem memory, and can delegate."
         ),
-        "tools": "repo,files,github,memory,workspace,agents",
+        "tools": "repo,files,github,memory,workspace,tasks,agents",
     },
     {
         "key": "explore",
@@ -49,6 +49,14 @@ ACTIONS: list[dict] = [
         "label": "Review code",
         "description": "Read code and diffs and return findings ordered by severity.",
         "tools": "repo,files,github",
+    },
+    {
+        "key": "triage",
+        "label": "Triage GitHub item",
+        "description": (
+            "Turn a GitHub issue or PR into a written plan and a set of tasks on the board."
+        ),
+        "tools": "github,workspace,tasks,files,repo",
     },
     {
         "key": "memory-fix",

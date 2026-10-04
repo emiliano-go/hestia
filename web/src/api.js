@@ -28,6 +28,36 @@ export const api = {
   deleteProject: (id) => request(`/projects/${id}`, { method: 'DELETE' }),
   activity: () => request('/activity'),
 
+  projectStatus: (id, since) =>
+    request(
+      `/projects/${id}/status${since ? `?since=${encodeURIComponent(since)}` : ''}`
+    ),
+  projectActivity: (id, github = true) =>
+    request(`/projects/${id}/activity?github=${github ? 'true' : 'false'}`),
+  projectGithub: (id, kind, state = 'open') =>
+    request(`/projects/${id}/github?kind=${kind}&state=${state}`),
+
+  listTasks: (projectId) => request(`/projects/${projectId}/tasks`),
+  createTask: (projectId, body) =>
+    request(`/projects/${projectId}/tasks`, { method: 'POST', body: JSON.stringify(body) }),
+  updateTask: (taskId, body) =>
+    request(`/tasks/${taskId}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteTask: (taskId) => request(`/tasks/${taskId}`, { method: 'DELETE' }),
+
+  listMilestones: (projectId) => request(`/projects/${projectId}/milestones`),
+  createMilestone: (projectId, body) =>
+    request(`/projects/${projectId}/milestones`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateMilestone: (milestoneId, body) =>
+    request(`/milestones/${milestoneId}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteMilestone: (milestoneId) =>
+    request(`/milestones/${milestoneId}`, { method: 'DELETE' }),
+
+  triage: (projectId, body) =>
+    request(`/projects/${projectId}/triage`, { method: 'POST', body: JSON.stringify(body) }),
+
   listPresets: () => request('/providers/presets'),
   listProviders: () => request('/providers'),
   createProvider: (body) => request('/providers', { method: 'POST', body: JSON.stringify(body) }),

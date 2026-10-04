@@ -28,10 +28,13 @@ def init_db() -> None:
 def _migrate() -> None:
     """Add columns missing from pre-existing SQLite tables (create_all never alters)."""
     with engine().begin() as conn:
-        info = conn.exec_driver_sql("PRAGMA table_info(project)")
-        columns = {row[1] for row in info}
+        columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(project)")}
         if columns and "last_opened_at" not in columns:
             conn.exec_driver_sql("ALTER TABLE project ADD COLUMN last_opened_at DATETIME")
+
+        task_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(task)")}
+        if task_columns and "milestone_id" not in task_columns:
+            conn.exec_driver_sql("ALTER TABLE task ADD COLUMN milestone_id INTEGER")
 
 
 def session() -> Iterator[Session]:

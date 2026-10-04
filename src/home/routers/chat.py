@@ -14,6 +14,7 @@ from home.providers.base import OpenAIClient, resolve_api_key
 from home.registry.db import session
 from home.registry.models import AgentConfig, Message, Project, Provider, Session as ChatSession
 from home.tools import build_registry, subagents
+from home.tools import tasks as task_tools
 from home.tools.registry import ProjectContext
 
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -73,6 +74,8 @@ def chat(project_id: int, body: dict, s: Session = Depends(session)):
     client = OpenAIClient(provider.base_url, resolve_api_key(provider.api_key_env), provider.model)
     registry = build_registry()
     for tool in subagents.make_tools(s):
+        registry.register(tool)
+    for tool in task_tools.make_tools(s):
         registry.register(tool)
 
     digest = totem_store.digest(ctx.local_path, task=user_text)

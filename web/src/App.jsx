@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api.js'
 
 // ---------- helpers ----------
@@ -74,6 +74,8 @@ const ICON_PATHS = {
   check: 'M20 6 9 17l-5-5',
   clock: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 7v5l3 2',
   help: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01',
+  tasks: 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01',
+  flag: 'M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7',
   chevronDown: 'M6 9l6 6 6-6',
   play: 'M6 4l14 8-14 8z',
   alert: 'M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z',
@@ -635,6 +637,11 @@ const TOOL_GROUPS = [
     key: 'workspace',
     label: 'Workspace',
     desc: 'Write plans, specs, and docs to the project workspace.',
+  },
+  {
+    key: 'tasks',
+    label: 'Task board',
+    desc: 'Create and move tasks on the project kanban. Main chat agents only.',
   },
   {
     key: 'agents',
@@ -1707,6 +1714,8 @@ function HelpView() {
         <a href="#overview">Overview</a>
         <a href="#quickstart">Quick start</a>
         <a href="#projects">Projects</a>
+        <a href="#insight">Project insight</a>
+        <a href="#tasks">Task board</a>
         <a href="#providers">Providers</a>
         <a href="#agents">Agents &amp; actions</a>
         <a href="#chat">Chat &amp; tools</a>
@@ -1775,6 +1784,66 @@ function HelpView() {
           <li>
             <strong>Delete</strong> a project from the <em>About</em> tab. This removes its registry
             entry and clone.
+          </li>
+        </ul>
+      </Doc>
+
+      <Doc id="insight" title="Project insight">
+        <p>
+          Opening a project shows an <strong>Overview</strong> status board, and each project has
+          dedicated <strong>GitHub</strong> and <strong>Activity</strong> tabs.
+        </p>
+        <ul>
+          <li>
+            <strong>Overview</strong>: branch, last commit, ahead/behind sync, open task count, and
+            (for GitHub remotes) open PRs, open issues, failing CI runs, and the latest run.
+          </li>
+          <li>
+            <strong>Since your last visit</strong>: a digest of commits, memories, generated files,
+            and GitHub changes since you last opened the project. Home tracks each project’s last
+            opened time, so this resets when you leave and come back.
+          </li>
+          <li>
+            <strong>GitHub</strong>: browse pull requests, issues, and CI runs with filters, open
+            them on GitHub, or hit <em>Summarize</em> to hand one to the agent in a new chat.
+          </li>
+          <li>
+            <strong>Activity</strong>: a chronological timeline of conversations, memory writes,
+            generated files, commits, and GitHub events for the project.
+          </li>
+        </ul>
+      </Doc>
+
+      <Doc id="tasks" title="Task board">
+        <p>
+          Every project has a <strong>Kanban board</strong> of tasks, kept separate from chat
+          sessions, so the board outlives any conversation. Columns are{' '}
+          <em>Backlog</em>, <em>To do</em>, <em>In progress</em>, <em>Review</em>, and{' '}
+          <em>Done</em>.
+        </p>
+        <ul>
+          <li>
+            <strong>Drag and drop</strong> a card between columns to change its status, or drop it
+            on another card to reorder.
+          </li>
+          <li>
+            <strong>Click a card</strong> to edit its title, description, column, priority, and
+            milestone, or delete it.
+          </li>
+          <li>
+            <strong>Milestones</strong> (the <em>Roadmap</em> tab) group tasks into a goal with a
+            target date and a progress bar. Link Totem memories to a milestone to tie decisions
+            and constraints to the outcome.
+          </li>
+          <li>
+            <strong>The agent manages the board too.</strong> With the <em>Task board</em> tool
+            group enabled, the agent can list, create, move, and delete tasks, and create
+            milestones. Ask it to “break this into tasks” and they appear on the board.
+          </li>
+          <li>
+            <strong>Triage.</strong> On the <em>GitHub</em> tab, hit <em>Triage</em> on an issue or
+            PR. The agent writes a plan to the workspace and creates tasks for it, tracked under a
+            parent task.
           </li>
         </ul>
       </Doc>
@@ -1949,7 +2018,7 @@ function HelpView() {
   )
 }
 
-// ---------- welcome ----------
+// ---------- project overview ----------
 
 const WELCOME_SUGGESTIONS = [
   'Explain how this codebase is structured',
@@ -1958,34 +2027,1016 @@ const WELCOME_SUGGESTIONS = [
   'Draft a plan for a new feature',
 ]
 
-function WelcomeView({ project, onStart }) {
+function Stat({ icon, label, value, hint, tone }) {
   return (
-    <div className="welcome">
-      <div className="welcome-inner">
-        <div className="welcome-badge">
-          <Icon name="sparkles" size={24} />
+    <div className={`stat ${tone || ''}`}>
+      <div className="stat-top">
+        <Icon name={icon} size={14} className="stat-icon" />
+        <span className="stat-label">{label}</span>
+      </div>
+      <div className="stat-value">{value}</div>
+      {hint && <div className="stat-hint">{hint}</div>}
+    </div>
+  )
+}
+
+const CHANGE_FIELDS = [
+  { key: 'commits', label: 'commits', icon: 'git' },
+  { key: 'memories', label: 'memories', icon: 'memory' },
+  { key: 'files', label: 'files', icon: 'files' },
+  { key: 'prs', label: 'PRs', icon: 'git' },
+  { key: 'issues', label: 'issues', icon: 'chat' },
+  { key: 'failed_runs', label: 'failed runs', icon: 'alert' },
+]
+
+function ProjectOverviewView({ project, since, onStart, onNavigate }) {
+  const ready = since !== undefined
+  const { data, error, loading } = useAsync(
+    () => (ready ? api.projectStatus(project.id, since || undefined) : Promise.resolve(null)),
+    [project.id, since]
+  )
+  const firstVisit = since === null
+  const git = data?.git
+  const github = data?.github
+  const tasks = data?.tasks
+  const changes = data?.changes
+
+  const runTone = (run) => {
+    if (!run) return ''
+    if (run.conclusion === 'success') return 'ok'
+    if (run.conclusion === 'failure') return 'err'
+    return ''
+  }
+
+  return (
+    <div className="overview">
+      {!firstVisit && changes && changes.total > 0 && (
+        <div className="digest">
+          <div className="digest-head">
+            <Icon name="sparkles" size={16} />
+            <span>Since your last visit</span>
+          </div>
+          <div className="digest-chips">
+            {CHANGE_FIELDS.filter((f) => changes.counts[f.key] > 0).map((f) => (
+              <span key={f.key} className="digest-chip">
+                <Icon name={f.icon} size={12} />
+                {changes.counts[f.key]} {f.label}
+              </span>
+            ))}
+          </div>
         </div>
-        <h1>What can I help you build?</h1>
-        <div className="repo">
-          <Icon name="git" size={13} />
-          <code>{project.repo_url}</code>
+      )}
+      {!firstVisit && changes && changes.total === 0 && (
+        <div className="digest caught-up">
+          <Icon name="check" size={15} /> You are all caught up since your last visit.
         </div>
-        <div className="welcome-prompt">
-          <Composer
-            busy={false}
-            placeholder="Ask anything, or describe a task..."
-            onSend={(msg) => onStart(msg)}
-          />
+      )}
+
+      <div className="overview-hero">
+        <div>
+          <h1>{project.name}</h1>
+          <div className="repo">
+            <Icon name="git" size={13} />
+            <code>{project.repo_url}</code>
+          </div>
         </div>
-        <div className="suggestions">
-          {WELCOME_SUGGESTIONS.map((s) => (
-            <button key={s} className="suggestion" onClick={() => onStart(s)}>
-              <span>{s}</span>
-              <Icon name="arrowUp" size={14} className="suggestion-arrow" />
-            </button>
+        <button className="btn" onClick={() => onNavigate({ type: 'tasks' })}>
+          <Icon name="tasks" size={14} /> Task board
+        </button>
+      </div>
+
+      {error && <p className="error-text">{error}</p>}
+
+      {loading || !ready ? (
+        <div className="stat-grid">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="stat-skeleton" />
           ))}
         </div>
+      ) : (
+        <div className="stat-grid">
+          <Stat
+            icon="git"
+            label="Branch"
+            value={git?.branch || 'unknown'}
+            hint={git?.head ? `at ${git.head}` : null}
+          />
+          <Stat
+            icon="git"
+            label="Last commit"
+            value={truncate(git?.last_commit?.subject, 42) || 'none'}
+            hint={git?.last_commit ? `${git.last_commit.short} · ${relDate(git.last_commit.date)}` : null}
+          />
+          <Stat
+            icon="refresh"
+            label="Sync"
+            value={
+              git && (git.ahead || git.behind)
+                ? `${git.ahead}↑ ${git.behind}↓`
+                : git?.dirty
+                  ? 'Local changes'
+                  : 'Up to date'
+            }
+            hint={git?.dirty ? 'uncommitted changes' : null}
+          />
+          <Stat
+            icon="tasks"
+            label="Open tasks"
+            value={tasks ? tasks.open : '—'}
+            hint={tasks && tasks.total ? `${tasks.total} total` : 'board is empty'}
+          />
+          {github?.available ? (
+            <>
+              <Stat icon="git" label="Open PRs" value={github.open_prs} />
+              <Stat icon="chat" label="Open issues" value={github.open_issues} />
+              <Stat
+                icon="alert"
+                label="Failing runs"
+                value={github.failing_runs}
+                tone={github.failing_runs ? 'err' : ''}
+              />
+              <Stat
+                icon="play"
+                label="Latest CI"
+                value={
+                  github.latest_run
+                    ? github.latest_run.conclusion || github.latest_run.status
+                    : 'none'
+                }
+                hint={github.latest_run?.name}
+                tone={runTone(github.latest_run)}
+              />
+            </>
+          ) : (
+            <Stat
+              icon="alert"
+              label="GitHub"
+              value="Not connected"
+              hint={github?.reason || 'add a GitHub token or use a GitHub remote'}
+            />
+          )}
+        </div>
+      )}
+
+      <div className="overview-prompt">
+        <Composer
+          busy={false}
+          placeholder="Ask anything, or describe a task..."
+          onSend={(msg) => onStart(msg)}
+        />
       </div>
+      <div className="suggestions">
+        {WELCOME_SUGGESTIONS.map((s) => (
+          <button key={s} className="suggestion" onClick={() => onStart(s)}>
+            <span>{s}</span>
+            <Icon name="arrowUp" size={14} className="suggestion-arrow" />
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ---------- github ----------
+
+function GithubView({ projectId, onSummarize, onOpenTasks }) {
+  const [kind, setKind] = useState('prs')
+  const [state, setState] = useState('open')
+  const [triaging, setTriaging] = useState(null)
+  const [triageReport, setTriageReport] = useState(null)
+  const { data, error, loading, reload } = useAsync(
+    () => api.projectGithub(projectId, kind, kind === 'runs' ? 'open' : state),
+    [projectId, kind, state]
+  )
+  const items = (data && data.items) || []
+
+  const badgeTone = (value) => {
+    if (['open', 'success'].includes(value)) return 'ok'
+    if (['failure', 'closed'].includes(value)) return 'err'
+    return ''
+  }
+
+  const runTriage = (it) => {
+    setTriaging(it.number)
+    api
+      .triage(projectId, { kind: kind === 'prs' ? 'pr' : 'issue', number: it.number })
+      .then((r) => setTriageReport({ ...r, item: it }))
+      .catch((e) => setTriageReport({ error: e.message || String(e), item: it }))
+      .finally(() => setTriaging(null))
+  }
+
+  return (
+    <div className="center-col wide">
+      <div className="page-head">
+        <h2>GitHub</h2>
+        <button className="btn" onClick={reload} disabled={loading}>
+          <Icon name="refresh" size={14} />
+          {loading ? 'Refreshing' : 'Refresh'}
+        </button>
+      </div>
+
+      <div className="gh-toolbar">
+        <div className="segmented">
+          <button className={kind === 'prs' ? 'on' : ''} onClick={() => setKind('prs')}>
+            Pull requests
+          </button>
+          <button className={kind === 'issues' ? 'on' : ''} onClick={() => setKind('issues')}>
+            Issues
+          </button>
+          <button className={kind === 'runs' ? 'on' : ''} onClick={() => setKind('runs')}>
+            CI runs
+          </button>
+        </div>
+        {kind !== 'runs' && (
+          <select value={state} onChange={(e) => setState(e.target.value)}>
+            <option value="open">Open</option>
+            <option value="closed">Closed</option>
+            <option value="all">All</option>
+          </select>
+        )}
+      </div>
+
+      {error && <p className="error-text">{error}</p>}
+      {data && !data.available && (
+        <SectionEmpty
+          icon="alert"
+          title="GitHub unavailable"
+          hint={data.error || 'This project has no GitHub remote, or no token is configured.'}
+        />
+      )}
+      {loading && (
+        <div className="gh-list">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="row-skeleton" />
+          ))}
+        </div>
+      )}
+      {!loading && data && data.available && items.length === 0 && (
+        <SectionEmpty icon="check" title="Nothing here" hint="No items for this filter." />
+      )}
+      <div className="gh-list">
+        {items.map((it) => (
+          <div key={it.number ?? it.id} className="gh-row">
+            <Icon
+              name={kind === 'runs' ? 'play' : kind === 'issues' ? 'chat' : 'git'}
+              size={15}
+              className="gh-row-icon"
+            />
+            <div className="gh-row-main">
+              <div className="gh-row-title">
+                {it.number != null && <span className="gh-num">#{it.number}</span>}
+                {it.title || it.name}
+              </div>
+              <div className="gh-row-meta">
+                {it.user && <span>{it.user}</span>}
+                {it.branch && <span>{it.branch}</span>}
+                {it.event && <span>{it.event}</span>}
+                {it.labels?.length > 0 && <span>{it.labels.join(', ')}</span>}
+                {it.updated_at && <span>{relDate(it.updated_at)}</span>}
+              </div>
+            </div>
+            <span className={`badge ${badgeTone(it.conclusion || it.state)}`}>
+              {it.conclusion || it.state}
+            </span>
+            {kind !== 'runs' && (
+              <button
+                className="btn primary"
+                title="Turn into a plan + tasks"
+                disabled={triaging === it.number}
+                onClick={() => runTriage(it)}
+              >
+                {triaging === it.number ? (
+                  <>
+                    <Spinner size={13} /> Triaging
+                  </>
+                ) : (
+                  <>
+                    <Icon name="tasks" size={13} /> Triage
+                  </>
+                )}
+              </button>
+            )}
+            {onSummarize && kind !== 'runs' && (
+              <button
+                className="btn"
+                title="Summarize with the agent"
+                onClick={() =>
+                  onSummarize(
+                    `Summarize ${kind === 'prs' ? 'pull request' : 'issue'} #${it.number}: "${it.title}". Explain what it is, what changed or is requested, and anything notable.`
+                  )
+                }
+              >
+                <Icon name="sparkles" size={13} />
+              </button>
+            )}
+            {it.url && (
+              <a className="btn" href={it.url} target="_blank" rel="noreferrer">
+                Open
+              </a>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {triageReport && (
+        <Modal title={`Triage · ${triageReport.item.title}`} onClose={() => setTriageReport(null)}>
+          {triageReport.error && <p className="error-text">{triageReport.error}</p>}
+          {triageReport.report && (
+            <div
+              className="reader-body prose"
+              dangerouslySetInnerHTML={{ __html: mdToHtml(triageReport.report) }}
+            />
+          )}
+          {triageReport.path && (
+            <p className="note">
+              Plan: <code>{triageReport.path}</code>
+            </p>
+          )}
+          <div className="row" style={{ marginTop: 14, marginBottom: 0 }}>
+            <button
+              className="btn"
+              onClick={() => {
+                setTriageReport(null)
+                if (onOpenTasks) onOpenTasks()
+              }}
+            >
+              <Icon name="tasks" size={14} /> View tasks
+            </button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  )
+}
+
+// ---------- activity ----------
+
+const ACTIVITY_META = {
+  session: { icon: 'chat', label: 'Conversation' },
+  memory: { icon: 'memory', label: 'Memory' },
+  file: { icon: 'files', label: 'File' },
+  commit: { icon: 'git', label: 'Commit' },
+  pr: { icon: 'git', label: 'Pull request' },
+  issue: { icon: 'chat', label: 'Issue' },
+  run: { icon: 'play', label: 'CI run' },
+}
+
+function dayLabel(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d)) return ''
+  const today = new Date()
+  const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  const diff = Math.round((startOf(today) - startOf(d)) / 86400000)
+  if (diff === 0) return 'Today'
+  if (diff === 1) return 'Yesterday'
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function ActivityView({ projectId, onOpenSession, onOpenFile }) {
+  const { data, error, loading } = useAsync(() => api.projectActivity(projectId), [projectId])
+  const items = (data && data.items) || []
+
+  const groups = useMemo(() => {
+    const out = []
+    let current = null
+    for (const item of items) {
+      const label = dayLabel(item.timestamp)
+      if (!current || current.label !== label) {
+        current = { label, items: [] }
+        out.push(current)
+      }
+      current.items.push(item)
+    }
+    return out
+  }, [items])
+
+  return (
+    <div className="center-col">
+      <div className="page-head">
+        <h2>Activity</h2>
+      </div>
+      {error && <p className="error-text">{error}</p>}
+      {loading && (
+        <div className="gh-list">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="row-skeleton" />
+          ))}
+        </div>
+      )}
+      {!loading && items.length === 0 && (
+        <SectionEmpty
+          icon="clock"
+          title="No activity yet"
+          hint="Conversations, memory, files, commits, and GitHub events will appear here."
+        />
+      )}
+      {groups.map((group) => (
+        <div key={group.label} className="activity-group">
+          <div className="activity-day">{group.label}</div>
+          {group.items.map((item, i) => {
+            const meta = ACTIVITY_META[item.kind] || { icon: 'clock' }
+            const clickable = item.session_id || item.path
+            return (
+              <button
+                key={`${item.kind}-${item.timestamp}-${i}`}
+                className={`activity-row ${clickable ? 'clickable' : ''} ${item.url ? 'external' : ''}`}
+                onClick={() => {
+                  if (item.session_id) onOpenSession(item.session_id)
+                  else if (item.path) onOpenFile(item)
+                  else if (item.url) window.open(item.url, '_blank', 'noreferrer')
+                }}
+              >
+                <span className={`activity-icon ${item.kind}`}>
+                  <Icon name={meta.icon} size={14} />
+                </span>
+                <span className="activity-main">
+                  <span className="activity-title">{truncate(item.title, 90)}</span>
+                  <span className="activity-sub">{item.subtitle}</span>
+                </span>
+                <span className="activity-time">{relDate(item.timestamp)}</span>
+              </button>
+            )
+          })}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ---------- kanban tasks ----------
+
+const TASK_COLUMNS = [
+  { key: 'backlog', label: 'Backlog' },
+  { key: 'todo', label: 'To do' },
+  { key: 'doing', label: 'In progress' },
+  { key: 'review', label: 'Review' },
+  { key: 'done', label: 'Done' },
+]
+
+const PRIORITY_LABEL = { low: 'Low', medium: 'Medium', high: 'High' }
+
+function TaskEditor({ task, projectId, onClose, onSaved }) {
+  const isNew = !task.id
+  const [title, setTitle] = useState(task.title || '')
+  const [description, setDescription] = useState(task.description || '')
+  const [status, setStatus] = useState(task.status || 'backlog')
+  const [priority, setPriority] = useState(task.priority || 'medium')
+  const [milestoneId, setMilestoneId] = useState(task.milestone_id || '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+  const milestonesReq = useAsync(() => api.listMilestones(projectId), [projectId])
+  const milestones = milestonesReq.data || []
+
+  const save = (e) => {
+    e.preventDefault()
+    if (!title.trim()) return
+    setSaving(true)
+    setError(null)
+    const body = {
+      title: title.trim(),
+      description,
+      status,
+      priority,
+      milestone_id: milestoneId ? parseInt(milestoneId, 10) : 0,
+    }
+    const req = isNew
+      ? api.createTask(projectId, body)
+      : api.updateTask(task.id, body)
+    req
+      .then(onSaved)
+      .catch((err) => setError(err.message || String(err)))
+      .finally(() => setSaving(false))
+  }
+
+  const remove = () => {
+    if (isNew) return onClose()
+    if (!window.confirm('Delete this task?')) return
+    api.deleteTask(task.id).then(onSaved).catch((err) => setError(err.message))
+  }
+
+  return (
+    <Modal title={isNew ? 'New task' : 'Edit task'} onClose={onClose}>
+      <form className="agent-form" onSubmit={save}>
+        <label className="field">
+          <span className="field-label">Title</span>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} autoFocus required />
+        </label>
+        <label className="field">
+          <span className="field-label">Description</span>
+          <textarea
+            rows={4}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Optional detail, acceptance criteria, links..."
+          />
+        </label>
+        <div className="field-row">
+          <label className="field">
+            <span className="field-label">Column</span>
+            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              {TASK_COLUMNS.map((c) => (
+                <option key={c.key} value={c.key}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span className="field-label">Priority</span>
+            <select value={priority} onChange={(e) => setPriority(e.target.value)}>
+              {Object.entries(PRIORITY_LABEL).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <label className="field">
+          <span className="field-label">Milestone</span>
+          <select value={milestoneId} onChange={(e) => setMilestoneId(e.target.value)}>
+            <option value="">No milestone</option>
+            {milestones.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="row" style={{ marginBottom: 0 }}>
+          <button className="btn primary" disabled={saving || !title.trim()}>
+            {saving ? (
+              <>
+                <Spinner size={14} /> Saving
+              </>
+            ) : isNew ? (
+              'Create task'
+            ) : (
+              'Save changes'
+            )}
+          </button>
+          {!isNew && (
+            <button type="button" className="btn danger" onClick={remove}>
+              Delete
+            </button>
+          )}
+        </div>
+        {error && <div className="error-text">{error}</div>}
+      </form>
+    </Modal>
+  )
+}
+
+function TasksView({ projectId }) {
+  const { data, error, loading, reload } = useAsync(() => api.listTasks(projectId), [projectId])
+  const [tasks, setTasks] = useState([])
+  const [dragId, setDragId] = useState(null)
+  const [editor, setEditor] = useState(null)
+
+  useEffect(() => {
+    if (data) setTasks(data)
+  }, [data])
+
+  const columns = useMemo(() => {
+    const sorted = [...tasks].sort((a, b) => a.position - b.position)
+    return TASK_COLUMNS.map((col) => ({
+      ...col,
+      tasks: sorted.filter((t) => t.status === col.key),
+    }))
+  }, [tasks])
+
+  const move = (taskId, status, beforeTask = null) => {
+    const task = tasks.find((t) => t.id === taskId)
+    if (!task) return
+    const siblings = tasks
+      .filter((t) => t.status === status && t.id !== taskId)
+      .sort((a, b) => a.position - b.position)
+    let position
+    if (beforeTask) {
+      const idx = siblings.findIndex((t) => t.id === beforeTask.id)
+      const prev = siblings[idx - 1]
+      const next = siblings[idx] || beforeTask
+      position = prev ? (prev.position + next.position) / 2 : next.position - 1
+    } else {
+      position = siblings.length ? siblings[siblings.length - 1].position + 1 : 0
+    }
+    setTasks((prev) =>
+      prev.map((t) => (t.id === taskId ? { ...t, status, position } : t))
+    )
+    api.updateTask(taskId, { status, position }).then(reload).catch(() => reload())
+  }
+
+  const onDropColumn = (e, status) => {
+    e.preventDefault()
+    if (dragId != null) move(dragId, status)
+    setDragId(null)
+  }
+
+  const onDropCard = (e, card) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (dragId != null && dragId !== card.id) move(dragId, card.status, card)
+    setDragId(null)
+  }
+
+  return (
+    <div className="tasks">
+      <div className="page-head">
+        <h2>Tasks</h2>
+        <button className="btn primary" onClick={() => setEditor({ status: 'backlog' })}>
+          <Icon name="plus" size={14} /> New task
+        </button>
+      </div>
+      {error && <p className="error-text">{error}</p>}
+      {loading ? (
+        <div className="kanban">
+          {TASK_COLUMNS.map((c) => (
+            <div key={c.key} className="kanban-col">
+              <Skeleton className="row-skeleton" />
+              <Skeleton className="row-skeleton" style={{ marginTop: 8 }} />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="kanban">
+          {columns.map((col) => (
+            <div
+              key={col.key}
+              className={`kanban-col ${dragId != null ? 'droppable' : ''}`}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => onDropColumn(e, col.key)}
+            >
+              <div className="kanban-col-head">
+                <span className="kanban-col-title">{col.label}</span>
+                <span className="kanban-count">{col.tasks.length}</span>
+              </div>
+              <div className="kanban-cards">
+                {col.tasks.map((t) => (
+                  <div
+                    key={t.id}
+                    className={`kanban-card ${dragId === t.id ? 'dragging' : ''}`}
+                    draggable
+                    onDragStart={() => setDragId(t.id)}
+                    onDragEnd={() => setDragId(null)}
+                    onDrop={(e) => onDropCard(e, t)}
+                    onClick={() => setEditor(t)}
+                  >
+                    <div className="kanban-card-title">{t.title}</div>
+                    {t.description && (
+                      <div className="kanban-card-desc">{truncate(t.description, 120)}</div>
+                    )}
+                    <div className="kanban-card-foot">
+                      <span className={`priority ${t.priority}`}>
+                        {PRIORITY_LABEL[t.priority]}
+                      </span>
+                      <span className="kanban-card-time">{relDate(t.updated_at)}</span>
+                    </div>
+                  </div>
+                ))}
+                <button
+                  className="kanban-add"
+                  onClick={() => setEditor({ status: col.key })}
+                >
+                  <Icon name="plus" size={13} /> Add
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {editor && (
+        <TaskEditor
+          projectId={projectId}
+          task={editor}
+          onClose={() => setEditor(null)}
+          onSaved={() => {
+            setEditor(null)
+            reload()
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ---------- roadmap / milestones ----------
+
+function ProgressBar({ percent }) {
+  return (
+    <div className="progress" title={`${percent}% complete`}>
+      <div className="progress-fill" style={{ width: `${percent}%` }} />
+    </div>
+  )
+}
+
+function fmtDay(value) {
+  if (!value) return null
+  const d = new Date(value)
+  return isNaN(d) ? value : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function MilestoneEditor({ milestone, projectId, onClose, onSaved }) {
+  const isNew = !milestone.id
+  const [title, setTitle] = useState(milestone.title || '')
+  const [description, setDescription] = useState(milestone.description || '')
+  const [targetDate, setTargetDate] = useState(milestone.target_date || '')
+  const [status, setStatus] = useState(milestone.status || 'open')
+  const [memories, setMemories] = useState(milestone.memories || [])
+  const [q, setQ] = useState('')
+  const [results, setResults] = useState(null)
+  const [searching, setSearching] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+
+  const search = (e) => {
+    e.preventDefault()
+    if (!q.trim()) return
+    setSearching(true)
+    api
+      .searchMemory(projectId, q.trim())
+      .then((r) => setResults(r || []))
+      .catch(() => setResults([]))
+      .finally(() => setSearching(false))
+  }
+
+  const addMemory = (m) => {
+    if (!memories.some((x) => x.id === m.id)) {
+      setMemories((prev) => [...prev, { id: m.id, title: m.title }])
+    }
+  }
+  const removeMemory = (id) => setMemories((prev) => prev.filter((x) => x.id !== id))
+
+  const save = (e) => {
+    e.preventDefault()
+    if (!title.trim()) return
+    setSaving(true)
+    setError(null)
+    const body = {
+      title: title.trim(),
+      description,
+      target_date: targetDate || null,
+      status,
+      memories,
+    }
+    const req = isNew
+      ? api.createMilestone(projectId, body)
+      : api.updateMilestone(milestone.id, body)
+    req
+      .then(onSaved)
+      .catch((err) => setError(err.message || String(err)))
+      .finally(() => setSaving(false))
+  }
+
+  const remove = () => {
+    if (isNew) return onClose()
+    if (!window.confirm('Delete this milestone? Its tasks are kept, just unassigned.')) return
+    api.deleteMilestone(milestone.id).then(onSaved).catch((err) => setError(err.message))
+  }
+
+  return (
+    <Modal title={isNew ? 'New milestone' : 'Edit milestone'} onClose={onClose}>
+      <form className="agent-form" onSubmit={save}>
+        <label className="field">
+          <span className="field-label">Title</span>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} autoFocus required />
+        </label>
+        <label className="field">
+          <span className="field-label">Description</span>
+          <textarea
+            rows={3}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="What does this milestone deliver?"
+          />
+        </label>
+        <div className="field-row">
+          <label className="field">
+            <span className="field-label">Target date</span>
+            <input type="date" value={targetDate || ''} onChange={(e) => setTargetDate(e.target.value)} />
+          </label>
+          <label className="field">
+            <span className="field-label">Status</span>
+            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              <option value="open">Open</option>
+              <option value="done">Done</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="field">
+          <span className="field-label">Linked memories (Totem)</span>
+          {memories.length > 0 && (
+            <div className="link-chips">
+              {memories.map((m) => (
+                <span key={m.id} className="link-chip">
+                  <Icon name="memory" size={12} />
+                  {m.title || m.id}
+                  <button type="button" onClick={() => removeMemory(m.id)} title="Unlink">
+                    <Icon name="x" size={11} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <form className="search-row compact" onSubmit={search}>
+            <input
+              placeholder="Search memory to link a decision or constraint..."
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+            <button className="btn" disabled={searching}>
+              {searching ? <Spinner size={14} /> : <Icon name="search" size={14} />}
+            </button>
+          </form>
+          {results && results.length === 0 && (
+            <span className="field-hint">No memories match.</span>
+          )}
+          {results && results.length > 0 && (
+            <div className="search-results">
+              {results.slice(0, 6).map((m) => (
+                <button
+                  type="button"
+                  key={m.id}
+                  className="search-result"
+                  onClick={() => addMemory(m)}
+                  disabled={memories.some((x) => x.id === m.id)}
+                >
+                  <span className="badge">{m.type}</span>
+                  <span className="search-result-title">{m.title}</span>
+                  <Icon name="plus" size={13} />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="row" style={{ marginBottom: 0 }}>
+          <button className="btn primary" disabled={saving || !title.trim()}>
+            {saving ? (
+              <>
+                <Spinner size={14} /> Saving
+              </>
+            ) : isNew ? (
+              'Create milestone'
+            ) : (
+              'Save changes'
+            )}
+          </button>
+          {!isNew && (
+            <button type="button" className="btn danger" onClick={remove}>
+              Delete
+            </button>
+          )}
+        </div>
+        {error && <div className="error-text">{error}</div>}
+      </form>
+    </Modal>
+  )
+}
+
+const STATUS_DOT = { backlog: 'todo', todo: 'todo', doing: 'doing', review: 'review', done: 'done' }
+
+function RoadmapView({ projectId, onOpenTasks }) {
+  const { data, error, loading, reload } = useAsync(
+    () => api.listMilestones(projectId),
+    [projectId]
+  )
+  const tasksReq = useAsync(() => api.listTasks(projectId), [projectId])
+  const milestones = data || []
+  const tasks = tasksReq.data || []
+  const [editor, setEditor] = useState(null)
+
+  const byMilestone = useMemo(() => {
+    const map = {}
+    for (const t of tasks) {
+      if (t.milestone_id != null) (map[t.milestone_id] ||= []).push(t)
+    }
+    return map
+  }, [tasks])
+  const unassigned = tasks.filter((t) => t.milestone_id == null)
+
+  const reopen = () => {
+    reload()
+    tasksReq.reload()
+  }
+
+  return (
+    <div className="center-col wide">
+      <div className="page-head">
+        <h2>Roadmap</h2>
+        <button className="btn primary" onClick={() => setEditor({})}>
+          <Icon name="plus" size={14} /> New milestone
+        </button>
+      </div>
+      {error && <p className="error-text">{error}</p>}
+      {loading ? (
+        <div className="milestone-grid">
+          {[0, 1].map((i) => (
+            <Skeleton key={i} className="block-skeleton" />
+          ))}
+        </div>
+      ) : milestones.length === 0 ? (
+        <SectionEmpty
+          icon="flag"
+          title="No milestones yet"
+          hint="Group tasks into a goal and track progress toward it."
+          action={
+            <button className="btn" onClick={() => setEditor({})}>
+              <Icon name="plus" size={14} /> Add a milestone
+            </button>
+          }
+        />
+      ) : (
+        <div className="milestone-grid">
+          {milestones.map((m) => {
+            const list = byMilestone[m.id] || []
+            return (
+              <div key={m.id} className={`milestone ${m.status}`}>
+                <div className="milestone-head">
+                  <div className="milestone-title-row">
+                    <span className="milestone-title">{m.title}</span>
+                    {m.status === 'done' && <span className="badge ok">done</span>}
+                    {m.target_date && (
+                      <span className="milestone-date">
+                        <Icon name="clock" size={12} /> {fmtDay(m.target_date)}
+                      </span>
+                    )}
+                  </div>
+                  <button className="icon-btn small" onClick={() => setEditor(m)} title="Edit">
+                    <Icon name="settings" size={15} />
+                  </button>
+                </div>
+                {m.description && <div className="milestone-desc">{m.description}</div>}
+
+                <div className="milestone-progress">
+                  <ProgressBar percent={m.progress.percent} />
+                  <span className="milestone-percent">
+                    {m.progress.done}/{m.progress.total} · {m.progress.percent}%
+                  </span>
+                </div>
+
+                {m.memories.length > 0 && (
+                  <div className="link-chips">
+                    {m.memories.map((mem) => (
+                      <span key={mem.id} className="link-chip static">
+                        <Icon name="memory" size={12} />
+                        {mem.title || mem.id}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {list.length > 0 ? (
+                  <div className="milestone-tasks">
+                    {list.map((t) => (
+                      <div key={t.id} className="milestone-task">
+                        <span className={`dot-status ${STATUS_DOT[t.status] || 'todo'}`} />
+                        <span className="milestone-task-title">{t.title}</span>
+                        <span className={`priority ${t.priority}`}>{PRIORITY_LABEL[t.priority]}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="milestone-empty">No tasks assigned yet.</div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {!loading && unassigned.length > 0 && (
+        <div className="milestone-unassigned">
+          <div className="home-section-head">
+            <h2>Unassigned tasks</h2>
+            <button className="link-btn" onClick={onOpenTasks}>
+              <Icon name="tasks" size={13} /> Open board
+            </button>
+          </div>
+          <div className="milestone-tasks">
+            {unassigned.map((t) => (
+              <div key={t.id} className="milestone-task">
+                <span className={`dot-status ${STATUS_DOT[t.status] || 'todo'}`} />
+                <span className="milestone-task-title">{t.title}</span>
+                <span className={`priority ${t.priority}`}>{PRIORITY_LABEL[t.priority]}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {editor && (
+        <MilestoneEditor
+          projectId={projectId}
+          milestone={editor}
+          onClose={() => setEditor(null)}
+          onSaved={() => {
+            setEditor(null)
+            reopen()
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -2143,15 +3194,18 @@ export default function App() {
 
   const projects = projectsReq.data || []
   const [projectId, setProjectId] = useState(null)
-  const [view, setView] = useState({ type: 'home' }) // home | help | welcome | chat | files | memory | about | agents | gallery
+  // home | help | welcome(overview) | chat | tasks | github | activity | files | memory | about | agents | gallery
+  const [view, setView] = useState({ type: 'home' })
   const [chatSessionId, setChatSessionId] = useState(null)
   const [initialMessage, setInitialMessage] = useState(null)
+  const [chatKey, setChatKey] = useState(0)
   const [showAddProject, setShowAddProject] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [agentId, setAgentId] = useState('')
   const [providerId, setProviderId] = useState('')
   const [settingsTab, setSettingsTab] = useState('providers')
   const [landingFile, setLandingFile] = useState(null)
+  const [prevOpenedAt, setPrevOpenedAt] = useState(undefined)
 
   useEffect(() => {
     applyTheme(loadStoredTheme())
@@ -2178,7 +3232,11 @@ export default function App() {
     setView({ type: 'welcome' })
     setChatSessionId(null)
     setInitialMessage(null)
-    api.openProject(id).catch(() => {})
+    setPrevOpenedAt(undefined)
+    api
+      .openProject(id)
+      .then((p) => setPrevOpenedAt(p.previous_opened_at || null))
+      .catch(() => setPrevOpenedAt(null))
   }
 
   const openChat = (sessionId) => {
@@ -2199,6 +3257,14 @@ export default function App() {
     setView({ type: 'chat' })
     setChatSessionId(null)
     setInitialMessage(null)
+    setChatKey((k) => k + 1)
+  }
+
+  const startChatWith = (text) => {
+    setView({ type: 'chat' })
+    setChatSessionId(null)
+    setInitialMessage(text)
+    setChatKey((k) => k + 1)
   }
 
   const onSessionCreated = useCallback(
@@ -2212,7 +3278,17 @@ export default function App() {
   const agents = agentsReq.data || []
   const providers = providersReq.data || []
   const project = projects.find((p) => p.id === effectiveProjectId)
-  const inProjectView = ['welcome', 'chat', 'files', 'memory', 'about'].includes(view.type)
+  const inProjectView = [
+    'welcome',
+    'chat',
+    'tasks',
+    'roadmap',
+    'github',
+    'activity',
+    'files',
+    'memory',
+    'about',
+  ].includes(view.type)
 
   return (
     <div className="app">
@@ -2298,6 +3374,41 @@ export default function App() {
                 </button>
               ))}
               <button
+                className={`sidebar-item ${view.type === 'welcome' ? 'active' : ''}`}
+                onClick={() => selectProject(project.id)}
+              >
+                <Icon name="home" size={16} className="si-icon" />
+                Overview
+              </button>
+              <button
+                className={`sidebar-item ${view.type === 'tasks' ? 'active' : ''}`}
+                onClick={() => setView({ type: 'tasks' })}
+              >
+                <Icon name="tasks" size={16} className="si-icon" />
+                Tasks
+              </button>
+              <button
+                className={`sidebar-item ${view.type === 'roadmap' ? 'active' : ''}`}
+                onClick={() => setView({ type: 'roadmap' })}
+              >
+                <Icon name="flag" size={16} className="si-icon" />
+                Roadmap
+              </button>
+              <button
+                className={`sidebar-item ${view.type === 'github' ? 'active' : ''}`}
+                onClick={() => setView({ type: 'github' })}
+              >
+                <Icon name="git" size={16} className="si-icon" />
+                GitHub
+              </button>
+              <button
+                className={`sidebar-item ${view.type === 'activity' ? 'active' : ''}`}
+                onClick={() => setView({ type: 'activity' })}
+              >
+                <Icon name="clock" size={16} className="si-icon" />
+                Activity
+              </button>
+              <button
                 className={`sidebar-item ${view.type === 'files' ? 'active' : ''}`}
                 onClick={() => setView({ type: 'files' })}
               >
@@ -2351,7 +3462,18 @@ export default function App() {
       </aside>
 
       <div className="main">
-        {project && ['welcome', 'chat', 'files', 'memory', 'about'].includes(view.type) && (
+        {project &&
+          [
+            'welcome',
+            'chat',
+            'tasks',
+            'roadmap',
+            'github',
+            'activity',
+            'files',
+            'memory',
+            'about',
+          ].includes(view.type) && (
           <header className="topbar">
             <div className="topbar-title">
               <span className="name">{project.name}</span>
@@ -2407,24 +3529,45 @@ export default function App() {
             </div>
           )}
           {project && view.type === 'welcome' && (
-            <WelcomeView
+            <ProjectOverviewView
               project={project}
-              onStart={(msg) => {
-                setInitialMessage(msg)
-                setView({ type: 'chat' })
-                setChatSessionId(null)
-              }}
+              since={prevOpenedAt}
+              onStart={startChatWith}
+              onNavigate={setView}
             />
           )}
           {project && view.type === 'chat' && (
             <ChatView
-              key={`${project.id}:${chatSessionId ?? 'new'}`}
+              key={`${project.id}:${chatSessionId ?? 'new'}:${chatKey}`}
               projectId={project.id}
               sessionId={chatSessionId}
               agentId={agentId}
               providerId={providerId}
               onSessionCreated={onSessionCreated}
               initialMessage={initialMessage}
+            />
+          )}
+          {project && view.type === 'tasks' && <TasksView projectId={project.id} />}
+          {project && view.type === 'roadmap' && (
+            <RoadmapView
+              projectId={project.id}
+              onOpenTasks={() => setView({ type: 'tasks' })}
+            />
+          )}
+          {project && view.type === 'github' && (
+            <GithubView
+              projectId={project.id}
+              onSummarize={startChatWith}
+              onOpenTasks={() => setView({ type: 'tasks' })}
+            />
+          )}
+          {project && view.type === 'activity' && (
+            <ActivityView
+              projectId={project.id}
+              onOpenSession={(sid) => openChat(sid)}
+              onOpenFile={(item) =>
+                setLandingFile({ project_id: project.id, path: item.path })
+              }
             />
           )}
           {project && view.type === 'files' && <FilesView projectId={project.id} />}

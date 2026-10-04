@@ -68,6 +68,43 @@ class AgentConfig(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_now)
 
 
+class Milestone(SQLModel, table=True):
+    """A goal that groups tasks and tracks progress.
+
+    ``memories`` is a JSON list of ``{"id", "title"}`` snapshots linking Totem
+    memories (decisions, constraints) to the milestone's outcome.
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id", index=True)
+    title: str
+    description: str = ""
+    target_date: Optional[str] = None  # ISO date (YYYY-MM-DD), optional
+    status: str = "open"  # open | done
+    memories: str = "[]"  # JSON: [{"id": ..., "title": ...}]
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
+
+
+class Task(SQLModel, table=True):
+    """A project task on the kanban board.
+
+    Tasks are their own first-class objects, independent of chat sessions; the
+    agent manages them through the task_* tools and the UI as a board.
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id", index=True)
+    milestone_id: Optional[int] = Field(default=None, foreign_key="milestone.id", index=True)
+    title: str
+    description: str = ""
+    status: str = "backlog"  # backlog | todo | doing | review | done
+    priority: str = "medium"  # low | medium | high
+    position: float = 0.0  # ordering within a column (float to allow inserts)
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
+
+
 class ActionDefault(SQLModel, table=True):
     """App-wide default agent profile for one action (use-case/role).
 

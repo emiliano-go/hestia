@@ -2184,6 +2184,623 @@ pre {
 }
 
 /* ------------------------------------------------------------------
+   Project overview
+------------------------------------------------------------------- */
+
+.center-col.wide {
+  max-width: 66rem;
+}
+
+.overview {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 30px 28px 48px;
+  animation: rise 0.3s ease both;
+}
+.overview-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 22px;
+}
+.overview-hero h1 {
+  margin: 0 0 6px;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+.overview-prompt {
+  margin: 28px 0 16px;
+}
+
+.digest {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  margin-bottom: 22px;
+  border: 1px solid rgba(217, 119, 87, 0.35);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(120deg, var(--accent-soft), transparent 65%);
+  animation: rise 0.3s ease both;
+}
+.digest-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.digest-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.digest-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  padding: 3px 11px;
+}
+.digest.caught-up {
+  justify-content: center;
+  color: var(--muted);
+  font-size: 13px;
+  border-color: var(--border-soft);
+  background: var(--surface);
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+}
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  transition: border-color 0.15s ease;
+}
+.stat:hover {
+  border-color: var(--border);
+}
+.stat.ok {
+  border-color: rgba(106, 153, 85, 0.35);
+}
+.stat.err {
+  border-color: rgba(224, 108, 90, 0.35);
+}
+.stat-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--faint);
+}
+.stat-icon {
+  color: var(--muted);
+}
+.stat-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.stat-value {
+  margin-top: 8px;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stat-hint {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stat-skeleton {
+  height: 92px;
+}
+
+/* ------------------------------------------------------------------
+   GitHub tab
+------------------------------------------------------------------- */
+
+.gh-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.gh-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.gh-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  transition: border-color 0.15s ease;
+}
+.gh-row:hover {
+  border-color: var(--border);
+}
+.gh-row-icon {
+  flex: none;
+  color: var(--muted);
+}
+.gh-row-main {
+  flex: 1;
+  min-width: 0;
+}
+.gh-row-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gh-num {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 12px;
+  margin-right: 6px;
+}
+.gh-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--faint);
+}
+.gh-row .btn {
+  flex: none;
+  font-size: 12px;
+  padding: 5px 10px;
+}
+
+/* ------------------------------------------------------------------
+   Activity timeline
+------------------------------------------------------------------- */
+
+.activity-group {
+  margin-bottom: 22px;
+}
+.activity-day {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+  padding: 6px 2px 10px;
+}
+.activity-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-left: 2px solid var(--border-soft);
+  padding: 9px 12px;
+  margin-left: 2px;
+  color: var(--fg);
+  cursor: default;
+}
+.activity-row.clickable,
+.activity-row.external {
+  cursor: pointer;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  transition: background 0.13s ease;
+}
+.activity-row.clickable:hover,
+.activity-row.external:hover {
+  background: var(--surface);
+}
+.activity-icon {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.activity-icon.memory {
+  color: #b48ad6;
+  background: rgba(180, 138, 214, 0.14);
+}
+.activity-icon.commit,
+.activity-icon.pr {
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+.activity-icon.run {
+  color: var(--muted);
+  background: var(--surface-2);
+}
+.activity-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.activity-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.activity-sub {
+  font-size: 12px;
+  color: var(--faint);
+}
+.activity-time {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+/* ------------------------------------------------------------------
+   Kanban
+------------------------------------------------------------------- */
+
+.tasks {
+  max-width: 1220px;
+  margin: 0 auto;
+  padding: 28px 24px 44px;
+  animation: rise 0.3s ease both;
+}
+.kanban {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  overflow-x: auto;
+  padding-bottom: 10px;
+}
+.kanban-col {
+  flex: 0 0 214px;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  padding: 12px;
+  min-height: 180px;
+  transition: border-color 0.15s ease;
+}
+.kanban-col.droppable {
+  border-color: var(--border);
+}
+.kanban-col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px 10px;
+}
+.kanban-col-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-secondary);
+}
+.kanban-count {
+  font-size: 11px;
+  color: var(--faint);
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.kanban-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.kanban-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 11px 12px;
+  cursor: grab;
+  transition:
+    border-color 0.15s ease,
+    transform 0.12s ease,
+    box-shadow 0.15s ease;
+  animation: rise 0.2s ease both;
+}
+.kanban-card:hover {
+  border-color: var(--border);
+  box-shadow: var(--shadow-sm);
+}
+.kanban-card:active {
+  cursor: grabbing;
+}
+.kanban-card.dragging {
+  opacity: 0.45;
+  transform: scale(0.98);
+}
+.kanban-card-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--fg);
+  line-height: 1.4;
+}
+.kanban-card-desc {
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.kanban-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+}
+.priority {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.priority.medium {
+  color: var(--accent);
+  border-color: rgba(217, 119, 87, 0.4);
+  background: var(--accent-soft);
+}
+.priority.high {
+  color: var(--err);
+  border-color: rgba(224, 108, 90, 0.4);
+  background: var(--err-soft);
+}
+.kanban-card-time {
+  font-size: 11px;
+  color: var(--faint);
+}
+.kanban-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--faint);
+  font-size: 12.5px;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+.kanban-add:hover {
+  color: var(--fg);
+  border-color: var(--accent-dim);
+}
+
+/* ------------------------------------------------------------------
+   Roadmap / milestones
+------------------------------------------------------------------- */
+
+.milestone-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 14px;
+}
+.milestone {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+}
+.milestone.done {
+  opacity: 0.88;
+}
+.milestone-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.milestone-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.milestone-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.milestone-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+.milestone-desc {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.milestone-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 10px;
+}
+.progress {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), #e0a06f);
+  transition: width 0.3s ease;
+}
+.milestone-percent {
+  font-size: 11.5px;
+  color: var(--faint);
+  flex: none;
+}
+.milestone-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 10px;
+}
+.milestone-task {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 2px;
+  font-size: 13px;
+}
+.milestone-task-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg-secondary);
+}
+.milestone-empty {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--faint);
+}
+.milestone-unassigned {
+  margin-top: 28px;
+}
+.dot-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--muted);
+}
+.dot-status.todo {
+  background: var(--faint);
+}
+.dot-status.doing {
+  background: var(--accent);
+}
+.dot-status.review {
+  background: #b48ad6;
+}
+.dot-status.done {
+  background: var(--ok);
+}
+
+.link-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.link-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--fg-secondary);
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.link-chip button {
+  display: grid;
+  place-items: center;
+  background: none;
+  border: none;
+  color: var(--faint);
+  cursor: pointer;
+  padding: 0;
+}
+.link-chip button:hover {
+  color: var(--err);
+}
+.search-row.compact {
+  margin: 8px 0 0;
+}
+.search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  max-height: 190px;
+  overflow-y: auto;
+}
+.search-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 7px 9px;
+  cursor: pointer;
+  color: var(--fg-secondary);
+  font-size: 12.5px;
+}
+.search-result:hover:not(:disabled) {
+  border-color: var(--accent-dim);
+}
+.search-result:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.search-result-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.icon-btn.small {
+  width: 28px;
+  height: 28px;
+}
+
+/* ------------------------------------------------------------------
    Responsive
 ------------------------------------------------------------------- */
 
@@ -2200,10 +2817,15 @@ pre {
   .home {
     padding: 28px 20px 48px;
   }
+  .overview,
+  .tasks {
+    padding: 24px 18px 40px;
+  }
   .home-grid,
   .help-cols,
   .field-row,
-  .tool-groups {
+  .tool-groups,
+  .milestone-grid {
     grid-template-columns: 1fr;
   }
   .help-table-row {
@@ -2217,5 +2839,8 @@ pre {
   }
   .action-row select {
     width: 100%;
+  }
+  .gh-row {
+    flex-wrap: wrap;
   }
 }

@@ -84,11 +84,15 @@ def open_project(project_id: int, s: Session = Depends(session)):
     project = s.get(Project, project_id)
     if not project:
         raise HTTPException(404, "project not found")
+    previous = project.last_opened_at
     project.last_opened_at = datetime.now(timezone.utc)
     s.add(project)
     s.commit()
     s.refresh(project)
-    return project
+    return {
+        **project.model_dump(),
+        "previous_opened_at": previous.isoformat() if previous else None,
+    }
 
 
 @router.post("/{project_id}/pull")

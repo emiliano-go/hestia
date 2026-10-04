@@ -20,6 +20,14 @@ Memory workflow: before answering, use memory_search to recall relevant
 project context. After substantive discussion (decisions made, facts learned,
 architecture explained), use memory_create so future sessions benefit. Write
 memories as durable facts, not transcripts.
+
+Task board: the project has a Kanban board of tasks, independent of this chat.
+Use task_list to see the board, task_create to turn a request or plan into
+tracked work, and task_update to move a task between columns (backlog, todo,
+doing, review, done) or change its priority. Tasks can be grouped into
+milestones (roadmap goals) via milestone_create and milestone_list; pass a
+milestone_id to task_create / task_update to assign them. Prefer keeping the
+board accurate over burying plans in the transcript.
 """
 
 

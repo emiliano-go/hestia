@@ -76,8 +76,22 @@ query GitHub, and write workspace files (plans, specs), but they do not modify t
   against the linked repository via the REST API, with an optional token
   for higher rate limits and private repos.
 - **Visible agent work**: tool calls and results stream over SSE and render
-  as collapsible rows in the chat, next to a memory browser for inspecting
-  and searching what the agent has learned.
+  as animated rows in the chat (running → done/failed), next to a memory
+  browser for inspecting and searching what the agent has learned.
+- **Project insight**: each project has a status board (branch, last commit,
+  ahead/behind, open PRs, issues, CI), a "since your last visit" digest, a
+  GitHub tab for browsing and summarizing PRs/issues/runs, and an activity
+  timeline merging sessions, memory, files, commits, and GitHub events.
+- **Kanban task board**: tasks are first-class objects, independent of chat
+  sessions. Drag cards across columns (backlog/doing/review/done), and let the
+  agent manage the board through the `task_list`, `task_create`, `task_update`,
+  and `task_delete` tools.
+- **Roadmap / milestones**: group tasks into goals with a target date and a
+  progress bar, and link Totem memories (decisions, constraints) to the
+  milestone's outcome. `milestone_list` / `milestone_create` / `milestone_update`
+  let the agent manage them too.
+- **Triage**: turn a GitHub issue or PR into a written plan and a set of board
+  tasks in one click, run by the configured `triage` action.
 - **Persistent workspace**: agent-generated files (plans, specs, research
   notes) go to a per-project workspace directory in the data volume,
   outside the repository, via the `workspace_write` / `workspace_read` /
