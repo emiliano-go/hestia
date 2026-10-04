@@ -23,8 +23,10 @@ export const api = {
   listProjects: () => request('/projects'),
   createProject: (body) => request('/projects', { method: 'POST', body: JSON.stringify(body) }),
   getProject: (id) => request(`/projects/${id}`),
+  openProject: (id) => request(`/projects/${id}/open`, { method: 'POST' }),
   pullProject: (id) => request(`/projects/${id}/pull`, { method: 'POST' }),
   deleteProject: (id) => request(`/projects/${id}`, { method: 'DELETE' }),
+  activity: () => request('/activity'),
 
   listPresets: () => request('/providers/presets'),
   listProviders: () => request('/providers'),
@@ -35,7 +37,16 @@ export const api = {
   listAgentPresets: () => request('/agents/presets'),
   listAgents: () => request('/agents'),
   createAgent: (body) => request('/agents', { method: 'POST', body: JSON.stringify(body) }),
+  updateAgent: (id, body) =>
+    request(`/agents/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteAgent: (id) => request(`/agents/${id}`, { method: 'DELETE' }),
+
+  listActions: () => request('/actions'),
+  setActionDefault: (key, agentId) =>
+    request(`/actions/${key}`, {
+      method: 'PUT',
+      body: JSON.stringify({ agent_id: agentId }),
+    }),
 
   listSessions: (projectId) => request(`/projects/${projectId}/sessions`),
   listMessages: (sessionId) => request(`/sessions/${sessionId}/messages`),

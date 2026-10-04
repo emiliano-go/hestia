@@ -10,6 +10,7 @@ import asyncio
 
 from sqlmodel import Session, select
 
+from home import actions
 from home.agent import loop as agent_loop
 from home.agent.prompt import POLICY
 from home.providers.base import OpenAIClient, resolve_api_key
@@ -28,9 +29,15 @@ questions back).
 
 def make_tools(db: Session) -> list[Tool]:
     def run_handler(ctx: ProjectContext, args: dict) -> dict:
-        config = db.exec(select(AgentConfig).where(AgentConfig.name == args["agent"])).first()
+        config = None
+        if args.get("action"):
+            config = actions.resolve_action(db, args["action"])
+        if config is None and args.get("agent"):
+            config = db.exec(select(AgentConfig).where(AgentConfig.name == args["agent"])).first()
         if config is None:
-            raise ValueError(f"unknown agent profile: {args['agent']}")
+            raise ValueError(
+                f"unknown agent profile or action: {args.get('action') or args.get('agent')}"
+            )
         provider = db.get(Provider, config.provider_id)
         if provider is None:
             raise ValueError(f"agent profile '{config.name}' has no valid provider")
@@ -64,14 +71,21 @@ def make_tools(db: Session) -> list[Tool]:
         Tool(
             name="run_subagent",
             description=(
-                "Delegate a read-only subtask to a named agent profile (a different "
-                "model with its own prompt and tool subset). Use for exploration, "
-                "GitHub scanning, or memory review. Returns the subagent's summary."
+                "Delegate a read-only subtask to a specialised agent. Pass an "
+                "'action' (the configured role: explore, github-scan, "
+                "memory-keeper, writer, code-reviewer) so the app uses the agent "
+                "assigned to it, or a specific 'agent' profile name (see "
+                "agent_list). Returns the subagent's summary."
             ),
             parameters=schema({
+                "action": {
+                    "type": "string",
+                    "description": "configured action/role for the subtask (preferred)",
+                    "enum": ["explore", "github-scan", "memory-keeper", "writer", "code-reviewer"],
+                },
                 "agent": {"type": "string", "description": "agent profile name (see agent_list)"},
                 "task": {"type": "string", "description": "self-contained task for the subagent"},
-            }, ["agent", "task"]),
+            }, ["task"]),
             handler=run_handler,
             group="agents",
         ),

@@ -22,6 +22,16 @@ def engine():
 
 def init_db() -> None:
     SQLModel.metadata.create_all(engine())
+    _migrate()
+
+
+def _migrate() -> None:
+    """Add columns missing from pre-existing SQLite tables (create_all never alters)."""
+    with engine().begin() as conn:
+        info = conn.exec_driver_sql("PRAGMA table_info(project)")
+        columns = {row[1] for row in info}
+        if columns and "last_opened_at" not in columns:
+            conn.exec_driver_sql("ALTER TABLE project ADD COLUMN last_opened_at DATETIME")
 
 
 def session() -> Iterator[Session]:

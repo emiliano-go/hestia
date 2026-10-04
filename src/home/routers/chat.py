@@ -1,12 +1,13 @@
 """Chat endpoint: SSE-streamed agent turn with Totem bootstrapping."""
 
 import json
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
-from home import memory_ingest, totem_store
+from home import actions, memory_ingest, totem_store
 from home.agent import loop as agent_loop
 from home.agent.prompt import build_system_prompt
 from home.providers.base import OpenAIClient, resolve_api_key
@@ -19,9 +20,11 @@ router = APIRouter(prefix="/api", tags=["chat"])
 
 _DELEGATION_NOTE = """\
 ## Delegation
-You can delegate read-only subtasks to subagent profiles (different models,
-own prompts and tool subsets) via run_subagent; list them with agent_list.
-Delegate exploration and scanning instead of doing everything yourself."""
+You can delegate read-only subtasks to specialised agents via run_subagent,
+preferably by action (explore, github-scan, memory-keeper, writer,
+code-reviewer) so the app uses the agent assigned to that role; list specific
+profiles with agent_list. Delegate exploration and scanning instead of doing
+everything yourself."""
 
 
 def _sse(event: dict) -> str:
@@ -39,6 +42,9 @@ def chat(project_id: int, body: dict, s: Session = Depends(session)):
         agent_config = s.get(AgentConfig, body["agent_id"])
         if not agent_config:
             raise HTTPException(404, "agent profile not found")
+    else:
+        agent_config = actions.resolve_action(s, "chat")
+    if agent_config:
         provider = s.get(Provider, agent_config.provider_id)
     else:
         provider_id = body.get("provider_id") or project.default_provider_id
@@ -59,6 +65,8 @@ def chat(project_id: int, body: dict, s: Session = Depends(session)):
         s.refresh(chat_session)
 
     s.add(Message(session_id=chat_session.id, role="user", content=user_text))
+    chat_session.updated_at = datetime.now(timezone.utc)
+    s.add(chat_session)
     s.commit()
 
     ctx = ProjectContext.from_project(project)

@@ -1,6 +1,7 @@
 """Project CRUD + clone + repo status."""
 
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -75,6 +76,19 @@ def get_project(project_id: int, s: Session = Depends(session)):
         "behind": "",
     }
     return {**project.model_dump(), "status": status}
+
+
+@router.post("/{project_id}/open")
+def open_project(project_id: int, s: Session = Depends(session)):
+    """Mark a project as recently opened (drives the landing dashboard)."""
+    project = s.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "project not found")
+    project.last_opened_at = datetime.now(timezone.utc)
+    s.add(project)
+    s.commit()
+    s.refresh(project)
+    return project
 
 
 @router.post("/{project_id}/pull")

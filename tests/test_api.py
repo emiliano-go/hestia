@@ -92,3 +92,77 @@ def test_memory_fix(client, monkeypatch):
     )
     assert resp.status_code == 200
     assert resp.json() == {"report": "Fixed 1 memory."}
+
+
+def test_activity_empty(client):
+    data = client.get("/api/activity").json()
+    assert data["counts"] == {"projects": 0, "sessions": 0, "files": 0}
+    assert data["projects"] == []
+    assert data["sessions"] == []
+    assert data["files"] == []
+
+
+def test_open_project_and_activity(client):
+    project = _mk_project(client)
+    (config.workspace_dir(project["name"]) / "plan.md").write_text("hi\n")
+
+    resp = client.post(f"/api/projects/{project['id']}/open")
+    assert resp.status_code == 200
+    assert resp.json()["last_opened_at"]
+
+    data = client.get("/api/activity").json()
+    assert data["counts"] == {"projects": 1, "sessions": 0, "files": 1}
+    assert data["projects"][0]["id"] == project["id"]
+    assert data["projects"][0]["last_opened_at"]
+    assert data["files"][0]["path"] == "plan.md"
+    assert data["files"][0]["project"] == "demo"
+
+
+def _mk_provider(client, name="p"):
+    return client.post("/api/providers", json={
+        "name": name, "base_url": "http://x", "api_key_env": "K", "model": "m",
+    }).json()
+
+
+def test_action_defaults_roundtrip(client):
+    provider = _mk_provider(client)
+    agent = client.post("/api/agents", json={
+        "name": "default", "provider_id": provider["id"], "tools": ["repo"], "max_turns": 3,
+    }).json()
+
+    actions = client.get("/api/actions").json()
+    assert next(a for a in actions if a["key"] == "chat")["agent_id"] is None
+    assert all("description" in a for a in actions)
+
+    assert client.put("/api/actions/chat", json={"agent_id": agent["id"]}).status_code == 200
+    actions = client.get("/api/actions").json()
+    assert next(a for a in actions if a["key"] == "chat")["agent_id"] == agent["id"]
+
+    assert client.put("/api/actions/nope", json={"agent_id": None}).status_code == 404
+
+    updated = client.put(
+        f"/api/agents/{agent['id']}", json={"max_turns": 5, "tools": ["repo", "memory"]}
+    ).json()
+    assert updated["max_turns"] == 5
+    assert updated["tools"] == "repo,memory"
+
+
+def test_action_resolution_falls_back_to_chat(client):
+    from sqlmodel import Session as SqlSession
+
+    from home import actions as actions_mod
+    from home.registry.db import engine
+
+    provider = _mk_provider(client)
+    solo = client.post("/api/agents", json={
+        "name": "solo", "provider_id": provider["id"],
+    }).json()
+    client.put("/api/actions/chat", json={"agent_id": solo["id"]})
+
+    with SqlSession(engine()) as db:
+        assert actions_mod.resolve_action(db, "explore").id == solo["id"]
+
+    client.put("/api/actions/chat", json={"agent_id": None})
+    client.post("/api/agents", json={"name": "explore", "provider_id": provider["id"]})
+    with SqlSession(engine()) as db:
+        assert actions_mod.resolve_action(db, "explore").name == "explore"

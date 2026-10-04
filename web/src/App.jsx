@@ -48,20 +48,73 @@ function useAsync(fn, deps) {
   return { data, error, loading, reload }
 }
 
+// ---------- icons ----------
+
+const ICON_PATHS = {
+  home: 'M3 10.5 12 3l9 7.5M5 9.7V21h5.5v-6h3v6H19V9.7',
+  plus: 'M12 5v14M5 12h14',
+  chat: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
+  files: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6',
+  memory:
+    'M9.5 2A5.5 5.5 0 0 0 4 7.5v.5a4 4 0 0 0 0 8v.5A5.5 5.5 0 0 0 14.5 22 5.5 5.5 0 0 0 20 16.5v-.5a4 4 0 0 0 0-8v-.5A5.5 5.5 0 0 0 14.5 2zM9 9h6M9 13h6M9 17h4',
+  info: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01',
+  agents:
+    'M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9.5 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75',
+  gallery:
+    'M3 3h18v18H3zM8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM21 15l-4.5-4.5L6 21',
+  settings: 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1.5 14h5M9.5 8h5M17.5 16h5',
+  arrowUp: 'M12 19V5M5 12l7-7 7 7',
+  x: 'M18 6 6 18M6 6l12 12',
+  sparkles: 'M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.7 1.8L21.5 17.5l-1.8.7L19 20l-.7-1.8L16.5 17.5l1.8-.7z',
+  refresh:
+    'M21 4v6h-6M3 20v-6h6M3.5 9a8 8 0 0 1 13.2-3L21 10M21 15a8 8 0 0 1-13.2 3L3 14',
+  git: 'M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9',
+  search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35',
+  folder: 'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z',
+  check: 'M20 6 9 17l-5-5',
+  clock: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 7v5l3 2',
+  help: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01',
+  chevronDown: 'M6 9l6 6 6-6',
+  play: 'M6 4l14 8-14 8z',
+  alert: 'M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z',
+}
+
+function Icon({ name, size = 16, ...rest }) {
+  const d = ICON_PATHS[name]
+  if (!d) return null
+  return (
+    <svg
+      className="icon"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      {...rest}
+    >
+      <path d={d} />
+    </svg>
+  )
+}
+
 // ---------- theme ----------
 
 const THEME_KEY = 'home-theme'
 
 const DEFAULT_THEME = {
-  '--content-bg': '#0e1013',
-  '--sidebar-bg': '#131518',
-  '--surface': '#17191d',
-  '--border': '#262a30',
-  '--fg': '#e8eaec',
-  '--muted': '#868d95',
-  '--accent': '#d29a4b',
-  '--ok': '#4fae7c',
-  '--err': '#d9635c',
+  '--content-bg': '#262624',
+  '--sidebar-bg': '#1f1e1d',
+  '--surface': '#30302e',
+  '--border': '#3d3d3a',
+  '--fg': '#f5f4ef',
+  '--muted': '#8f8d86',
+  '--accent': '#d97757',
+  '--ok': '#6a9955',
+  '--err': '#e06c5a',
 }
 
 const THEME_LABELS = {
@@ -137,8 +190,8 @@ function inlineMd(s) {
 
 function mdToHtml(md) {
   const blocks = []
-  let text = escapeHtml(md).replace(/```([\s\S]*?)```/g, (m, code) => {
-    blocks.push('<pre><code>' + code.replace(/^\n/, '') + '</code></pre>')
+  let text = escapeHtml(md).replace(/```([^\n]*)\n?([\s\S]*?)```/g, (m, lang, code) => {
+    blocks.push('<pre><code>' + code.replace(/\n$/, '') + '</code></pre>')
     return '__MD_BLOCK_' + (blocks.length - 1) + '__MD_BLOCK_'
   })
   const lines = text.split('\n')
@@ -207,37 +260,140 @@ function fmtBytes(n) {
 
 // ---------- shared bits ----------
 
-function ToolChip({ name, args }) {
+function Spinner({ size = 14 }) {
+  return <span className="spinner" style={{ width: size, height: size }} aria-hidden="true" />
+}
+
+function Skeleton({ className = '', style }) {
+  return <div className={`skeleton ${className}`} style={style} aria-hidden="true" />
+}
+
+const TOOL_ICONS = {
+  git_pull: 'refresh',
+  git_log: 'git',
+  git_diff: 'git',
+  git_show: 'git',
+  git_status: 'git',
+  git_branches: 'git',
+  repo_path: 'folder',
+  list_files: 'files',
+  read_file: 'files',
+  grep: 'search',
+  read_agents_md: 'info',
+  list_docs: 'files',
+  gh_commits: 'git',
+  gh_prs: 'git',
+  gh_issues: 'chat',
+  gh_ci_runs: 'settings',
+  memory_search: 'search',
+  memory_get: 'memory',
+  memory_list: 'memory',
+  memory_create: 'plus',
+  memory_update: 'refresh',
+  memory_delete: 'x',
+  workspace_write: 'files',
+  workspace_read: 'files',
+  workspace_list: 'folder',
+  run_subagent: 'agents',
+  agent_list: 'agents',
+}
+
+const TOOL_TITLES = {
+  git_pull: 'Pull latest changes',
+  git_log: 'Read commit history',
+  git_diff: 'Diff changes',
+  git_show: 'Show a commit',
+  git_status: 'Check git status',
+  git_branches: 'List branches',
+  repo_path: 'Resolve repository path',
+  list_files: 'List files',
+  read_file: 'Read a file',
+  grep: 'Search file contents',
+  read_agents_md: 'Read AGENTS.md',
+  list_docs: 'List docs',
+  gh_commits: 'Fetch GitHub commits',
+  gh_prs: 'Fetch pull requests',
+  gh_issues: 'Fetch issues',
+  gh_ci_runs: 'Fetch CI runs',
+  memory_search: 'Search memory',
+  memory_get: 'Get a memory',
+  memory_list: 'List memories',
+  memory_create: 'Write a memory',
+  memory_update: 'Update a memory',
+  memory_delete: 'Delete a memory',
+  workspace_write: 'Write a workspace file',
+  workspace_read: 'Read a workspace file',
+  workspace_list: 'List workspace files',
+  run_subagent: 'Delegate to a subagent',
+  agent_list: 'List agent profiles',
+}
+
+function ToolRun({ name, args, result }) {
+  const [open, setOpen] = useState(false)
+  const status = !result ? 'running' : result.ok ? 'ok' : 'error'
+  const label = status === 'running' ? 'Running' : status === 'ok' ? 'Done' : 'Failed'
+  const summary = result ? result.preview : JSON.stringify(args)
   return (
-    <details className="tool-chip">
-      <summary>
-        <span className="tname">{name}</span>
-        <span className="ttext">{truncate(JSON.stringify(args), 90)}</span>
-      </summary>
-      <div className="tool-body">{JSON.stringify(args, null, 2)}</div>
-    </details>
+    <div className={`tool-run ${status}`}>
+      <button className="tool-run-head" onClick={() => setOpen((o) => !o)}>
+        <span className="tool-run-icon">
+          {status === 'running' ? (
+            <Spinner size={14} />
+          ) : (
+            <Icon name={status === 'ok' ? 'check' : 'x'} size={14} />
+          )}
+        </span>
+        <Icon name={TOOL_ICONS[name] || 'play'} size={14} className="tool-run-toolicon" />
+        <span className="tool-run-name" title={TOOL_TITLES[name] || name}>
+          {TOOL_TITLES[name] || name}
+        </span>
+        <span className="tool-run-arg">{truncate(summary, 72)}</span>
+        <span className={`tool-run-badge ${status}`}>{label}</span>
+        <span className={`tool-run-chevron ${open ? 'open' : ''}`}>
+          <Icon name="chevronDown" size={14} />
+        </span>
+      </button>
+      {open && (
+        <div className="tool-run-body">
+          <div className="tool-run-section">
+            <div className="tool-run-label">Arguments</div>
+            <pre>{JSON.stringify(args, null, 2)}</pre>
+          </div>
+          {result && (
+            <div className="tool-run-section">
+              <div className="tool-run-label">{result.ok ? 'Result' : 'Error'}</div>
+              <pre className={result.ok ? '' : 'err'}>{String(result.preview ?? '')}</pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
-function ToolResultChip({ name, ok, preview }) {
-  return (
-    <details className={`tool-chip ${ok ? 'ok' : 'err'}`}>
-      <summary>
-        <span className="tname">{name}</span>
-        <span className={ok ? 'badge ok' : 'badge err'}>{ok ? 'ok' : 'error'}</span>
-        <span className="ttext">{truncate(preview, 90)}</span>
-      </summary>
-      <div className="tool-body">{String(preview ?? '')}</div>
-    </details>
-  )
+function pairToolRuns(events) {
+  const runs = []
+  for (const evt of events) {
+    if (evt.event === 'tool_call') {
+      runs.push({ name: evt.name, args: evt.arguments, result: null })
+    } else if (evt.event === 'tool_result') {
+      for (let i = runs.length - 1; i >= 0; i--) {
+        if (runs[i].name === evt.name && !runs[i].result) {
+          runs[i].result = evt
+          break
+        }
+      }
+    }
+  }
+  return runs
 }
 
 function Modal({ title, onClose, children }) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <button className="icon-btn modal-close" onClick={onClose}>
-          x
+        <button className="icon-btn modal-close" onClick={onClose} title="Close">
+          <Icon name="x" size={16} />
         </button>
         <h2>{title}</h2>
         {children}
@@ -282,8 +438,13 @@ function Composer({ onSend, busy, placeholder }) {
       />
       <div className="composer-foot">
         <span className="composer-hint">Enter to send, Shift+Enter for a new line</span>
-        <button className="send-btn" onClick={submit} disabled={busy || !value.trim()}>
-          Send
+        <button
+          className="send-btn"
+          onClick={submit}
+          disabled={busy || !value.trim()}
+          title="Send"
+        >
+          <Icon name="arrowUp" size={18} />
         </button>
       </div>
     </div>
@@ -461,132 +622,489 @@ function ProvidersPanel() {
 
 // ---------- agents page ----------
 
-function AgentsPage() {
-  const { data: agents, error, loading, reload } = useAsync(api.listAgents, [])
-  const providersReq = useAsync(api.listProviders, [])
-  const presetsReq = useAsync(api.listAgentPresets, [])
-  const [form, setForm] = useState({
-    name: '',
-    provider_id: '',
-    system_prompt: '',
-    tools: '',
-    max_turns: '',
-  })
-  const [presetKey, setPresetKey] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [formError, setFormError] = useState(null)
+const TOOL_GROUPS = [
+  {
+    key: 'repo',
+    label: 'Repository',
+    desc: 'Git history, diffs, branches, and showing commits in the clone.',
+  },
+  { key: 'files', label: 'Files', desc: 'List, read, and search files in the repository.' },
+  { key: 'github', label: 'GitHub', desc: 'Commits, pull requests, issues, and CI runs.' },
+  { key: 'memory', label: 'Memory', desc: 'Read and write Totem project memory.' },
+  {
+    key: 'workspace',
+    label: 'Workspace',
+    desc: 'Write plans, specs, and docs to the project workspace.',
+  },
+  {
+    key: 'agents',
+    label: 'Delegation',
+    desc: 'Hand subtasks to other agents. Main chat agents only.',
+  },
+]
 
-  const presets = presetsReq.data || {}
-  const providers = providersReq.data || []
+const ALL_TOOLS = TOOL_GROUPS.map((g) => g.key)
 
-  const applyPreset = (key) => {
-    setPresetKey(key)
-    const p = presets[key]
-    if (p) {
-      setForm((f) => ({
-        ...f,
-        name: f.name || p.name || key,
-        system_prompt: p.system_prompt || '',
-        tools: Array.isArray(p.tools) ? p.tools.join(', ') : p.tools || '',
-        max_turns: p.max_turns != null ? String(p.max_turns) : '',
-      }))
-    }
+function ToolGroupPicker({ value, onChange }) {
+  const selected = new Set(value)
+  const toggle = (k) => {
+    const next = new Set(selected)
+    if (next.has(k)) next.delete(k)
+    else next.add(k)
+    onChange(TOOL_GROUPS.filter((g) => next.has(g.key)).map((g) => g.key))
   }
+  return (
+    <div className="tool-groups">
+      {TOOL_GROUPS.map((g) => (
+        <button
+          type="button"
+          key={g.key}
+          className={`tool-group ${selected.has(g.key) ? 'on' : ''}`}
+          onClick={() => toggle(g.key)}
+        >
+          <span className="tool-group-check">
+            {selected.has(g.key) && <Icon name="check" size={12} />}
+          </span>
+          <span className="tool-group-text">
+            <span className="tool-group-label">{g.label}</span>
+            <span className="tool-group-desc">{g.desc}</span>
+          </span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function toTools(value) {
+  if (Array.isArray(value)) return value
+  return String(value || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+function AgentForm({ providers, presets, initial, onSubmit, onCancel, saving, error, submitLabel }) {
+  const [form, setForm] = useState(() => ({
+    name: initial?.name || '',
+    provider_id: initial?.provider_id ? String(initial.provider_id) : '',
+    system_prompt: initial?.system_prompt || '',
+    tools: toTools(initial?.tools),
+    max_turns: initial?.max_turns != null ? String(initial.max_turns) : '6',
+  }))
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
+  const applyPreset = (key) => {
+    const p = presets[key]
+    if (!p) return
+    setForm((f) => ({
+      ...f,
+      name: f.name || p.name || key,
+      system_prompt: p.system_prompt || '',
+      tools: toTools(p.tools),
+      max_turns: p.max_turns != null ? String(p.max_turns) : f.max_turns,
+    }))
+  }
+  const submit = (e) => {
+    e.preventDefault()
+    onSubmit({
+      name: form.name,
+      provider_id: form.provider_id ? parseInt(form.provider_id, 10) : undefined,
+      system_prompt: form.system_prompt,
+      tools: form.tools,
+      max_turns: form.max_turns ? parseInt(form.max_turns, 10) : undefined,
+    })
+  }
+  return (
+    <form className="agent-form" onSubmit={submit}>
+      {!initial && Object.keys(presets).length > 0 && (
+        <label className="field">
+          <span className="field-label">Start from a preset</span>
+          <select defaultValue="" onChange={(e) => applyPreset(e.target.value)}>
+            <option value="">Blank agent</option>
+            {Object.entries(presets).map(([k, p]) => (
+              <option key={k} value={k}>
+                {p.name || k}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <div className="field-row">
+        <label className="field">
+          <span className="field-label">Name</span>
+          <input value={form.name} onChange={set('name')} placeholder="default" required />
+        </label>
+        <label className="field">
+          <span className="field-label">Provider / model</span>
+          <select value={form.provider_id} onChange={set('provider_id')} required>
+            <option value="">Choose a provider...</option>
+            {providers.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} ({p.model})
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="field">
+        <span className="field-label">What this agent can do</span>
+        <ToolGroupPicker
+          value={form.tools}
+          onChange={(tools) => setForm((f) => ({ ...f, tools }))}
+        />
+        <span className="field-hint">Leave everything off for a plain chat model.</span>
+      </div>
+      <label className="field narrow">
+        <span className="field-label">Max tool turns</span>
+        <input type="number" min="1" value={form.max_turns} onChange={set('max_turns')} />
+      </label>
+      <label className="field">
+        <span className="field-label">System prompt (optional)</span>
+        <textarea
+          rows={4}
+          value={form.system_prompt}
+          onChange={set('system_prompt')}
+          placeholder="Extra instructions prepended to every run for this agent."
+        />
+      </label>
+      <div className="row" style={{ marginBottom: 0 }}>
+        <button className="btn primary" disabled={saving}>
+          {saving ? (
+            <>
+              <Spinner size={14} /> Saving
+            </>
+          ) : (
+            submitLabel
+          )}
+        </button>
+        {onCancel && (
+          <button type="button" className="btn" onClick={onCancel}>
+            Cancel
+          </button>
+        )}
+      </div>
+      {error && <div className="error-text">{error}</div>}
+    </form>
+  )
+}
+
+function SimpleAgentForm({ defaultAgent, providers, saving, error, onSave, onOpenSettings }) {
+  const [providerId, setProviderId] = useState(
+    defaultAgent?.provider_id ? String(defaultAgent.provider_id) : ''
+  )
+  const [prompt, setPrompt] = useState(defaultAgent?.system_prompt || '')
 
   const submit = (e) => {
     e.preventDefault()
+    if (!providerId) return
+    onSave({
+      name: defaultAgent?.name || 'default',
+      provider_id: parseInt(providerId, 10),
+      system_prompt: prompt,
+      tools: ALL_TOOLS,
+      max_turns: defaultAgent?.max_turns || 10,
+    })
+  }
+
+  if (providers.length === 0) {
+    return (
+      <div className="panel">
+        <div className="placeholder">
+          <div className="placeholder-icon">
+            <Icon name="alert" size={18} />
+          </div>
+          <div className="placeholder-title">No providers configured</div>
+          <div className="placeholder-hint">
+            Add a provider and API key first, then come back to pick your agent.
+          </div>
+          <button className="btn primary" onClick={onOpenSettings}>
+            <Icon name="settings" size={14} /> Open settings
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <h3>One agent for everything</h3>
+        <p>
+          A single model and prompt handles chat, exploration, review, writing, and memory. This
+          is all most setups need.
+        </p>
+      </div>
+      <form className="agent-form" onSubmit={submit}>
+        <label className="field">
+          <span className="field-label">Provider / model</span>
+          <select value={providerId} onChange={(e) => setProviderId(e.target.value)} required>
+            <option value="">Choose a provider...</option>
+            {providers.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} ({p.model})
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span className="field-label">System prompt (optional)</span>
+          <textarea
+            rows={4}
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="Extra instructions prepended to every run."
+          />
+        </label>
+        <div className="field-hint">
+          This agent can do everything: repo, files, GitHub, memory, workspace, and delegation.
+        </div>
+        <button className="btn primary" disabled={saving}>
+          {saving ? (
+            <>
+              <Spinner size={14} /> Saving
+            </>
+          ) : (
+            'Save agent'
+          )}
+        </button>
+        {error && <div className="error-text">{error}</div>}
+      </form>
+    </div>
+  )
+}
+
+function AgentsPage({ onOpenSettings }) {
+  const agentsReq = useAsync(api.listAgents, [])
+  const providersReq = useAsync(api.listProviders, [])
+  const presetsReq = useAsync(api.listAgentPresets, [])
+  const actionsReq = useAsync(api.listActions, [])
+
+  const [mode, setMode] = useState('simple')
+  const [editing, setEditing] = useState(null)
+  const [showForm, setShowForm] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState(null)
+  const [actionSaving, setActionSaving] = useState(null)
+
+  const agents = agentsReq.data || []
+  const providers = providersReq.data || []
+  const presets = presetsReq.data || {}
+  const actions = actionsReq.data || []
+  const chatDefaultId = actions.find((a) => a.key === 'chat')?.agent_id
+  const defaultAgent =
+    agents.find((a) => a.id === chatDefaultId) || agents.find((a) => a.name === 'default') || null
+
+  const providerName = (id) => providers.find((p) => p.id === id)?.name || id || 'default'
+  const providerModel = (id) => providers.find((p) => p.id === id)?.model || ''
+
+  const refresh = () => {
+    agentsReq.reload()
+    actionsReq.reload()
+  }
+
+  const saveSimple = (body) => {
     setSaving(true)
     setFormError(null)
-    const body = {
-      name: form.name,
-      provider_id: form.provider_id || undefined,
-      system_prompt: form.system_prompt || undefined,
-      tools: form.tools
-        ? form.tools.split(',').map((t) => t.trim()).filter(Boolean)
-        : undefined,
-      max_turns: form.max_turns ? parseInt(form.max_turns, 10) : undefined,
-    }
-    api
-      .createAgent(body)
-      .then(() => {
-        setForm({ name: '', provider_id: '', system_prompt: '', tools: '', max_turns: '' })
-        setPresetKey('')
-        reload()
-      })
-      .catch((err) => setFormError(err.message || String(err)))
+    const req = defaultAgent ? api.updateAgent(defaultAgent.id, body) : api.createAgent(body)
+    req
+      .then((agent) => api.setActionDefault('chat', agent.id))
+      .then(refresh)
+      .catch((e) => setFormError(e.message || String(e)))
       .finally(() => setSaving(false))
   }
 
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
-  const providerName = (id) => providers.find((p) => p.id === id)?.name || id || 'default'
+  const saveAgent = (body) => {
+    setSaving(true)
+    setFormError(null)
+    const req = editing ? api.updateAgent(editing.id, body) : api.createAgent(body)
+    req
+      .then(() => {
+        setShowForm(false)
+        setEditing(null)
+        refresh()
+      })
+      .catch((e) => setFormError(e.message || String(e)))
+      .finally(() => setSaving(false))
+  }
+
+  const saveAction = (key, agentId) => {
+    setActionSaving(key)
+    api
+      .setActionDefault(key, agentId)
+      .then(() => actionsReq.reload())
+      .catch((e) => alert(e.message))
+      .finally(() => setActionSaving(null))
+  }
+
+  if (agentsReq.loading || providersReq.loading) {
+    return (
+      <div className="center-col">
+        <div className="page-head">
+          <h2>Agents</h2>
+        </div>
+        <Skeleton className="block-skeleton" />
+        <Skeleton className="block-skeleton" style={{ marginTop: 12 }} />
+      </div>
+    )
+  }
 
   return (
     <div className="center-col">
       <div className="page-head">
         <h2>Agents</h2>
+        <div className="segmented">
+          <button
+            className={mode === 'simple' ? 'on' : ''}
+            onClick={() => setMode('simple')}
+          >
+            Simple
+          </button>
+          <button
+            className={mode === 'advanced' ? 'on' : ''}
+            onClick={() => setMode('advanced')}
+          >
+            Advanced
+          </button>
+        </div>
       </div>
-      <form className="form-col" onSubmit={submit}>
-        <select value={presetKey} onChange={(e) => applyPreset(e.target.value)}>
-          <option value="">Choose a preset...</option>
-          {Object.entries(presets).map(([k, p]) => (
-            <option key={k} value={k}>
-              {p.name || k}
-            </option>
-          ))}
-        </select>
-        <input placeholder="Name" value={form.name} onChange={set('name')} required />
-        <select value={form.provider_id} onChange={set('provider_id')}>
-          <option value="">Default provider</option>
-          {providers.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name} ({p.model})
-            </option>
-          ))}
-        </select>
-        <input
-          placeholder="Tools (comma separated: repo, files, github, memory)"
-          value={form.tools}
-          onChange={set('tools')}
+
+      {mode === 'simple' ? (
+        <SimpleAgentForm
+          key={defaultAgent?.id || 'new'}
+          defaultAgent={defaultAgent}
+          providers={providers}
+          saving={saving}
+          error={formError}
+          onSave={saveSimple}
+          onOpenSettings={onOpenSettings}
         />
-        <input
-          placeholder="Max turns"
-          type="number"
-          min="1"
-          value={form.max_turns}
-          onChange={set('max_turns')}
-        />
-        <textarea
-          placeholder="System prompt"
-          value={form.system_prompt}
-          onChange={set('system_prompt')}
-          rows={6}
-        />
-        <button className="btn primary" disabled={saving}>
-          {saving ? 'Saving...' : 'Add agent'}
-        </button>
-        {formError && <div className="error-text">{formError}</div>}
-      </form>
-      {loading && <p className="note">Loading...</p>}
-      {error && <p className="error-text">{error}</p>}
-      {agents && agents.length === 0 && <p className="note">No agents configured.</p>}
-      <div className="cards">
-        {(agents || []).map((a) => (
-          <div key={a.id} className="card">
-            <h3>{a.name}</h3>
-            <div className="meta">Provider: {providerName(a.provider_id)}</div>
-            <div className="meta">Tools: {(a.tools || []).join(', ') || '(default)'}</div>
-            <div className="meta">Max turns: {a.max_turns ?? '(default)'}</div>
-            <div className="row" style={{ marginTop: 10, marginBottom: 0 }}>
-              <button
-                className="btn danger"
-                onClick={() => api.deleteAgent(a.id).then(reload).catch((e) => alert(e.message))}
-              >
-                Delete
-              </button>
+      ) : (
+        <div className="agents-advanced">
+          <section className="panel">
+            <div className="panel-head row-between">
+              <div>
+                <h3>Agent profiles</h3>
+                <p>
+                  Each profile binds a provider, a system prompt, and the tools it may use. Create
+                  focused agents (explore, review, write) or extra models.
+                </p>
+              </div>
+              {!showForm && (
+                <button
+                  className="btn primary"
+                  onClick={() => {
+                    setEditing(null)
+                    setFormError(null)
+                    setShowForm(true)
+                  }}
+                >
+                  <Icon name="plus" size={14} /> New agent
+                </button>
+              )}
             </div>
-          </div>
-        ))}
-      </div>
+
+            {showForm && (
+              <AgentForm
+                key={editing?.id || 'new'}
+                providers={providers}
+                presets={presets}
+                initial={editing}
+                saving={saving}
+                error={formError}
+                submitLabel={editing ? 'Save changes' : 'Create agent'}
+                onSubmit={saveAgent}
+                onCancel={() => {
+                  setShowForm(false)
+                  setEditing(null)
+                }}
+              />
+            )}
+
+            {agents.length === 0 && !showForm ? (
+              <div className="placeholder">
+                <div className="placeholder-icon">
+                  <Icon name="agents" size={18} />
+                </div>
+                <div className="placeholder-title">No agent profiles yet</div>
+                <div className="placeholder-hint">Create one to specialise a role or model.</div>
+              </div>
+            ) : (
+              <div className="agent-list">
+                {agents.map((a) => (
+                  <div key={a.id} className="agent-card">
+                    <div className="agent-card-main">
+                      <div className="agent-card-name">
+                        {a.name}
+                        {a.id === chatDefaultId && <span className="badge accent">default</span>}
+                      </div>
+                      <div className="agent-card-meta">
+                        {providerName(a.provider_id)} · {providerModel(a.provider_id) || 'model'} ·{' '}
+                        {toTools(a.tools).length} tool groups · {a.max_turns} turns
+                      </div>
+                    </div>
+                    <div className="agent-card-actions">
+                      <button
+                        className="btn"
+                        onClick={() => {
+                          setEditing(a)
+                          setFormError(null)
+                          setShowForm(true)
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="btn danger"
+                        onClick={() =>
+                          api
+                            .deleteAgent(a.id)
+                            .then(refresh)
+                            .catch((e) => alert(e.message))
+                        }
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="panel">
+            <div className="panel-head">
+              <h3>Defaults per action</h3>
+              <p>
+                Leave an action on <em>Default agent</em> to use the main agent. Assign another
+                profile to give that action its own model or prompt.
+              </p>
+            </div>
+            <div className="action-list">
+              {actions.map((a) => (
+                <div key={a.key} className="action-row">
+                  <div className="action-info">
+                    <div className="action-label">{a.label}</div>
+                    <div className="action-desc">{a.description}</div>
+                  </div>
+                  <select
+                    value={a.agent_id ?? ''}
+                    disabled={actionSaving === a.key}
+                    onChange={(e) =>
+                      saveAction(a.key, e.target.value ? parseInt(e.target.value, 10) : null)
+                    }
+                  >
+                    <option value="">Default agent</option>
+                    {agents.map((ag) => (
+                      <option key={ag.id} value={ag.id}>
+                        {ag.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   )
 }
@@ -618,7 +1136,7 @@ function FileReaderPane({ projectId, path, onClose }) {
       {content === null && !error && <p className="note">Loading...</p>}
       {content !== null &&
         (/\.(md|markdown)$/i.test(path) ? (
-          <div className="reader-body" dangerouslySetInnerHTML={{ __html: mdToHtml(content) }} />
+          <div className="reader-body prose" dangerouslySetInnerHTML={{ __html: mdToHtml(content) }} />
         ) : (
           <pre>{content}</pre>
         ))}
@@ -651,7 +1169,8 @@ function FilesView({ projectId }) {
       <div className="page-head">
         <h2>Files</h2>
         <button className="btn" onClick={reload} disabled={loading}>
-          {loading ? 'Refreshing...' : 'Refresh'}
+          <Icon name="refresh" size={14} />
+          {loading ? 'Refreshing' : 'Refresh'}
         </button>
       </div>
       {error && <p className="error-text">{error}</p>}
@@ -702,7 +1221,8 @@ function GalleryView() {
             ))}
           </select>
           <button className="btn" onClick={reload} disabled={loading}>
-            {loading ? 'Refreshing...' : 'Refresh'}
+            <Icon name="refresh" size={14} />
+            {loading ? 'Refreshing' : 'Refresh'}
           </button>
         </div>
       </div>
@@ -832,7 +1352,7 @@ function MemoryView({ projectId, providerId }) {
         {fixError && <p className="error-text" style={{ marginTop: 8 }}>{fixError}</p>}
         {fixReport !== null && (
           <div className="fix-report">
-            <div className="reader-body" dangerouslySetInnerHTML={{ __html: mdToHtml(fixReport) }} />
+            <div className="reader-body prose" dangerouslySetInnerHTML={{ __html: mdToHtml(fixReport) }} />
           </div>
         )}
       </div>
@@ -843,7 +1363,8 @@ function MemoryView({ projectId, providerId }) {
           onChange={(e) => setQ(e.target.value)}
         />
         <button className="btn" disabled={searching}>
-          {searching ? 'Searching...' : 'Search'}
+          <Icon name="search" size={14} />
+          {searching ? 'Searching' : 'Search'}
         </button>
       </form>
       {error && <p className="error-text">{error}</p>}
@@ -963,21 +1484,507 @@ function AboutView({ projectId, onDeleted }) {
   )
 }
 
+// ---------- landing / home ----------
+
+function greeting() {
+  const h = new Date().getHours()
+  if (h < 12) return 'Good morning'
+  if (h < 18) return 'Good afternoon'
+  return 'Good evening'
+}
+
+function SectionEmpty({ icon, title, hint, action }) {
+  return (
+    <div className="placeholder">
+      <div className="placeholder-icon">
+        <Icon name={icon} size={18} />
+      </div>
+      <div className="placeholder-title">{title}</div>
+      {hint && <div className="placeholder-hint">{hint}</div>}
+      {action}
+    </div>
+  )
+}
+
+function HomeView({ onOpenProject, onOpenSession, onOpenFile, onNewProject, onNavigate }) {
+  const { data, error, loading } = useAsync(api.activity, [])
+  const counts = (data && data.counts) || { projects: 0, sessions: 0, files: 0 }
+  const projects = (data && data.projects) || []
+  const sessions = (data && data.sessions) || []
+  const files = (data && data.files) || []
+
+  return (
+    <div className="home">
+      <header className="home-hero">
+        <div>
+          <h1>{greeting()}</h1>
+          <p>Your projects, recent conversations, and agent-generated files in one place.</p>
+        </div>
+        <button className="btn primary" onClick={onNewProject}>
+          <Icon name="plus" size={15} /> New project
+        </button>
+      </header>
+
+      {error && <p className="error-text">{error}</p>}
+
+      {!loading && counts.projects === 0 && (
+        <div className="banner">
+          <div className="banner-icon">
+            <Icon name="sparkles" size={22} />
+          </div>
+          <div className="banner-body">
+            <h3>No projects yet</h3>
+            <p>
+              Register a Git repository to get an agent-aware workspace with chat, memory, and
+              generated files.
+            </p>
+          </div>
+          <button className="btn primary" onClick={onNewProject}>
+            <Icon name="plus" size={15} /> Create your first project
+          </button>
+        </div>
+      )}
+
+      <section className="home-section">
+        <div className="home-section-head">
+          <h2>Recent projects</h2>
+          {onNavigate && (
+            <button className="link-btn" onClick={() => onNavigate({ type: 'help' })}>
+              <Icon name="help" size={13} /> How it works
+            </button>
+          )}
+        </div>
+        {loading ? (
+          <div className="cards">
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} className="card-skeleton" />
+            ))}
+          </div>
+        ) : projects.length === 0 ? (
+          <SectionEmpty
+            icon="folder"
+            title="No projects yet"
+            hint="Add a Git repository to begin."
+            action={
+              <button className="btn" onClick={onNewProject}>
+                <Icon name="plus" size={14} /> Add a project
+              </button>
+            }
+          />
+        ) : (
+          <div className="cards">
+            {projects.map((p) => (
+              <button key={p.id} className="project-card" onClick={() => onOpenProject(p.id)}>
+                <div className="project-card-top">
+                  <span className="proj-avatar big">{p.name.slice(0, 1)}</span>
+                  <span className="project-card-name">{p.name}</span>
+                </div>
+                <div className="project-card-repo">
+                  <Icon name="git" size={12} />
+                  <span>{p.repo_url}</span>
+                </div>
+                <div className="project-card-foot">
+                  <Icon name="clock" size={12} />
+                  {relDate(p.last_opened_at || p.created_at)}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <div className="home-grid">
+        <section className="home-section">
+          <div className="home-section-head">
+            <h2>Recent conversations</h2>
+          </div>
+          {loading ? (
+            <div className="home-list">
+              {[0, 1, 2].map((i) => (
+                <Skeleton key={i} className="row-skeleton" />
+              ))}
+            </div>
+          ) : sessions.length === 0 ? (
+            <SectionEmpty
+              icon="chat"
+              title="No conversations yet"
+              hint="Open a project and ask the agent something."
+            />
+          ) : (
+            <div className="home-list">
+              {sessions.map((s) => (
+                <button
+                  key={s.id}
+                  className="home-row"
+                  onClick={() => onOpenSession(s.project_id, s.id)}
+                >
+                  <span className="home-row-icon">
+                    <Icon name="chat" size={15} />
+                  </span>
+                  <span className="home-row-main">
+                    <span className="home-row-title">{s.title || 'Untitled'}</span>
+                    <span className="home-row-sub">{s.project}</span>
+                  </span>
+                  <span className="home-row-time">{relDate(s.updated_at)}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="home-section">
+          <div className="home-section-head">
+            <h2>Recent files</h2>
+          </div>
+          {loading ? (
+            <div className="home-list">
+              {[0, 1, 2].map((i) => (
+                <Skeleton key={i} className="row-skeleton" />
+              ))}
+            </div>
+          ) : files.length === 0 ? (
+            <SectionEmpty
+              icon="files"
+              title="No generated files yet"
+              hint="Ask the agent to write a plan or spec."
+            />
+          ) : (
+            <div className="home-list">
+              {files.map((f) => (
+                <button
+                  key={`${f.project_id}:${f.path}`}
+                  className="home-row"
+                  onClick={() => onOpenFile(f)}
+                >
+                  <span className="home-row-icon">
+                    <Icon name="files" size={15} />
+                  </span>
+                  <span className="home-row-main">
+                    <span className="home-row-title">{f.path}</span>
+                    <span className="home-row-sub">
+                      {f.project} · {fmtBytes(f.bytes)}
+                    </span>
+                  </span>
+                  <span className="home-row-time">{relDate(f.modified)}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
+  )
+}
+
+// ---------- help ----------
+
+function Doc(props) {
+  return (
+    <section className="help-section" id={props.id}>
+      <h2>{props.title}</h2>
+      {props.children}
+    </section>
+  )
+}
+
+function HelpView() {
+  const { data: actions } = useAsync(api.listActions, [])
+  const actionList = actions || []
+
+  return (
+    <div className="help">
+      <header className="help-hero">
+        <div className="help-badge">
+          <Icon name="help" size={22} />
+        </div>
+        <div>
+          <h1>Help &amp; documentation</h1>
+          <p>Everything Home does, and how to get the most out of it.</p>
+        </div>
+      </header>
+
+      <nav className="help-toc">
+        <a href="#overview">Overview</a>
+        <a href="#quickstart">Quick start</a>
+        <a href="#projects">Projects</a>
+        <a href="#providers">Providers</a>
+        <a href="#agents">Agents &amp; actions</a>
+        <a href="#chat">Chat &amp; tools</a>
+        <a href="#memory">Memory</a>
+        <a href="#files">Files &amp; gallery</a>
+        <a href="#settings">Settings &amp; theme</a>
+        <a href="#tips">Tips &amp; troubleshooting</a>
+      </nav>
+
+      <Doc id="overview" title="Overview">
+        <p>
+          <strong>Home</strong> is a self-hosted cockpit for software projects. Each project is a
+          persistent, agent-aware workspace linked to a Git repository. An agent reads the repo,
+          answers questions, and writes what it learns into <strong>Totem</strong>, a durable
+          project memory that every future conversation starts from.
+        </p>
+        <p>
+          The <strong>Home</strong> page (the one you land on) shows your most recently opened
+          projects, the latest conversations across all projects, and the newest files agents have
+          generated.
+        </p>
+      </Doc>
+
+      <Doc id="quickstart" title="Quick start">
+        <ol className="help-steps">
+          <li>
+            <strong>Add a project.</strong> Give it a name and a Git URL. Home clones it into the
+            data volume and reads its <code>AGENTS.md</code>.
+          </li>
+          <li>
+            <strong>Configure a provider.</strong> Open <em>Settings</em> (gear icon) and pick a
+            preset or enter a base URL, model, and the environment variable holding your API key.
+            Use <em>Test</em> to verify it works.
+          </li>
+          <li>
+            <strong>Set up an agent.</strong> On the <em>Agents</em> page, stay in <em>Simple</em>{' '}
+            mode and pick a provider. One agent now handles everything. Advanced users can
+            specialise per action.
+          </li>
+          <li>
+            <strong>Chat.</strong> Open a project and describe a task. Watch each tool call run in
+            the chat, then review what the agent learned in the <em>Memory</em> tab.
+          </li>
+        </ol>
+      </Doc>
+
+      <Doc id="projects" title="Projects">
+        <p>
+          A project is a Git repository plus a workspace. Home never modifies your code: the agent
+          can read files and git history, and write files to a separate workspace, but not change
+          the repository.
+        </p>
+        <ul>
+          <li>
+            <strong>Add</strong> a project with the <code>+</code> next to <em>Projects</em> or the
+            <em>New project</em> button on the Home page.
+          </li>
+          <li>
+            <strong>Open</strong> a project from the sidebar or the Home dashboard. Opening updates
+            its place in <em>Recent projects</em>.
+          </li>
+          <li>
+            <strong>Pull</strong> latest changes and refresh <code>AGENTS.md</code> from the
+            <em>About</em> tab.
+          </li>
+          <li>
+            <strong>Delete</strong> a project from the <em>About</em> tab. This removes its registry
+            entry and clone.
+          </li>
+        </ul>
+      </Doc>
+
+      <Doc id="providers" title="Providers">
+        <p>
+          A provider is any OpenAI-compatible endpoint. Home ships presets for popular services and
+          supports fully custom ones.
+        </p>
+        <ul>
+          <li>
+            <strong>API keys are never stored.</strong> You name an environment variable (for
+            example <code>KIMI_API_KEY</code>); Home reads the key from the process environment at
+            request time.
+          </li>
+          <li>
+            <strong>Base URL</strong> is the OpenAI-compatible root, e.g.{' '}
+            <code>https://api.deepseek.com/v1</code>.
+          </li>
+          <li>
+            <strong>Model</strong> is the model id sent to the endpoint, e.g.{' '}
+            <code>deepseek-chat</code>.
+          </li>
+          <li>
+            Use <strong>Test</strong> on a provider card to confirm the key and endpoint connect.
+          </li>
+        </ul>
+      </Doc>
+
+      <Doc id="agents" title="Agents &amp; actions">
+        <p>
+          An <strong>agent</strong> is a model plus a system prompt plus the tools it may use. There
+          are two ways to configure them:
+        </p>
+        <div className="help-cols">
+          <div className="help-card">
+            <h3>Simple</h3>
+            <p>
+              One agent for everything. Pick a provider and (optionally) a prompt; it handles chat,
+              exploration, review, writing, and memory. This is the recommended default.
+            </p>
+          </div>
+          <div className="help-card">
+            <h3>Advanced</h3>
+            <p>
+              Create multiple agent profiles and assign a default to each <em>action</em>. Give
+              exploration a cheap model and code review a stronger one, for example.
+            </p>
+          </div>
+        </div>
+        <h3 className="help-sub">Actions</h3>
+        <p>An action is a job the app runs an agent for. Anything left on “Default agent” uses the main agent.</p>
+        <div className="help-table">
+          {actionList.length === 0 && <p className="note">Loading actions…</p>}
+          {actionList.map((a) => (
+            <div key={a.key} className="help-table-row">
+              <div className="help-table-label">{a.label}</div>
+              <div className="help-table-desc">{a.description}</div>
+            </div>
+          ))}
+        </div>
+        <h3 className="help-sub">Resolution order</h3>
+        <p>
+          When an action runs, Home uses: the agent assigned to that action → the main chat agent →
+          a profile whose name matches the action. So a single agent truly covers everything.
+        </p>
+      </Doc>
+
+      <Doc id="chat" title="Chat &amp; tools">
+        <p>
+          Every message starts a turn. Home builds a system prompt from the project instructions,
+          the repository layout, and the most relevant Totem memories, then runs a tool-calling
+          loop. Each tool call appears as a live row you can expand:
+        </p>
+        <ul>
+          <li>
+            <strong>Running</strong> shows a spinner while the tool executes.
+          </li>
+          <li>
+            <strong>Done</strong> (green check) or <strong>Failed</strong> (red) replaces it with
+            the result preview once it finishes. Expand to see arguments and full output.
+          </li>
+        </ul>
+        <h3 className="help-sub">Tool groups</h3>
+        <div className="help-table">
+          {TOOL_GROUPS.map((g) => (
+            <div key={g.key} className="help-table-row">
+              <div className="help-table-label">{g.label}</div>
+              <div className="help-table-desc">{g.desc}</div>
+            </div>
+          ))}
+        </div>
+        <p className="help-note">
+          When an agent uses <strong>Delegation</strong>, it hands a read-only subtask to the agent
+          configured for an action and continues with the summary. Subagents cannot delegate
+          further.
+        </p>
+      </Doc>
+
+      <Doc id="memory" title="Memory">
+        <p>
+          Totem is durable project memory: decisions, gotchas, architecture facts, and open
+          questions. It is not a chat log. After each turn the agent records what mattered, and a
+          new session bootstraps from ranked memory instead of the old transcript.
+        </p>
+        <ul>
+          <li>
+            <strong>Browse &amp; search</strong> memory in the <em>Memory</em> tab.
+          </li>
+          <li>
+            <strong>Repair</strong> memory by describing the fix in plain language and pressing{' '}
+            <em>Fix with agent</em>. A memory-only agent applies the changes and reports back.
+          </li>
+        </ul>
+      </Doc>
+
+      <Doc id="files" title="Files &amp; gallery">
+        <p>
+          Agents write plans, specs, and research notes to a per-project <strong>workspace</strong>,
+          kept outside the repository so your code stays clean.
+        </p>
+        <ul>
+          <li>
+            <strong>Files</strong> tab: the workspace files for the current project. Click one to
+            read it (markdown is rendered).
+          </li>
+          <li>
+            <strong>Gallery</strong>: generated files across every project, with a filter.
+          </li>
+          <li>
+            The Home dashboard lists the newest generated files across all projects.
+          </li>
+        </ul>
+      </Doc>
+
+      <Doc id="settings" title="Settings &amp; theme">
+        <p>
+          Open <em>Settings</em> from the gear icon in the top bar.
+        </p>
+        <ul>
+          <li>
+            <strong>Providers</strong>: add, test, and delete model endpoints.
+          </li>
+          <li>
+            <strong>Theme</strong>: tweak every colour. Changes are saved in your browser and
+            applied instantly; <em>Reset to defaults</em> restores the built-in palette.
+          </li>
+        </ul>
+      </Doc>
+
+      <Doc id="tips" title="Tips &amp; troubleshooting">
+        <ul>
+          <li>
+            <strong>“No provider configured”</strong> — add one in Settings and make sure the named
+            environment variable is set where Home runs.
+          </li>
+          <li>
+            <strong>Test fails</strong> — check the base URL (include the <code>/v1</code>) and that
+            the model id is valid for that endpoint.
+          </li>
+          <li>
+            <strong>Agent ignores your request</strong> — project code is read-only by design. Ask
+            it to explain a change instead, or have it write a plan to the workspace.
+          </li>
+          <li>
+            <strong>Pick a role model</strong> — advanced mode lets a cheap model explore and a
+            stronger one reason, which saves cost on large repositories.
+          </li>
+        </ul>
+      </Doc>
+    </div>
+  )
+}
+
 // ---------- welcome ----------
+
+const WELCOME_SUGGESTIONS = [
+  'Explain how this codebase is structured',
+  'Find and fix a bug in the repository',
+  'Write tests for the core module',
+  'Draft a plan for a new feature',
+]
 
 function WelcomeView({ project, onStart }) {
   return (
     <div className="welcome">
-      <h1>{project.name}</h1>
-      <div className="repo">
-        <code>{project.repo_url}</code>
-      </div>
-      <div className="welcome-prompt">
-        <Composer
-          busy={false}
-          placeholder="What would you like to work on?"
-          onSend={(msg) => onStart(msg)}
-        />
+      <div className="welcome-inner">
+        <div className="welcome-badge">
+          <Icon name="sparkles" size={24} />
+        </div>
+        <h1>What can I help you build?</h1>
+        <div className="repo">
+          <Icon name="git" size={13} />
+          <code>{project.repo_url}</code>
+        </div>
+        <div className="welcome-prompt">
+          <Composer
+            busy={false}
+            placeholder="Ask anything, or describe a task..."
+            onSend={(msg) => onStart(msg)}
+          />
+        </div>
+        <div className="suggestions">
+          {WELCOME_SUGGESTIONS.map((s) => (
+            <button key={s} className="suggestion" onClick={() => onStart(s)}>
+              <span>{s}</span>
+              <Icon name="arrowUp" size={14} className="suggestion-arrow" />
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -1083,23 +2090,37 @@ function ChatView({ projectId, sessionId, agentId, providerId, onSessionCreated,
     <div className="chat">
       <div className="chat-scroll">
         <div className="chat-inner">
-          {messages.map((m) => (
-            <div key={m.id} className={`msg ${m.role}`}>
-              <div className="msg-role">{m.role === 'user' ? 'You' : 'Assistant'}</div>
-              <div className="msg-content">{m.content}</div>
+          {messages.map((m) =>
+            m.role === 'user' ? (
+              <div key={m.id} className="msg user">
+                <div className="bubble">{m.content}</div>
+              </div>
+            ) : (
+              <div key={m.id} className="msg assistant">
+                <div className="avatar">
+                  <Icon name="sparkles" size={15} />
+                </div>
+                <div
+                  className="msg-md prose"
+                  dangerouslySetInnerHTML={{ __html: mdToHtml(m.content) }}
+                />
+              </div>
+            )
+          )}
+          {pairToolRuns(liveEvents).map((r, i) => (
+            <div key={i} className="tool-run-wrap">
+              <ToolRun name={r.name} args={r.args} result={r.result} />
             </div>
           ))}
-          {liveEvents.map((evt, i) =>
-            evt.event === 'tool_call' ? (
-              <ToolChip key={i} name={evt.name} args={evt.arguments} />
-            ) : evt.event === 'tool_result' ? (
-              <ToolResultChip key={i} name={evt.name} ok={evt.ok} preview={evt.preview} />
-            ) : null
-          )}
           {pending && (
             <div className="working">
               <span className="pulse" />
-              {pending === 'working' ? 'Working...' : 'Responding...'}
+              <span>{pending === 'working' ? 'Thinking' : 'Responding'}</span>
+              <span className="working-dots">
+                <i />
+                <i />
+                <i />
+              </span>
             </div>
           )}
           <div ref={scrollRef} />
@@ -1122,7 +2143,7 @@ export default function App() {
 
   const projects = projectsReq.data || []
   const [projectId, setProjectId] = useState(null)
-  const [view, setView] = useState({ type: 'welcome' }) // welcome | chat | memory | about
+  const [view, setView] = useState({ type: 'home' }) // home | help | welcome | chat | files | memory | about | agents | gallery
   const [chatSessionId, setChatSessionId] = useState(null)
   const [initialMessage, setInitialMessage] = useState(null)
   const [showAddProject, setShowAddProject] = useState(false)
@@ -1130,6 +2151,7 @@ export default function App() {
   const [agentId, setAgentId] = useState('')
   const [providerId, setProviderId] = useState('')
   const [settingsTab, setSettingsTab] = useState('providers')
+  const [landingFile, setLandingFile] = useState(null)
 
   useEffect(() => {
     applyTheme(loadStoredTheme())
@@ -1156,9 +2178,18 @@ export default function App() {
     setView({ type: 'welcome' })
     setChatSessionId(null)
     setInitialMessage(null)
+    api.openProject(id).catch(() => {})
   }
 
   const openChat = (sessionId) => {
+    setView({ type: 'chat' })
+    setChatSessionId(sessionId)
+    setInitialMessage(null)
+  }
+
+  const openSessionFromLanding = (pid, sessionId) => {
+    setProjectId(pid)
+    api.openProject(pid).catch(() => {})
     setView({ type: 'chat' })
     setChatSessionId(sessionId)
     setInitialMessage(null)
@@ -1181,26 +2212,45 @@ export default function App() {
   const agents = agentsReq.data || []
   const providers = providersReq.data || []
   const project = projects.find((p) => p.id === effectiveProjectId)
+  const inProjectView = ['welcome', 'chat', 'files', 'memory', 'about'].includes(view.type)
 
   return (
     <div className="app">
       <aside className="sidebar">
-        <div className="sidebar-brand">Home</div>
+        <button className="sidebar-brand" onClick={() => setView({ type: 'home' })}>
+          <span className="logo">
+            <Icon name="home" size={15} />
+          </span>
+          <span className="brand-name">Home</span>
+        </button>
         <div className="sidebar-scroll">
+          <button
+            className={`sidebar-item ${view.type === 'home' ? 'active' : ''}`}
+            onClick={() => setView({ type: 'home' })}
+          >
+            <Icon name="home" size={16} className="si-icon" />
+            Dashboard
+          </button>
           <div className="sidebar-label">
-            Projects
+            <span>Projects</span>
             <button title="Add project" onClick={() => setShowAddProject(true)}>
-              +
+              <Icon name="plus" size={14} />
             </button>
           </div>
           {projects.map((p) => (
             <button
               key={p.id}
-              className={`sidebar-item ${p.id === effectiveProjectId ? 'active' : ''}`}
+              className={`sidebar-item ${
+                inProjectView && p.id === effectiveProjectId ? 'active' : ''
+              }`}
               onClick={() => selectProject(p.id)}
             >
-              <span className="dot" />
-              {p.name}
+              <span className="proj-avatar">{p.name.slice(0, 1)}</span>
+              <span
+                style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}
+              >
+                {p.name}
+              </span>
             </button>
           ))}
           {projectsReq.loading && <div className="meta">Loading...</div>}
@@ -1211,9 +2261,9 @@ export default function App() {
           {project && (
             <div className="sidebar-section">
               <div className="sidebar-label">
-                {project.name}
+                <span>{project.name}</span>
                 <button title="New chat" onClick={startNewChat}>
-                  +
+                  <Icon name="plus" size={14} />
                 </button>
               </div>
               <button
@@ -1222,6 +2272,7 @@ export default function App() {
                 }`}
                 onClick={startNewChat}
               >
+                <Icon name="plus" size={16} className="si-icon" />
                 New chat
               </button>
               {sessions.map((s) => (
@@ -1232,6 +2283,7 @@ export default function App() {
                   }`}
                   onClick={() => openChat(s.id)}
                 >
+                  <Icon name="chat" size={16} className="si-icon" />
                   <span
                     style={{
                       overflow: 'hidden',
@@ -1249,51 +2301,68 @@ export default function App() {
                 className={`sidebar-item ${view.type === 'files' ? 'active' : ''}`}
                 onClick={() => setView({ type: 'files' })}
               >
+                <Icon name="files" size={16} className="si-icon" />
                 Files
               </button>
               <button
                 className={`sidebar-item ${view.type === 'memory' ? 'active' : ''}`}
                 onClick={() => setView({ type: 'memory' })}
               >
+                <Icon name="memory" size={16} className="si-icon" />
                 Memory
               </button>
               <button
                 className={`sidebar-item ${view.type === 'about' ? 'active' : ''}`}
                 onClick={() => setView({ type: 'about' })}
               >
+                <Icon name="info" size={16} className="si-icon" />
                 About
               </button>
             </div>
           )}
 
           <div className="sidebar-section">
-            <div className="sidebar-label">Global</div>
+            <div className="sidebar-label">
+              <span>Global</span>
+            </div>
             <button
               className={`sidebar-item ${view.type === 'agents' ? 'active' : ''}`}
               onClick={() => setView({ type: 'agents' })}
             >
+              <Icon name="agents" size={16} className="si-icon" />
               Agents
             </button>
             <button
               className={`sidebar-item ${view.type === 'gallery' ? 'active' : ''}`}
               onClick={() => setView({ type: 'gallery' })}
             >
+              <Icon name="gallery" size={16} className="si-icon" />
               Gallery
+            </button>
+            <button
+              className={`sidebar-item ${view.type === 'help' ? 'active' : ''}`}
+              onClick={() => setView({ type: 'help' })}
+            >
+              <Icon name="help" size={16} className="si-icon" />
+              Help
             </button>
           </div>
         </div>
       </aside>
 
       <div className="main">
-        {project && view.type !== 'agents' && view.type !== 'gallery' && (
+        {project && ['welcome', 'chat', 'files', 'memory', 'about'].includes(view.type) && (
           <header className="topbar">
             <div className="topbar-title">
               <span className="name">{project.name}</span>
-              <span className="repo">{project.repo_url}</span>
+              <span className="repo">
+                <Icon name="git" size={12} />
+                {project.repo_url}
+              </span>
             </div>
             <div className="topbar-right">
               <select value={agentId} onChange={(e) => setAgentId(e.target.value)}>
-                <option value="">Default (no profile)</option>
+                <option value="">Default agent</option>
                 {agents.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}
@@ -1310,15 +2379,29 @@ export default function App() {
                   ))}
                 </select>
               )}
-              <button className="icon-btn" title="Providers" onClick={() => setShowSettings(true)}>
-                &#9881;
+              <button
+                className="icon-btn"
+                title="Settings"
+                onClick={() => setShowSettings(true)}
+              >
+                <Icon name="settings" size={17} />
               </button>
             </div>
           </header>
         )}
 
         <div className="content">
-          {!project && !projectsReq.loading && (
+          {view.type === 'home' && (
+            <HomeView
+              onNewProject={() => setShowAddProject(true)}
+              onNavigate={setView}
+              onOpenProject={(id) => selectProject(id)}
+              onOpenSession={openSessionFromLanding}
+              onOpenFile={(f) => setLandingFile(f)}
+            />
+          )}
+          {view.type === 'help' && <HelpView />}
+          {!project && !projectsReq.loading && view.type !== 'home' && view.type !== 'help' && (
             <div className="empty">
               No projects yet. Click + next to Projects to add one.
             </div>
@@ -1354,14 +2437,29 @@ export default function App() {
               onDeleted={() => {
                 projectsReq.reload()
                 setProjectId(null)
-                setView({ type: 'welcome' })
+                setView({ type: 'home' })
               }}
             />
           )}
-          {view.type === 'agents' && <AgentsPage />}
+          {view.type === 'agents' && (
+            <AgentsPage onOpenSettings={() => setShowSettings(true)} />
+          )}
           {view.type === 'gallery' && <GalleryView />}
         </div>
       </div>
+
+      {landingFile && (
+        <Modal
+          title={landingFile.path}
+          onClose={() => setLandingFile(null)}
+        >
+          <FileReaderPane
+            projectId={landingFile.project_id}
+            path={landingFile.path}
+            onClose={() => setLandingFile(null)}
+          />
+        </Modal>
+      )}
 
       {showAddProject && (
         <AddProjectModal

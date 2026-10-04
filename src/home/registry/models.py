@@ -21,6 +21,7 @@ class Project(SQLModel, table=True):
     local_path: str
     agents_md: Optional[str] = None
     default_provider_id: Optional[int] = None
+    last_opened_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=_now)
 
 
@@ -65,3 +66,16 @@ class AgentConfig(SQLModel, table=True):
     tools: str = "repo,files"  # comma-separated tool groups: repo, files, github, memory
     max_turns: int = 6
     created_at: datetime = Field(default_factory=_now)
+
+
+class ActionDefault(SQLModel, table=True):
+    """App-wide default agent profile for one action (use-case/role).
+
+    An action is a job the app runs an LLM for: the main chat, or a delegated
+    subagent role such as exploring the repo or reviewing code. When an action
+    has no agent assigned, the app falls back to the "chat" default (one agent
+    for everything) and finally to a profile named like the action.
+    """
+
+    action: str = Field(primary_key=True)
+    agent_id: Optional[int] = Field(default=None, foreign_key="agentconfig.id")

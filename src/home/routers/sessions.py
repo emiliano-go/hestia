@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
-from home import totem_store
+from home import actions, totem_store
 from home.registry.db import session
 from home.registry.models import Message, Project, Provider, Session as ChatSession
 
@@ -69,7 +69,12 @@ def fix_memory(project_id: int, body: dict, s: Session = Depends(session)):
     instruction = (body.get("instruction") or "").strip()
     if not instruction:
         raise HTTPException(400, "instruction is required")
-    provider_id = body.get("provider_id") or project.default_provider_id
+    agent_config = actions.resolve_action(s, "memory-fix")
+    provider_id = (
+        body.get("provider_id")
+        or (agent_config.provider_id if agent_config else None)
+        or project.default_provider_id
+    )
     provider = s.get(Provider, provider_id) if provider_id else None
     if not provider:
         raise HTTPException(400, "no provider configured for this project")

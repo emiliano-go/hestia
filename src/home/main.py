@@ -7,18 +7,20 @@ from fastapi.staticfiles import StaticFiles
 
 from home import __version__
 from home.registry.db import init_db
-from home.routers import agents, chat, projects, providers, sessions, workspace
+from home.routers import activity, agents, chat, projects, providers, sessions, workspace
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="home", version=__version__)
     init_db()
 
+    app.include_router(activity.router)
     app.include_router(projects.router)
     app.include_router(chat.router)
     app.include_router(providers.router)
     app.include_router(sessions.router)
     app.include_router(agents.router)
+    app.include_router(agents.actions_router)
     app.include_router(workspace.router)
 
     dist = find_web_dist()
