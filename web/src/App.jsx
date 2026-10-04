@@ -1,10 +1,32 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api.js'
 
+// ---------- helpers ----------
+
 function fmtDate(s) {
   if (!s) return ''
   const d = new Date(s)
   return isNaN(d) ? String(s) : d.toLocaleString()
+}
+
+function relDate(s) {
+  const d = new Date(s)
+  if (isNaN(d)) return ''
+  const diff = Date.now() - d.getTime()
+  const m = Math.floor(diff / 60000)
+  if (m < 1) return 'just now'
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  const days = Math.floor(h / 24)
+  if (days < 7) return `${days}d ago`
+  return d.toLocaleDateString()
+}
+
+function truncate(str, n = 120) {
+  if (!str) return ''
+  str = String(str)
+  return str.length > n ? str.slice(0, n) + '...' : str
 }
 
 function useAsync(fn, deps) {
@@ -23,431 +45,144 @@ function useAsync(fn, deps) {
   useEffect(() => {
     reload()
   }, [reload])
-  return { data, error, loading, reload, setData }
+  return { data, error, loading, reload }
 }
 
-function truncate(s, n = 300) {
-  if (!s) return ''
-  s = String(s)
-  return s.length > n ? s.slice(0, n) + '...' : s
+// ---------- shared bits ----------
+
+function ToolChip({ name, args }) {
+  return (
+    <details className="tool-chip">
+      <summary>
+        <span className="tname">{name}</span>
+        <span className="ttext">{truncate(JSON.stringify(args), 90)}</span>
+      </summary>
+      <div className="tool-body">{JSON.stringify(args, null, 2)}</div>
+    </details>
+  )
 }
 
-// ---------- Projects page ----------
+function ToolResultChip({ name, ok, preview }) {
+  return (
+    <details className={`tool-chip ${ok ? 'ok' : 'err'}`}>
+      <summary>
+        <span className="tname">{name}</span>
+        <span className={ok ? 'badge ok' : 'badge err'}>{ok ? 'ok' : 'error'}</span>
+        <span className="ttext">{truncate(preview, 90)}</span>
+      </summary>
+      <div className="tool-body">{String(preview ?? '')}</div>
+    </details>
+  )
+}
 
-function ProjectsPage({ onOpen }) {
-  const { data: projects, error, loading, reload } = useAsync(api.listProjects, [])
+function Modal({ title, onClose, children }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <button className="icon-btn modal-close" onClick={onClose}>
+          x
+        </button>
+        <h2>{title}</h2>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function Composer({ onSend, busy, placeholder }) {
+  const [value, setValue] = useState('')
+  const ref = useRef(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (el) {
+      el.style.height = 'auto'
+      el.style.height = Math.min(el.scrollHeight, 200) + 'px'
+    }
+  }, [value])
+
+  const submit = () => {
+    const msg = value.trim()
+    if (!msg || busy) return
+    setValue('')
+    onSend(msg)
+  }
+
+  return (
+    <div className="composer">
+      <textarea
+        ref={ref}
+        rows={1}
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault()
+            submit()
+          }
+        }}
+      />
+      <div className="composer-foot">
+        <span className="composer-hint">Enter to send, Shift+Enter for a new line</span>
+        <button className="send-btn" onClick={submit} disabled={busy || !value.trim()}>
+          Send
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ---------- add project modal ----------
+
+function AddProjectModal({ onClose, onCreated }) {
   const [name, setName] = useState('')
   const [repoUrl, setRepoUrl] = useState('')
   const [creating, setCreating] = useState(false)
-  const [createError, setCreateError] = useState(null)
+  const [error, setError] = useState(null)
 
   const submit = (e) => {
     e.preventDefault()
     setCreating(true)
-    setCreateError(null)
+    setError(null)
     api
       .createProject({ name, repo_url: repoUrl })
-      .then(() => {
-        setName('')
-        setRepoUrl('')
-        reload()
+      .then((p) => {
+        onCreated(p)
       })
-      .catch((err) => setCreateError(err.message || String(err)))
+      .catch((err) => setError(err.message || String(err)))
       .finally(() => setCreating(false))
   }
 
   return (
-    <div>
-      <h2>Projects</h2>
-      <form className="inline-form" onSubmit={submit}>
+    <Modal title="Add project" onClose={creating ? () => {} : onClose}>
+      <form className="form-col" onSubmit={submit}>
         <input
           placeholder="Name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           required
+          disabled={creating}
         />
         <input
           placeholder="Git URL"
           value={repoUrl}
           onChange={(e) => setRepoUrl(e.target.value)}
           required
+          disabled={creating}
         />
-        <button className="btn" disabled={creating}>
+        <button className="btn primary" disabled={creating}>
           {creating ? 'Cloning repository, this may take a while...' : 'Add project'}
         </button>
-        {createError && <div className="error-text">{createError}</div>}
+        {error && <div className="error-text">{error}</div>}
       </form>
-      {loading && <p className="note">Loading...</p>}
-      {error && <p className="error-text">{error}</p>}
-      {projects && projects.length === 0 && <p className="note">No projects yet.</p>}
-      <div className="cards">
-        {(projects || []).map((p) => (
-          <div key={p.id} className="card" onClick={() => onOpen(p.id)}>
-            <h3>{p.name}</h3>
-            <div className="meta">{p.repo_url}</div>
-            <div className="meta">{fmtDate(p.created_at)}</div>
-          </div>
-        ))}
-      </div>
-    </div>
+    </Modal>
   )
 }
 
-// ---------- Chat tab ----------
+// ---------- providers (settings modal) ----------
 
-function ToolCallRow({ name, args }) {
-  return (
-    <details className="tool-row">
-      <summary>
-        tool_call: {name}({truncate(JSON.stringify(args), 80)})
-      </summary>
-      <div className="body">{JSON.stringify(args, null, 2)}</div>
-    </details>
-  )
-}
-
-function ToolResultRow({ name, ok, preview }) {
-  return (
-    <div className="tool-row tool-result">
-      tool_result: {name}{' '}
-      <span className={ok ? 'ok' : 'err'}>{ok ? 'ok' : 'error'}</span>:{' '}
-      {truncate(preview, 200)}
-    </div>
-  )
-}
-
-function ChatTab({ projectId }) {
-  const sessionsReq = useAsync(() => api.listSessions(projectId), [projectId])
-  const providersReq = useAsync(api.listProviders, [])
-  const agentsReq = useAsync(api.listAgents, [])
-  const [sessionChoice, setSessionChoice] = useState('new')
-  const [providerId, setProviderId] = useState('')
-  const [agentId, setAgentId] = useState('')
-  const [messages, setMessages] = useState(null)
-  const [streamEvents, setStreamEvents] = useState([])
-  const [finalMessage, setFinalMessage] = useState(null)
-  const [input, setInput] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState(null)
-  const activeSessionRef = useRef(null)
-  const bottomRef = useRef(null)
-
-  const sessions = sessionsReq.data || []
-  const activeSessionId =
-    sessionChoice === 'new' ? activeSessionRef.current : sessionChoice
-
-  useEffect(() => {
-    if (activeSessionId) {
-      api
-        .listMessages(activeSessionId)
-        .then(setMessages)
-        .catch((e) => setError(e.message || String(e)))
-    } else {
-      setMessages(null)
-    }
-  }, [activeSessionId, sessionsReq.data])
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, streamEvents, finalMessage])
-
-  const send = (e) => {
-    e.preventDefault()
-    const message = input.trim()
-    if (!message || busy) return
-    setInput('')
-    setBusy(true)
-    setError(null)
-    setStreamEvents([])
-    setFinalMessage(null)
-    const shownSession = activeSessionId
-    api
-      .chat(
-        projectId,
-        {
-          message,
-          session_id: shownSession || undefined,
-          ...(agentId
-            ? { agent_id: agentId }
-            : { provider_id: providerId || undefined }),
-        },
-        {
-          onEvent: (evt) => {
-            if (evt.event === 'session') {
-              activeSessionRef.current = evt.session_id
-              setSessionChoice(evt.session_id)
-            } else if (evt.event === 'message') {
-              setFinalMessage(evt)
-            } else if (evt.event === 'error') {
-              setError(evt.message || 'Chat error')
-            } else {
-              setStreamEvents((prev) => [...prev, evt])
-            }
-          },
-        }
-      )
-      .catch((err) => setError(err.message || String(err)))
-      .finally(() => {
-        setBusy(false)
-        sessionsReq.reload()
-        const sid = activeSessionRef.current
-        if (sid) {
-          api
-            .listMessages(sid)
-            .then(setMessages)
-            .catch(() => {})
-        }
-      })
-  }
-
-  const providers = providersReq.data || []
-  const agents = agentsReq.data || []
-
-  return (
-    <div>
-      <div className="chat-controls">
-        <select value={sessionChoice} onChange={(e) => setSessionChoice(e.target.value)}>
-          <option value="new">New session</option>
-          {sessions.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.title || s.id} ({fmtDate(s.created_at)})
-            </option>
-          ))}
-        </select>
-        <select value={agentId} onChange={(e) => setAgentId(e.target.value)}>
-          <option value="">Default (no profile)</option>
-          {agents.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
-        {!agentId &&
-          (providers.length > 0 ? (
-            <select value={providerId} onChange={(e) => setProviderId(e.target.value)}>
-              <option value="">Default provider</option>
-              {providers.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({p.model})
-                </option>
-              ))}
-            </select>
-          ) : (
-            <span className="note">
-              No providers configured, see <a href="#/providers">Providers</a>.
-            </span>
-          ))}
-      </div>
-      <div className="messages">
-        {(messages || []).map((m) => (
-          <div key={m.id} className={`msg ${m.role}`}>
-            <div className="role">{m.role}</div>
-            <div className="content">{m.content}</div>
-          </div>
-        ))}
-        {streamEvents.map((evt, i) =>
-          evt.event === 'tool_call' ? (
-            <ToolCallRow key={i} name={evt.name} args={evt.arguments} />
-          ) : evt.event === 'tool_result' ? (
-            <ToolResultRow key={i} name={evt.name} ok={evt.ok} preview={evt.preview} />
-          ) : null
-        )}
-        {finalMessage && (
-          <div className="msg assistant">
-            <div className="role">assistant</div>
-            <div className="content">{finalMessage.content}</div>
-          </div>
-        )}
-        {busy && !finalMessage && <p className="note">Thinking...</p>}
-        {!busy && !messages?.length && !finalMessage && (
-          <p className="note">No messages yet, send one below.</p>
-        )}
-        <div ref={bottomRef} />
-      </div>
-      {error && <p className="error-text">{error}</p>}
-      <form className="chat-input" onSubmit={send}>
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Type a message..."
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send(e)
-          }}
-        />
-        <button className="btn" disabled={busy || !input.trim()}>
-          Send
-        </button>
-      </form>
-    </div>
-  )
-}
-
-// ---------- Memory tab ----------
-
-function MemoryTab({ projectId }) {
-  const [q, setQ] = useState('')
-  const [items, setItems] = useState(null)
-  const [error, setError] = useState(null)
-  const [searching, setSearching] = useState(false)
-
-  const search = (e) => {
-    e?.preventDefault()
-    setSearching(true)
-    setError(null)
-    api
-      .searchMemory(projectId, q)
-      .then(setItems)
-      .catch((err) => setError(err.message || String(err)))
-      .finally(() => setSearching(false))
-  }
-
-  return (
-    <div>
-      <form className="chat-input" onSubmit={search}>
-        <input
-          style={{ flex: 1 }}
-          placeholder="Search memory..."
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-        <button className="btn" disabled={searching}>
-          {searching ? 'Searching...' : 'Search'}
-        </button>
-      </form>
-      <div style={{ height: 12 }} />
-      {error && <p className="error-text">{error}</p>}
-      {items && items.length === 0 && <p className="note">No memory items found.</p>}
-      <div className="cards">
-        {(items || []).map((m) => (
-          <div key={m.id} className="card" style={{ cursor: 'default' }}>
-            <h3>
-              <span className="badge">{m.type}</span>
-              {m.title}
-            </h3>
-            <div className="meta">{m.statement}</div>
-            <div className="meta" style={{ marginTop: 6 }}>
-              {(m.tags || []).map((t) => (
-                <span key={t} className="badge">
-                  {t}
-                </span>
-              ))}
-              {fmtDate(m.updatedAt || m.updated_at)}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ---------- About tab ----------
-
-function AboutTab({ project, onPulled }) {
-  const [pulling, setPulling] = useState(false)
-  const [pullOutput, setPullOutput] = useState(null)
-  const [error, setError] = useState(null)
-
-  const pull = () => {
-    setPulling(true)
-    setError(null)
-    setPullOutput(null)
-    api
-      .pullProject(project.id)
-      .then((r) => {
-        setPullOutput(r.output || '')
-        onPulled()
-      })
-      .catch((e) => setError(e.message || String(e)))
-      .finally(() => setPulling(false))
-  }
-
-  const status = project.status || {}
-  return (
-    <div>
-      <div className="row">
-        <span className="muted">Repo:</span>
-        <a href={project.repo_url} target="_blank" rel="noreferrer">
-          {project.repo_url}
-        </a>
-      </div>
-      <div className="row">
-        <span className="muted">Local path:</span>
-        <span>{project.local_path}</span>
-      </div>
-      <div className="row">
-        <span className="muted">Branch:</span>
-        <span>{status.branch || 'unknown'}</span>
-      </div>
-      <div className="row">
-        <span className="muted">Head:</span>
-        <span>{status.head || 'unknown'}</span>
-      </div>
-      <button className="btn" onClick={pull} disabled={pulling}>
-        {pulling ? 'Pulling...' : 'Pull'}
-      </button>
-      {error && <p className="error-text">{error}</p>}
-      {pullOutput !== null && <pre>{pullOutput || '(no output)'}</pre>}
-      <h3>AGENTS.md</h3>
-      <pre>{project.agents_md || '(empty)'}</pre>
-    </div>
-  )
-}
-
-// ---------- Project view ----------
-
-function ProjectView({ projectId, onDeleted }) {
-  const { data: project, error, loading, reload } = useAsync(
-    () => api.getProject(projectId),
-    [projectId]
-  )
-  const [tab, setTab] = useState('chat')
-  const [confirmDelete, setConfirmDelete] = useState(false)
-
-  if (loading) return <p className="note">Loading...</p>
-  if (error) return <p className="error-text">{error}</p>
-  if (!project) return null
-
-  return (
-    <div>
-      <div className="row">
-        <h2 style={{ margin: 0 }}>{project.name}</h2>
-        {confirmDelete ? (
-          <>
-            <button
-              className="btn danger"
-              onClick={() =>
-                api.deleteProject(project.id).then(onDeleted).catch((e) => alert(e.message))
-              }
-            >
-              Confirm delete
-            </button>
-            <button className="btn" onClick={() => setConfirmDelete(false)}>
-              Cancel
-            </button>
-          </>
-        ) : (
-          <button className="btn danger" onClick={() => setConfirmDelete(true)}>
-            Delete
-          </button>
-        )}
-      </div>
-      <div className="tabs">
-        {['chat', 'memory', 'about'].map((t) => (
-          <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
-            {t[0].toUpperCase() + t.slice(1)}
-          </button>
-        ))}
-      </div>
-      {tab === 'chat' && <ChatTab projectId={projectId} />}
-      {tab === 'memory' && <MemoryTab projectId={projectId} />}
-      {tab === 'about' && <AboutTab project={project} onPulled={reload} />}
-    </div>
-  )
-}
-
-// ---------- Providers page ----------
-
-function ProvidersPage() {
+function ProvidersPanel() {
   const { data: providers, error, loading, reload } = useAsync(api.listProviders, [])
   const presetsReq = useAsync(api.listPresets, [])
   const [form, setForm] = useState({ name: '', base_url: '', api_key_env: '', model: '' })
@@ -462,7 +197,12 @@ function ProvidersPage() {
     setPresetKey(key)
     const p = presets[key]
     if (p) {
-      setForm({ name: p.name || key, base_url: p.base_url || '', api_key_env: p.api_key_env || '', model: p.model || '' })
+      setForm({
+        name: p.name || key,
+        base_url: p.base_url || '',
+        api_key_env: p.api_key_env || '',
+        model: p.model || '',
+      })
     }
   }
 
@@ -495,8 +235,7 @@ function ProvidersPage() {
 
   return (
     <div>
-      <h2>Providers</h2>
-      <form className="inline-form" onSubmit={submit}>
+      <form className="form-col" onSubmit={submit}>
         <select value={presetKey} onChange={(e) => applyPreset(e.target.value)}>
           <option value="">Choose a preset...</option>
           {Object.entries(presets).map(([k, p]) => (
@@ -514,7 +253,7 @@ function ProvidersPage() {
           required
         />
         <input placeholder="Model" value={form.model} onChange={set('model')} required />
-        <button className="btn" disabled={saving}>
+        <button className="btn primary" disabled={saving}>
           {saving ? 'Saving...' : 'Add provider'}
         </button>
         {formError && <div className="error-text">{formError}</div>}
@@ -526,16 +265,14 @@ function ProvidersPage() {
         {(providers || []).map((p) => {
           const tr = testResults[p.id]
           return (
-            <div key={p.id} className="card" style={{ cursor: 'default' }}>
+            <div key={p.id} className="card">
               <h3>
-                {p.name}{' '}
-                {tr &&
-                  !tr.testing &&
-                  (tr.ok ? (
-                    <span className="badge ok">ok: {tr.model || p.model}</span>
-                  ) : (
-                    <span className="badge err">error</span>
-                  ))}
+                {p.name}
+                {tr && !tr.testing && (
+                  <span className={`badge ${tr.ok ? 'ok' : 'err'}`}>
+                    {tr.ok ? `ok: ${tr.model || p.model}` : 'error'}
+                  </span>
+                )}
               </h3>
               <div className="meta">{p.base_url}</div>
               <div className="meta">
@@ -544,13 +281,15 @@ function ProvidersPage() {
               {tr && !tr.testing && !tr.ok && tr.error && (
                 <div className="meta error-text">{tr.error}</div>
               )}
-              <div className="row" style={{ marginTop: 8, marginBottom: 0 }}>
+              <div className="row" style={{ marginTop: 10, marginBottom: 0 }}>
                 <button className="btn" onClick={() => test(p.id)} disabled={tr?.testing}>
                   {tr?.testing ? 'Testing...' : 'Test'}
                 </button>
                 <button
                   className="btn danger"
-                  onClick={() => api.deleteProvider(p.id).then(reload).catch((e) => alert(e.message))}
+                  onClick={() =>
+                    api.deleteProvider(p.id).then(reload).catch((e) => alert(e.message))
+                  }
                 >
                   Delete
                 </button>
@@ -563,7 +302,7 @@ function ProvidersPage() {
   )
 }
 
-// ---------- Agents page ----------
+// ---------- agents page ----------
 
 function AgentsPage() {
   const { data: agents, error, loading, reload } = useAsync(api.listAgents, [])
@@ -622,13 +361,14 @@ function AgentsPage() {
   }
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
-
   const providerName = (id) => providers.find((p) => p.id === id)?.name || id || 'default'
 
   return (
-    <div>
-      <h2>Agents</h2>
-      <form className="inline-form" onSubmit={submit}>
+    <div className="center-col">
+      <div className="page-head">
+        <h2>Agents</h2>
+      </div>
+      <form className="form-col" onSubmit={submit}>
         <select value={presetKey} onChange={(e) => applyPreset(e.target.value)}>
           <option value="">Choose a preset...</option>
           {Object.entries(presets).map(([k, p]) => (
@@ -664,7 +404,7 @@ function AgentsPage() {
           onChange={set('system_prompt')}
           rows={6}
         />
-        <button className="btn" disabled={saving}>
+        <button className="btn primary" disabled={saving}>
           {saving ? 'Saving...' : 'Add agent'}
         </button>
         {formError && <div className="error-text">{formError}</div>}
@@ -674,17 +414,15 @@ function AgentsPage() {
       {agents && agents.length === 0 && <p className="note">No agents configured.</p>}
       <div className="cards">
         {(agents || []).map((a) => (
-          <div key={a.id} className="card" style={{ cursor: 'default' }}>
+          <div key={a.id} className="card">
             <h3>{a.name}</h3>
             <div className="meta">Provider: {providerName(a.provider_id)}</div>
             <div className="meta">Tools: {(a.tools || []).join(', ') || '(default)'}</div>
             <div className="meta">Max turns: {a.max_turns ?? '(default)'}</div>
-            <div className="row" style={{ marginTop: 8, marginBottom: 0 }}>
+            <div className="row" style={{ marginTop: 10, marginBottom: 0 }}>
               <button
                 className="btn danger"
-                onClick={() =>
-                  api.deleteAgent(a.id).then(reload).catch((e) => alert(e.message))
-                }
+                onClick={() => api.deleteAgent(a.id).then(reload).catch((e) => alert(e.message))}
               >
                 Delete
               </button>
@@ -696,47 +434,551 @@ function AgentsPage() {
   )
 }
 
-// ---------- App shell ----------
+// ---------- memory ----------
 
-export default function App() {
-  // view: {page: 'projects'} | {page: 'providers'} | {page: 'project', id}
-  const [view, setView] = useState({ page: 'projects' })
+function MemoryView({ projectId }) {
+  const [q, setQ] = useState('')
+  const [items, setItems] = useState(null)
+  const [error, setError] = useState(null)
+  const [searching, setSearching] = useState(false)
+
+  const search = (e) => {
+    e?.preventDefault()
+    setSearching(true)
+    setError(null)
+    api
+      .searchMemory(projectId, q)
+      .then(setItems)
+      .catch((err) => setError(err.message || String(err)))
+      .finally(() => setSearching(false))
+  }
 
   return (
-    <div>
-      <nav className="topnav">
-        <span className="brand" onClick={() => setView({ page: 'projects' })}>
-          Home
-        </span>
-        <button
-          className={view.page === 'projects' ? 'active' : ''}
-          onClick={() => setView({ page: 'projects' })}
-        >
-          Projects
+    <div className="center-col">
+      <div className="page-head">
+        <h2>Memory</h2>
+      </div>
+      <form className="search-row" onSubmit={search}>
+        <input
+          placeholder="Search memory..."
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+        <button className="btn" disabled={searching}>
+          {searching ? 'Searching...' : 'Search'}
         </button>
-        <button
-          className={view.page === 'providers' ? 'active' : ''}
-          onClick={() => setView({ page: 'providers' })}
-        >
-          Providers
-        </button>
-        <button
-          className={view.page === 'agents' ? 'active' : ''}
-          onClick={() => setView({ page: 'agents' })}
-        >
-          Agents
-        </button>
-      </nav>
-      <main>
-        {view.page === 'projects' && (
-          <ProjectsPage onOpen={(id) => setView({ page: 'project', id })} />
+      </form>
+      {error && <p className="error-text">{error}</p>}
+      {items && items.length === 0 && (
+        <p className="empty">
+          {q ? 'No memory items match your search.' : 'No memory items yet.'}
+        </p>
+      )}
+      <div className="cards">
+        {(items || []).map((m) => (
+          <div key={m.id} className="card">
+            <h3>
+              <span className="badge">{m.type}</span>
+              {m.title}
+            </h3>
+            <div className="meta">{m.statement}</div>
+            <div className="meta" style={{ marginTop: 6 }}>
+              {(m.tags || []).map((t) => (
+                <span key={t} className="badge">
+                  {t}
+                </span>
+              ))}{' '}
+              {relDate(m.updatedAt || m.updated_at)}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ---------- about ----------
+
+function AboutView({ projectId, onDeleted }) {
+  const { data: project, error, loading, reload } = useAsync(
+    () => api.getProject(projectId),
+    [projectId]
+  )
+  const [pulling, setPulling] = useState(false)
+  const [pullOutput, setPullOutput] = useState(null)
+  const [actionError, setActionError] = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  if (loading) return <p className="note">Loading...</p>
+  if (error) return <p className="error-text">{error}</p>
+  if (!project) return null
+
+  const status = project.status || {}
+
+  const pull = () => {
+    setPulling(true)
+    setActionError(null)
+    setPullOutput(null)
+    api
+      .pullProject(project.id)
+      .then((r) => {
+        setPullOutput(r.output || '')
+        reload()
+      })
+      .catch((e) => setActionError(e.message || String(e)))
+      .finally(() => setPulling(false))
+  }
+
+  return (
+    <div className="center-col">
+      <div className="page-head">
+        <h2>About</h2>
+        {confirmDelete ? (
+          <div className="row" style={{ marginBottom: 0 }}>
+            <span className="muted">Delete this project?</span>
+            <button
+              className="btn danger"
+              onClick={() =>
+                api.deleteProject(project.id).then(onDeleted).catch((e) => alert(e.message))
+              }
+            >
+              Confirm
+            </button>
+            <button className="btn" onClick={() => setConfirmDelete(false)}>
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button className="btn danger" onClick={() => setConfirmDelete(true)}>
+            Delete project
+          </button>
         )}
-        {view.page === 'providers' && <ProvidersPage />}
-        {view.page === 'agents' && <AgentsPage />}
-        {view.page === 'project' && (
-          <ProjectView projectId={view.id} onDeleted={() => setView({ page: 'projects' })} />
+      </div>
+      <dl className="kv">
+        <dt>Repo</dt>
+        <dd>
+          <a href={project.repo_url} target="_blank" rel="noreferrer">
+            {project.repo_url}
+          </a>
+        </dd>
+        <dt>Local path</dt>
+        <dd>{project.local_path}</dd>
+        <dt>Branch</dt>
+        <dd>{status.branch || 'unknown'}</dd>
+        <dt>Head</dt>
+        <dd style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>{status.head || 'unknown'}</dd>
+        <dt>Created</dt>
+        <dd>{fmtDate(project.created_at)}</dd>
+      </dl>
+      <div className="row">
+        <button className="btn" onClick={pull} disabled={pulling}>
+          {pulling ? 'Pulling...' : 'Pull latest'}
+        </button>
+      </div>
+      {actionError && <p className="error-text">{actionError}</p>}
+      {pullOutput !== null && <pre>{pullOutput || '(no output)'}</pre>}
+      <h3 className="faint" style={{ fontSize: 13, fontWeight: 600 }}>
+        AGENTS.md
+      </h3>
+      <pre>{project.agents_md || '(empty)'}</pre>
+    </div>
+  )
+}
+
+// ---------- welcome ----------
+
+function WelcomeView({ project, onStart }) {
+  return (
+    <div className="welcome">
+      <h1>{project.name}</h1>
+      <div className="repo">
+        <code>{project.repo_url}</code>
+      </div>
+      <div className="welcome-prompt">
+        <Composer
+          busy={false}
+          placeholder="What would you like to work on?"
+          onSend={(msg) => onStart(msg)}
+        />
+      </div>
+    </div>
+  )
+}
+
+// ---------- chat ----------
+
+function ChatView({ projectId, sessionId, agentId, providerId, onSessionCreated, initialMessage }) {
+  const sessionsReq = useAsync(() => api.listSessions(projectId), [projectId])
+  const [messages, setMessages] = useState([])
+  const [liveEvents, setLiveEvents] = useState([])
+  const [pending, setPending] = useState(null) // 'working' | 'streaming' | null
+  const [error, setError] = useState(null)
+  const sessionRef = useRef(sessionId)
+  const busyRef = useRef(false)
+  const initialSentRef = useRef(false)
+  const scrollRef = useRef(null)
+
+  useEffect(() => {
+    sessionRef.current = sessionId
+  }, [sessionId])
+
+  useEffect(() => {
+    setMessages([])
+    setLiveEvents([])
+    setError(null)
+    if (sessionId) {
+      api
+        .listMessages(sessionId)
+        .then(setMessages)
+        .catch((e) => setError(e.message || String(e)))
+    }
+  }, [sessionId])
+
+  useEffect(() => {
+    scrollRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [messages, liveEvents, pending])
+
+  const send = useCallback(
+    (text) => {
+      if (busyRef.current) return
+      busyRef.current = true
+      setError(null)
+      setLiveEvents([])
+      setPending('working')
+      setMessages((prev) => [...prev, { id: `u-${Date.now()}`, role: 'user', content: text }])
+      api
+        .chat(
+          projectId,
+          {
+            message: text,
+            session_id: sessionRef.current || undefined,
+            ...(agentId ? { agent_id: agentId } : { provider_id: providerId || undefined }),
+          },
+          {
+            onEvent: (evt) => {
+              if (evt.event === 'session') {
+                sessionRef.current = evt.session_id
+                onSessionCreated(evt.session_id)
+              } else if (evt.event === 'message') {
+                setPending(null)
+                setMessages((prev) => [
+                  ...prev,
+                  { id: `a-${Date.now()}`, role: 'assistant', content: evt.content },
+                ])
+              } else if (evt.event === 'error') {
+                setPending(null)
+                setError(evt.message || 'Chat error')
+              } else if (evt.event === 'token') {
+                setPending('streaming')
+              } else {
+                setPending('streaming')
+                setLiveEvents((prev) => [...prev, evt])
+              }
+            },
+          }
+        )
+        .catch((err) => setError(err.message || String(err)))
+        .finally(() => {
+          busyRef.current = false
+          setPending(null)
+          sessionsReq.reload()
+          const sid = sessionRef.current
+          if (sid) {
+            api
+              .listMessages(sid)
+              .then(setMessages)
+              .catch(() => {})
+          }
+        })
+    },
+    [projectId, agentId, providerId, onSessionCreated] // eslint-disable-line react-hooks/exhaustive-deps
+  )
+
+  useEffect(() => {
+    if (initialMessage && !initialSentRef.current) {
+      initialSentRef.current = true
+      send(initialMessage)
+    }
+  }, [initialMessage, send])
+
+  return (
+    <div className="chat">
+      <div className="chat-scroll">
+        <div className="chat-inner">
+          {messages.map((m) => (
+            <div key={m.id} className={`msg ${m.role}`}>
+              <div className="msg-role">{m.role === 'user' ? 'You' : 'Assistant'}</div>
+              <div className="msg-content">{m.content}</div>
+            </div>
+          ))}
+          {liveEvents.map((evt, i) =>
+            evt.event === 'tool_call' ? (
+              <ToolChip key={i} name={evt.name} args={evt.arguments} />
+            ) : evt.event === 'tool_result' ? (
+              <ToolResultChip key={i} name={evt.name} ok={evt.ok} preview={evt.preview} />
+            ) : null
+          )}
+          {pending && (
+            <div className="working">
+              <span className="pulse" />
+              {pending === 'working' ? 'Working...' : 'Responding...'}
+            </div>
+          )}
+          <div ref={scrollRef} />
+        </div>
+      </div>
+      <div className="composer-wrap">
+        {error && <div className="error-banner">{error}</div>}
+        <Composer busy={!!pending} placeholder="Message..." onSend={send} />
+      </div>
+    </div>
+  )
+}
+
+// ---------- app shell ----------
+
+export default function App() {
+  const projectsReq = useAsync(api.listProjects, [])
+  const providersReq = useAsync(api.listProviders, [])
+  const agentsReq = useAsync(api.listAgents, [])
+
+  const projects = projectsReq.data || []
+  const [projectId, setProjectId] = useState(null)
+  const [view, setView] = useState({ type: 'welcome' }) // welcome | chat | memory | about
+  const [chatSessionId, setChatSessionId] = useState(null)
+  const [initialMessage, setInitialMessage] = useState(null)
+  const [showAddProject, setShowAddProject] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+  const [agentId, setAgentId] = useState('')
+  const [providerId, setProviderId] = useState('')
+
+  const effectiveProjectId = projectId && projects.some((p) => p.id === projectId)
+    ? projectId
+    : projects[0]?.id || null
+
+  useEffect(() => {
+    if (effectiveProjectId && effectiveProjectId !== projectId) {
+      setProjectId(effectiveProjectId)
+    }
+  }, [effectiveProjectId, projectId])
+
+  const sessionsReq = useAsync(
+    () => (effectiveProjectId ? api.listSessions(effectiveProjectId) : Promise.resolve([])),
+    [effectiveProjectId]
+  )
+  const sessions = sessionsReq.data || []
+
+  const selectProject = (id) => {
+    setProjectId(id)
+    setView({ type: 'welcome' })
+    setChatSessionId(null)
+    setInitialMessage(null)
+  }
+
+  const openChat = (sessionId) => {
+    setView({ type: 'chat' })
+    setChatSessionId(sessionId)
+    setInitialMessage(null)
+  }
+
+  const startNewChat = () => {
+    setView({ type: 'chat' })
+    setChatSessionId(null)
+    setInitialMessage(null)
+  }
+
+  const onSessionCreated = useCallback(
+    (sid) => {
+      setChatSessionId(sid)
+      sessionsReq.reload()
+    },
+    [sessionsReq]
+  )
+
+  const agents = agentsReq.data || []
+  const providers = providersReq.data || []
+  const project = projects.find((p) => p.id === effectiveProjectId)
+
+  return (
+    <div className="app">
+      <aside className="sidebar">
+        <div className="sidebar-brand">Home</div>
+        <div className="sidebar-scroll">
+          <div className="sidebar-label">
+            Projects
+            <button title="Add project" onClick={() => setShowAddProject(true)}>
+              +
+            </button>
+          </div>
+          {projects.map((p) => (
+            <button
+              key={p.id}
+              className={`sidebar-item ${p.id === effectiveProjectId ? 'active' : ''}`}
+              onClick={() => selectProject(p.id)}
+            >
+              <span className="dot" />
+              {p.name}
+            </button>
+          ))}
+          {projectsReq.loading && <div className="meta">Loading...</div>}
+          {!projectsReq.loading && projects.length === 0 && (
+            <div className="meta">No projects yet, click + to add one.</div>
+          )}
+
+          {project && (
+            <div className="sidebar-section">
+              <div className="sidebar-label">
+                {project.name}
+                <button title="New chat" onClick={startNewChat}>
+                  +
+                </button>
+              </div>
+              <button
+                className={`sidebar-item ${
+                  view.type === 'chat' && chatSessionId === null ? 'active' : ''
+                }`}
+                onClick={startNewChat}
+              >
+                New chat
+              </button>
+              {sessions.map((s) => (
+                <button
+                  key={s.id}
+                  className={`sidebar-item ${
+                    view.type === 'chat' && chatSessionId === s.id ? 'active' : ''
+                  }`}
+                  onClick={() => openChat(s.id)}
+                >
+                  <span
+                    style={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      flex: 1,
+                      textAlign: 'left',
+                    }}
+                  >
+                    {s.title || 'Untitled'}
+                  </span>
+                  <span className="sub">{relDate(s.created_at)}</span>
+                </button>
+              ))}
+              <button
+                className={`sidebar-item ${view.type === 'memory' ? 'active' : ''}`}
+                onClick={() => setView({ type: 'memory' })}
+              >
+                Memory
+              </button>
+              <button
+                className={`sidebar-item ${view.type === 'about' ? 'active' : ''}`}
+                onClick={() => setView({ type: 'about' })}
+              >
+                About
+              </button>
+            </div>
+          )}
+
+          <div className="sidebar-section">
+            <div className="sidebar-label">Global</div>
+            <button
+              className={`sidebar-item ${view.type === 'agents' ? 'active' : ''}`}
+              onClick={() => setView({ type: 'agents' })}
+            >
+              Agents
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <div className="main">
+        {project && view.type !== 'agents' && (
+          <header className="topbar">
+            <div className="topbar-title">
+              <span className="name">{project.name}</span>
+              <span className="repo">{project.repo_url}</span>
+            </div>
+            <div className="topbar-right">
+              <select value={agentId} onChange={(e) => setAgentId(e.target.value)}>
+                <option value="">Default (no profile)</option>
+                {agents.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+              {!agentId && (
+                <select value={providerId} onChange={(e) => setProviderId(e.target.value)}>
+                  <option value="">Default provider</option>
+                  {providers.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.model})
+                    </option>
+                  ))}
+                </select>
+              )}
+              <button className="icon-btn" title="Providers" onClick={() => setShowSettings(true)}>
+                &#9881;
+              </button>
+            </div>
+          </header>
         )}
-      </main>
+
+        <div className="content">
+          {!project && !projectsReq.loading && (
+            <div className="empty">
+              No projects yet. Click + next to Projects to add one.
+            </div>
+          )}
+          {project && view.type === 'welcome' && (
+            <WelcomeView
+              project={project}
+              onStart={(msg) => {
+                setInitialMessage(msg)
+                setView({ type: 'chat' })
+                setChatSessionId(null)
+              }}
+            />
+          )}
+          {project && view.type === 'chat' && (
+            <ChatView
+              key={`${project.id}:${chatSessionId ?? 'new'}`}
+              projectId={project.id}
+              sessionId={chatSessionId}
+              agentId={agentId}
+              providerId={providerId}
+              onSessionCreated={onSessionCreated}
+              initialMessage={initialMessage}
+            />
+          )}
+          {project && view.type === 'memory' && <MemoryView projectId={project.id} />}
+          {project && view.type === 'about' && (
+            <AboutView
+              projectId={project.id}
+              onDeleted={() => {
+                projectsReq.reload()
+                setProjectId(null)
+                setView({ type: 'welcome' })
+              }}
+            />
+          )}
+          {view.type === 'agents' && <AgentsPage />}
+        </div>
+      </div>
+
+      {showAddProject && (
+        <AddProjectModal
+          onClose={() => setShowAddProject(false)}
+          onCreated={(p) => {
+            setShowAddProject(false)
+            projectsReq.reload()
+            selectProject(p.id)
+          }}
+        />
+      )}
+      {showSettings && (
+        <Modal title="Providers" onClose={() => setShowSettings(false)}>
+          <ProvidersPanel />
+        </Modal>
+      )}
     </div>
   )
 }
