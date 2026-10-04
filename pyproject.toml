@@ -1,0 +1,28 @@
+[project]
+name = "home"
+version = "0.1.0"
+description = "Self-hostable agentic project cockpit with persistent Totem memory"
+readme = "README.md"
+authors = [
+    { name = "Emiliano Gandini Outeda", email = "emiliano.gandini@protonmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi>=0.142.2",
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "sqlmodel>=0.0.47",
+    "totem-mcp",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[project.scripts]
+home = "home:main"
+
+[build-system]
+requires = ["uv_build>=0.12.22,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+totem-mcp = { path = "../totem", editable = true }
