@@ -1,0 +1,293 @@
+:root {
+  color-scheme: dark;
+  --bg: #0d1117;
+  --bg2: #161b22;
+  --border: #30363d;
+  --fg: #c9d1d9;
+  --muted: #8b949e;
+  --accent: #58a6ff;
+  --ok: #3fb950;
+  --err: #f85149;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  font-size: 14px;
+}
+
+nav.topnav {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 20px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+}
+
+nav.topnav .brand {
+  font-weight: 600;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+nav.topnav button {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+nav.topnav button.active,
+nav.topnav button:hover {
+  color: var(--accent);
+}
+
+main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+h2 {
+  margin-top: 0;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+input,
+select,
+textarea,
+button.btn {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 14px;
+}
+
+button.btn {
+  background: var(--bg2);
+  cursor: pointer;
+}
+
+button.btn:hover {
+  border-color: var(--accent);
+}
+
+button.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.btn.danger:hover {
+  border-color: var(--err);
+  color: var(--err);
+}
+
+form.inline-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 480px;
+  margin-bottom: 24px;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  cursor: pointer;
+}
+
+.card:hover {
+  border-color: var(--accent);
+}
+
+.card h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+.card .meta {
+  color: var(--muted);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: 6px;
+}
+
+.badge.ok {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.badge.err {
+  color: var(--err);
+  border-color: var(--err);
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tabs button {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.tabs button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.chat-controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.chat-controls select {
+  flex: 1;
+}
+
+.messages {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg2);
+  padding: 12px;
+  min-height: 200px;
+  max-height: 480px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+
+.msg {
+  margin-bottom: 12px;
+}
+
+.msg .role {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.msg.user .role {
+  color: var(--accent);
+}
+
+.msg .content {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tool-row {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.tool-row summary {
+  padding: 6px 10px;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.tool-row .body {
+  padding: 0 10px 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--fg);
+}
+
+.tool-result {
+  padding: 6px 10px;
+  color: var(--muted);
+}
+
+.tool-result .ok {
+  color: var(--ok);
+}
+
+.tool-result .err {
+  color: var(--err);
+}
+
+.chat-input {
+  display: flex;
+  gap: 8px;
+}
+
+.chat-input textarea {
+  flex: 1;
+  min-height: 60px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.note {
+  color: var(--muted);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.error-text {
+  color: var(--err);
+}
