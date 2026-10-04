@@ -1,0 +1,32 @@
+# Multi-stage: build the React SPA, then a slim Python runtime.
+# Self-contained: totem is fetched from git (the local path override in
+# pyproject.toml is stripped here; it only exists for local development).
+
+FROM node:22-alpine AS web
+WORKDIR /web
+COPY web/package.json web/package-lock.json* ./
+RUN npm install --no-audit --no-fund
+COPY web/ ./
+RUN npm run build
+
+FROM python:3.14-slim AS runtime
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+COPY pyproject.toml uv.lock README.md ./
+COPY src ./src
+# Drop the dev-only editable path override for totem; uv then resolves it
+# from the git URL in the dependency spec.
+RUN sed -i '/^\[tool.uv.sources\]/,$d' pyproject.toml \
+    && uv sync --no-dev --no-editable
+COPY --from=web /web/dist ./web/dist
+
+ENV DATA_DIR=/data \
+    PORT=8080
+VOLUME /data
+EXPOSE 8080
+
+CMD ["/app/.venv/bin/uvicorn", "home.main:app", "--host", "0.0.0.0", "--port", "8080"]

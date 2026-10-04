@@ -1,0 +1,18 @@
+services:
+  home:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - home-data:/data
+    environment:
+      # At least one provider key, matching the api_key_env you configure:
+      KIMI_API_KEY: ${KIMI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    restart: unless-stopped
+
+volumes:
+  home-data:

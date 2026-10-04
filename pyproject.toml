@@ -13,7 +13,7 @@ dependencies = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "sqlmodel>=0.0.47",
-    "totem-mcp",
+    "totem-mcp @ git+https://github.com/emiliano-go/totem",
     "uvicorn[standard]>=0.54.0",
 ]
 
