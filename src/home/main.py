@@ -19,10 +19,26 @@ def create_app() -> FastAPI:
     app.include_router(providers.router)
     app.include_router(sessions.router)
 
-    dist = Path(__file__).parents[2] / "web" / "dist"
-    if dist.exists():
+    dist = find_web_dist()
+    if dist:
         app.mount("/", StaticFiles(directory=dist, html=True), name="web")
     return app
+
+
+def find_web_dist() -> Path | None:
+    """Locate the built SPA: env override, repo checkout, or Docker layout."""
+    import os
+
+    candidates = [
+        os.environ.get("WEB_DIST"),
+        Path.cwd() / "web" / "dist",
+        Path(__file__).parents[2] / "web" / "dist",  # editable/src install
+        Path("/app/web/dist"),  # Docker image layout
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).exists():
+            return Path(candidate)
+    return None
 
 
 app = create_app()
