@@ -14,8 +14,7 @@ router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 
 def _clone_dir(name: str) -> Path:
-    safe = "".join(c if c.isalnum() or c in "-_" else "-" for c in name)
-    return config.data_dir() / "repos" / safe
+    return config.data_dir() / "repos" / config.slug(name)
 
 
 def _clone(repo_url: str, dest: Path) -> None:

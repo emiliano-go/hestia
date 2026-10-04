@@ -39,6 +39,16 @@ PRESETS = {
         "tools": "memory",
         "max_turns": 6,
     },
+    "writer": {
+        "name": "writer",
+        "system_prompt": (
+            "You are a writing subagent. Produce the deliverable in the "
+            "project workspace with workspace_write (plans, specs, docs) and "
+            "return a short summary with the file paths you wrote."
+        ),
+        "tools": "workspace,repo,files",
+        "max_turns": 8,
+    },
     "code-reviewer": {
         "name": "code-reviewer",
         "system_prompt": (

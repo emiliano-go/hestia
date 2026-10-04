@@ -15,14 +15,18 @@ class ProjectContext:
     name: str
     repo_url: str
     local_path: Path
+    workspace_path: Path | None = None
 
     @classmethod
     def from_project(cls, project) -> "ProjectContext":
+        from home import config
+
         return cls(
             project_id=project.id,
             name=project.name,
             repo_url=project.repo_url,
             local_path=Path(project.local_path),
+            workspace_path=config.workspace_dir(project.name),
         )
 
 

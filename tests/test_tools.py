@@ -72,3 +72,17 @@ def test_memory_create_via_tool(registry, repo):
     assert out["id"]
     results = registry.get("memory_search").handler(repo, {"query": "T"})
     assert any(r["id"] == out["id"] for r in results)
+
+
+def test_workspace_write_read_list_and_escape(registry, repo, tmp_path):
+    from home import config
+
+    ws = config.workspace_dir("t")
+    ctx = repo.__class__(repo.project_id, repo.name, repo.repo_url, repo.local_path, ws)
+    out = registry.get("workspace_write").handler(ctx, {"path": "plans/spec.md", "content": "# Spec\n"})
+    assert out["bytes"] == 7
+    assert (ws / "plans" / "spec.md").read_text() == "# Spec\n"
+    assert registry.get("workspace_read").handler(ctx, {"path": "plans/spec.md"})["content"] == "# Spec\n"
+    assert registry.get("workspace_list").handler(ctx, {"pattern": "plans/*.md"}) == ["plans/spec.md"]
+    with pytest.raises(PermissionError):
+        registry.get("workspace_write").handler(ctx, {"path": "../../evil.md", "content": "x"})
