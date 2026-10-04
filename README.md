@@ -43,7 +43,7 @@ because sessions only save memory, and agents bootstrap from Totem rather
 than from chat transcripts.
 
 Agents are read-only for now: they can clone, pull, fetch, read files, and
-query GitHub, but they do not modify the codebase.
+query GitHub, and write workspace files (plans, specs), but they do not modify the codebase.
 
 ## Features
 
@@ -78,6 +78,10 @@ query GitHub, but they do not modify the codebase.
 - **Visible agent work**: tool calls and results stream over SSE and render
   as collapsible rows in the chat, next to a memory browser for inspecting
   and searching what the agent has learned.
+- **Persistent workspace**: agent-generated files (plans, specs, research
+  notes) go to a per-project workspace directory in the data volume,
+  outside the repository, via the `workspace_write` / `workspace_read` /
+  `workspace_list` tools (sandboxed the same way as repo file tools).
 - **Multiple agents, multiple models**: named agent profiles (Agents page)
   each bind a provider (any OpenAI-compatible model), a system prompt, a
   tool subset, and a turn budget. Pick a profile for the main chat, and let
