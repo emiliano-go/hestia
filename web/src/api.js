@@ -42,6 +42,19 @@ export const api = {
   searchMemory: (projectId, q) =>
     request(`/projects/${projectId}/memory?q=${encodeURIComponent(q)}`),
 
+  listWorkspace: (projectId, pattern = '*') =>
+    request(`/projects/${projectId}/workspace?pattern=${encodeURIComponent(pattern)}`),
+  getWorkspaceFile: async (projectId, path) => {
+    const res = await fetch(
+      `${BASE}/projects/${projectId}/workspace/file?path=${encodeURIComponent(path)}`
+    )
+    if (!res.ok) throw new Error(res.status === 404 ? 'File not found' : res.statusText)
+    return res.text()
+  },
+  listGallery: () => request('/gallery'),
+  fixMemory: (projectId, body) =>
+    request(`/projects/${projectId}/memory/fix`, { method: 'POST', body: JSON.stringify(body) }),
+
   // SSE chat: POST stream of `data: {json}` lines. Calls handlers as events arrive.
   async chat(projectId, { message, session_id, provider_id }, handlers) {
     const res = await fetch(`${BASE}/projects/${projectId}/chat`, {

@@ -85,12 +85,12 @@ textarea::placeholder {
 }
 
 a {
-  color: var(--fg-secondary);
+  color: var(--accent-dim);
   text-decoration: none;
 }
 
 a:hover {
-  color: var(--fg);
+  color: var(--accent);
 }
 
 /* ------------------------------------------------------------------
@@ -816,4 +816,217 @@ pre {
 
 .modal .modal-close {
   float: right;
+}
+
+/* ------------------------------------------------------------------
+   File explorer and reader
+------------------------------------------------------------------- */
+
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius);
+  color: var(--fg-secondary);
+  font-size: 13.5px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.file-row:hover {
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.file-row .fpath {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-row .fsize {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.reader {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+  max-width: 48rem;
+}
+
+.reader-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.reader-head .fpath {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+  word-break: break-all;
+}
+
+.reader-body {
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: var(--fg);
+  word-break: break-word;
+}
+
+.reader-body pre {
+  margin: 12px 0;
+}
+
+.reader-body h1,
+.reader-body h2,
+.reader-body h3 {
+  margin: 20px 0 8px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.reader-body h1 {
+  font-size: 19px;
+}
+
+.reader-body h2 {
+  font-size: 16.5px;
+}
+
+.reader-body h3 {
+  font-size: 15px;
+}
+
+.reader-body p {
+  margin: 0 0 12px;
+}
+
+.reader-body ul,
+.reader-body ol {
+  margin: 0 0 12px;
+  padding-left: 22px;
+}
+
+.reader-body li {
+  margin-bottom: 4px;
+}
+
+.reader-body code {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  background: var(--content-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.reader-body pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+/* ------------------------------------------------------------------
+   Theme editor
+------------------------------------------------------------------- */
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 16px;
+  margin-bottom: 14px;
+}
+
+.theme-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.theme-row label {
+  flex: 1;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.theme-row input[type='color'] {
+  flex: none;
+  width: 34px;
+  height: 26px;
+  padding: 2px;
+  cursor: pointer;
+}
+
+.theme-row input[type='text'] {
+  width: 88px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  padding: 4px 6px;
+}
+
+/* ------------------------------------------------------------------
+   Memory fix panel
+------------------------------------------------------------------- */
+
+.fix-panel {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 14px 16px;
+  margin-bottom: 20px;
+}
+
+.fix-panel .fix-row {
+  display: flex;
+  gap: 8px;
+}
+
+.fix-panel .fix-row input {
+  flex: 1;
+}
+
+.fix-report {
+  margin-top: 12px;
+  border-top: 1px solid var(--border-soft);
+  padding-top: 12px;
+}
+
+/* settings tabs */
+
+.modal-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.modal-tabs button {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.modal-tabs button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
 }

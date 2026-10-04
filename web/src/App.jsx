@@ -48,6 +48,163 @@ function useAsync(fn, deps) {
   return { data, error, loading, reload }
 }
 
+// ---------- theme ----------
+
+const THEME_KEY = 'home-theme'
+
+const DEFAULT_THEME = {
+  '--content-bg': '#0e1013',
+  '--sidebar-bg': '#131518',
+  '--surface': '#17191d',
+  '--border': '#262a30',
+  '--fg': '#e8eaec',
+  '--muted': '#868d95',
+  '--accent': '#d29a4b',
+  '--ok': '#4fae7c',
+  '--err': '#d9635c',
+}
+
+const THEME_LABELS = {
+  '--content-bg': 'Content background',
+  '--sidebar-bg': 'Sidebar background',
+  '--surface': 'Surface',
+  '--border': 'Border',
+  '--fg': 'Text',
+  '--muted': 'Muted text',
+  '--accent': 'Accent',
+  '--ok': 'Success',
+  '--err': 'Danger',
+}
+
+function hexToRgb(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
+  if (!m) return null
+  const n = parseInt(m[1], 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+
+function mixWithBlack(hex, amount) {
+  const rgb = hexToRgb(hex)
+  if (!rgb) return hex
+  const c = rgb.map((v) => Math.round(v * (1 - amount)))
+  return '#' + c.map((v) => v.toString(16).padStart(2, '0')).join('')
+}
+
+function loadStoredTheme() {
+  try {
+    const raw = localStorage.getItem(THEME_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch (e) {
+    return {}
+  }
+}
+
+function applyTheme(theme) {
+  const root = document.documentElement.style
+  const vars = { ...DEFAULT_THEME, ...theme }
+  for (const [k, v] of Object.entries(vars)) root.setProperty(k, v)
+  root.setProperty('--accent-dim', mixWithBlack(vars['--accent'], 0.18))
+  root.setProperty('--accent-soft', vars['--accent'] + '1f')
+}
+
+function resetTheme() {
+  localStorage.removeItem(THEME_KEY)
+  applyTheme({})
+}
+
+function saveTheme(theme) {
+  const clean = Object.fromEntries(
+    Object.entries(theme).filter(([k, v]) => DEFAULT_THEME[k] && v !== DEFAULT_THEME[k])
+  )
+  if (Object.keys(clean).length === 0) {
+    localStorage.removeItem(THEME_KEY)
+  } else {
+    localStorage.setItem(THEME_KEY, JSON.stringify(clean))
+  }
+}
+
+// ---------- tiny markdown ----------
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function inlineMd(s) {
+  return s
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+}
+
+function mdToHtml(md) {
+  const blocks = []
+  let text = escapeHtml(md).replace(/```([\s\S]*?)```/g, (m, code) => {
+    blocks.push('<pre><code>' + code.replace(/^\n/, '') + '</code></pre>')
+    return '__MD_BLOCK_' + (blocks.length - 1) + '__MD_BLOCK_'
+  })
+  const lines = text.split('\n')
+  const out = []
+  let list = []
+  let para = []
+  const flushList = () => {
+    if (list.length) {
+      out.push('<ul>' + list.map((li) => '<li>' + inlineMd(li) + '</li>').join('') + '</ul>')
+      list = []
+    }
+  }
+  const flushPara = () => {
+    if (para.length) {
+      out.push('<p>' + inlineMd(para.join(' ')) + '</p>')
+      para = []
+    }
+  }
+  for (const line of lines) {
+    const t = line.trim()
+    let m
+    if ((m = /^######?\s+(.*)$/.exec(t))) {
+      flushList()
+      flushPara()
+      out.push('<h3>' + inlineMd(m[1]) + '</h3>')
+    } else if ((m = /^####\s+(.*)$/.exec(t))) {
+      flushList()
+      flushPara()
+      out.push('<h2>' + inlineMd(m[1]) + '</h2>')
+    } else if ((m = /^###\s+(.*)$/.exec(t))) {
+      flushList()
+      flushPara()
+      out.push('<h2>' + inlineMd(m[1]) + '</h2>')
+    } else if ((m = /^##\s+(.*)$/.exec(t))) {
+      flushList()
+      flushPara()
+      out.push('<h2>' + inlineMd(m[1]) + '</h2>')
+    } else if ((m = /^#\s+(.*)$/.exec(t))) {
+      flushList()
+      flushPara()
+      out.push('<h1>' + inlineMd(m[1]) + '</h1>')
+    } else if ((m = /^[-*]\s+(.*)$/.exec(t))) {
+      flushPara()
+      list.push(m[1])
+    } else if (t === '') {
+      flushList()
+      flushPara()
+    } else {
+      flushList()
+      para.push(t)
+    }
+  }
+  flushList()
+  flushPara()
+  return out
+    .join('\n')
+    .replace(/__MD_BLOCK_(\d+)__MD_BLOCK_/g, (m, i) => blocks[parseInt(i, 10)])
+}
+
+function fmtBytes(n) {
+  if (n == null) return ''
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
 // ---------- shared bits ----------
 
 function ToolChip({ name, args }) {
@@ -434,13 +591,197 @@ function AgentsPage() {
   )
 }
 
+// ---------- file reader and views ----------
+
+function FileReaderPane({ projectId, path, onClose }) {
+  const [content, setContent] = useState(null)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    setContent(null)
+    setError(null)
+    api
+      .getWorkspaceFile(projectId, path)
+      .then(setContent)
+      .catch((e) => setError(e.message || String(e)))
+  }, [projectId, path])
+
+  return (
+    <div className="reader">
+      <div className="reader-head">
+        <span className="fpath">{path}</span>
+        <button className="btn" onClick={onClose}>
+          Back
+        </button>
+      </div>
+      {error && <p className="error-text">{error}</p>}
+      {content === null && !error && <p className="note">Loading...</p>}
+      {content !== null &&
+        (/\.(md|markdown)$/i.test(path) ? (
+          <div className="reader-body" dangerouslySetInnerHTML={{ __html: mdToHtml(content) }} />
+        ) : (
+          <pre>{content}</pre>
+        ))}
+    </div>
+  )
+}
+
+function FilesView({ projectId }) {
+  const { data, error, loading, reload } = useAsync(
+    () => api.listWorkspace(projectId),
+    [projectId]
+  )
+  const [selected, setSelected] = useState(null)
+  const files = (data && data.files) || []
+
+  if (selected) {
+    return (
+      <div className="center-col">
+        <FileReaderPane
+          projectId={projectId}
+          path={selected}
+          onClose={() => setSelected(null)}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div className="center-col">
+      <div className="page-head">
+        <h2>Files</h2>
+        <button className="btn" onClick={reload} disabled={loading}>
+          {loading ? 'Refreshing...' : 'Refresh'}
+        </button>
+      </div>
+      {error && <p className="error-text">{error}</p>}
+      {!loading && !error && files.length === 0 && (
+        <p className="empty">No workspace files yet. Ask the agent to write a plan or spec.</p>
+      )}
+      {files.map((f) => (
+        <button key={f.path} className="file-row" onClick={() => setSelected(f.path)}>
+          <span className="fpath">{f.path}</span>
+          <span className="fsize">{fmtBytes(f.bytes)}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function GalleryView() {
+  const { data: items, error, loading, reload } = useAsync(api.listGallery, [])
+  const [filter, setFilter] = useState('')
+  const [selected, setSelected] = useState(null)
+
+  const projects = [...new Set((items || []).map((i) => i.project))]
+  const filtered = (items || []).filter((i) => !filter || i.project === filter)
+
+  if (selected) {
+    return (
+      <div className="center-col">
+        <FileReaderPane
+          projectId={selected.project_id}
+          path={selected.path}
+          onClose={() => setSelected(null)}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div className="center-col">
+      <div className="page-head">
+        <h2>Gallery</h2>
+        <div className="row" style={{ marginBottom: 0 }}>
+          <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+            <option value="">All projects</option>
+            {projects.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+          <button className="btn" onClick={reload} disabled={loading}>
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
+      </div>
+      {error && <p className="error-text">{error}</p>}
+      {!loading && !error && filtered.length === 0 && (
+        <p className="empty">No workspace files yet. Ask the agent to write a plan or spec.</p>
+      )}
+      <div className="cards">
+        {filtered.map((f) => (
+          <div
+            key={`${f.project_id}:${f.path}`}
+            className="card"
+            onClick={() => setSelected(f)}
+            style={{ cursor: 'pointer' }}
+          >
+            <h3>
+              <span className="badge">{f.project}</span>
+            </h3>
+            <div className="meta" style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>
+              {f.path}
+            </div>
+            <div className="meta">{fmtBytes(f.bytes)}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ---------- theme panel ----------
+
+function ThemePanel() {
+  const [theme, setTheme] = useState(() => ({ ...DEFAULT_THEME, ...loadStoredTheme() }))
+
+  const set = (k) => (e) => {
+    const v = e.target.value
+    setTheme((t) => {
+      const next = { ...t, [k]: v }
+      applyTheme(next)
+      saveTheme(next)
+      return next
+    })
+  }
+
+  return (
+    <div>
+      <div className="theme-grid">
+        {Object.entries(THEME_LABELS).map(([k, label]) => (
+          <div key={k} className="theme-row">
+            <label>{label}</label>
+            <input type="color" value={theme[k]} onChange={set(k)} />
+            <input type="text" value={theme[k]} onChange={set(k)} />
+          </div>
+        ))}
+      </div>
+      <button
+        className="btn"
+        onClick={() => {
+          resetTheme()
+          setTheme({ ...DEFAULT_THEME })
+        }}
+      >
+        Reset to defaults
+      </button>
+    </div>
+  )
+}
+
 // ---------- memory ----------
 
-function MemoryView({ projectId }) {
+function MemoryView({ projectId, providerId }) {
   const [q, setQ] = useState('')
   const [items, setItems] = useState(null)
   const [error, setError] = useState(null)
   const [searching, setSearching] = useState(false)
+  const [instruction, setInstruction] = useState('')
+  const [fixing, setFixing] = useState(false)
+  const [fixReport, setFixReport] = useState(null)
+  const [fixError, setFixError] = useState(null)
 
   const search = (e) => {
     e?.preventDefault()
@@ -453,10 +794,47 @@ function MemoryView({ projectId }) {
       .finally(() => setSearching(false))
   }
 
+  const runFix = (e) => {
+    e?.preventDefault()
+    if (!instruction.trim() || fixing) return
+    setFixing(true)
+    setFixError(null)
+    setFixReport(null)
+    api
+      .fixMemory(projectId, {
+        instruction: instruction.trim(),
+        provider_id: providerId || undefined,
+      })
+      .then((r) => {
+        setFixReport(r.report || '(no report)')
+        search()
+      })
+      .catch((err) => setFixError(err.message || String(err)))
+      .finally(() => setFixing(false))
+  }
+
   return (
     <div className="center-col">
       <div className="page-head">
         <h2>Memory</h2>
+      </div>
+      <div className="fix-panel">
+        <form className="fix-row" onSubmit={runFix}>
+          <input
+            placeholder="Tell the agent what to fix, e.g. mark Flask memories as stale"
+            value={instruction}
+            onChange={(e) => setInstruction(e.target.value)}
+          />
+          <button className="btn primary" disabled={fixing || !instruction.trim()}>
+            {fixing ? 'Running...' : 'Fix with agent'}
+          </button>
+        </form>
+        {fixError && <p className="error-text" style={{ marginTop: 8 }}>{fixError}</p>}
+        {fixReport !== null && (
+          <div className="fix-report">
+            <div className="reader-body" dangerouslySetInnerHTML={{ __html: mdToHtml(fixReport) }} />
+          </div>
+        )}
       </div>
       <form className="search-row" onSubmit={search}>
         <input
@@ -751,6 +1129,11 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [agentId, setAgentId] = useState('')
   const [providerId, setProviderId] = useState('')
+  const [settingsTab, setSettingsTab] = useState('providers')
+
+  useEffect(() => {
+    applyTheme(loadStoredTheme())
+  }, [])
 
   const effectiveProjectId = projectId && projects.some((p) => p.id === projectId)
     ? projectId
@@ -863,6 +1246,12 @@ export default function App() {
                 </button>
               ))}
               <button
+                className={`sidebar-item ${view.type === 'files' ? 'active' : ''}`}
+                onClick={() => setView({ type: 'files' })}
+              >
+                Files
+              </button>
+              <button
                 className={`sidebar-item ${view.type === 'memory' ? 'active' : ''}`}
                 onClick={() => setView({ type: 'memory' })}
               >
@@ -885,12 +1274,18 @@ export default function App() {
             >
               Agents
             </button>
+            <button
+              className={`sidebar-item ${view.type === 'gallery' ? 'active' : ''}`}
+              onClick={() => setView({ type: 'gallery' })}
+            >
+              Gallery
+            </button>
           </div>
         </div>
       </aside>
 
       <div className="main">
-        {project && view.type !== 'agents' && (
+        {project && view.type !== 'agents' && view.type !== 'gallery' && (
           <header className="topbar">
             <div className="topbar-title">
               <span className="name">{project.name}</span>
@@ -949,7 +1344,10 @@ export default function App() {
               initialMessage={initialMessage}
             />
           )}
-          {project && view.type === 'memory' && <MemoryView projectId={project.id} />}
+          {project && view.type === 'files' && <FilesView projectId={project.id} />}
+          {project && view.type === 'memory' && (
+            <MemoryView projectId={project.id} providerId={providerId} />
+          )}
           {project && view.type === 'about' && (
             <AboutView
               projectId={project.id}
@@ -961,6 +1359,7 @@ export default function App() {
             />
           )}
           {view.type === 'agents' && <AgentsPage />}
+          {view.type === 'gallery' && <GalleryView />}
         </div>
       </div>
 
@@ -975,8 +1374,22 @@ export default function App() {
         />
       )}
       {showSettings && (
-        <Modal title="Providers" onClose={() => setShowSettings(false)}>
-          <ProvidersPanel />
+        <Modal title="Settings" onClose={() => setShowSettings(false)}>
+          <div className="modal-tabs">
+            <button
+              className={settingsTab === 'providers' ? 'active' : ''}
+              onClick={() => setSettingsTab('providers')}
+            >
+              Providers
+            </button>
+            <button
+              className={settingsTab === 'theme' ? 'active' : ''}
+              onClick={() => setSettingsTab('theme')}
+            >
+              Theme
+            </button>
+          </div>
+          {settingsTab === 'providers' ? <ProvidersPanel /> : <ThemePanel />}
         </Modal>
       )}
     </div>
