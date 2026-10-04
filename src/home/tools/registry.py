@@ -32,6 +32,7 @@ class Tool:
     description: str
     parameters: dict[str, Any]  # JSON Schema for the tool arguments
     handler: Callable[[ProjectContext, dict[str, Any]], Any]
+    group: str = ""  # repo | files | github | memory | agents
 
 
 class Registry:
@@ -47,7 +48,15 @@ class Registry:
     def all(self) -> list[Tool]:
         return list(self._tools.values())
 
-    def openai_schemas(self) -> list[dict[str, Any]]:
+    def filtered(self, groups: list[str]) -> "Registry":
+        """A view restricted to the given tool groups (plus groupless tools)."""
+        view = Registry()
+        for tool in self._tools.values():
+            if not tool.group or tool.group in groups:
+                view.register(tool)
+        return view
+
+    def openai_schemas(self, tools: list["Tool"] | None = None) -> list[dict[str, Any]]:
         return [
             {
                 "type": "function",
@@ -61,7 +70,7 @@ class Registry:
                     },
                 },
             }
-            for t in self._tools.values()
+            for t in (tools if tools is not None else self.all())
         ]
 
 

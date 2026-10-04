@@ -4,7 +4,7 @@ from pathlib import Path
 
 from home.tools.registry import ProjectContext
 
-_POLICY = """\
+POLICY = """\
 You are the project agent of a self-hosted project cockpit. You are READ-ONLY:
 you can inspect the repository and GitHub and you can read and write Totem
 project memory, but you must never modify project files, run mutating git
@@ -39,7 +39,7 @@ def build_system_prompt(
         f"You are the agent for the project '{ctx.name}' ({ctx.repo_url}).",
         "",
         "## Policy",
-        _POLICY,
+        POLICY,
         "",
         "## Repository layout",
         f"Clone root: {ctx.local_path}",

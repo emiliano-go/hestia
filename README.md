@@ -47,22 +47,77 @@ query GitHub, but they do not modify the codebase.
 
 ## Features
 
-- Project workspaces: each project links a GitHub repository, its local
-  clone, documentation, and `AGENTS.md`.
-- Totem memory embedded in the agent's MCP tools (search, get, create,
-  update), backed by a per-project `.totem/totem.db` that stays compatible
-  with the totem CLI.
-- Contextual chat with any OpenAI-compatible provider (Kimi, DeepSeek, GPT,
-  OpenRouter) or a self-hosted model (Ollama, vLLM, llama.cpp).
-- Read-only repository tools: clone, pull, fetch, log, diff, show, plus file
-  read, grep, and glob, all sandboxed to the project clone.
-- GitHub tools: commits, PRs, issues, and CI runs via the REST API.
-- Single Docker container; one volume holds the registry database, clones,
-  and totem databases.
+- **Project workspaces**: register a project by Git URL; `home` clones it
+  under the data volume and links the repository, its documentation, and its
+  `AGENTS.md` into one workspace. A pull button refreshes the clone and the
+  instructions.
+- **Totem memory in the agent's tools**: the agent's MCP-style toolset
+  includes `memory_search`, `memory_get`, `memory_list`, `memory_create`,
+  `memory_update`, and `memory_delete`, backed by a per-project
+  `.totem/totem.db` that stays file-compatible with the
+  [totem](https://github.com/emiliano-go/totem) CLI. Memory is not a chat
+  log; it is a curated store of decisions, gotchas, architecture facts, and
+  open questions.
+- **Sessionless conversations**: chat sessions are lightweight views kept
+  for UI replay. Durable knowledge is distilled into Totem at the end of
+  every turn, so a brand-new session bootstraps from ranked memory (matched
+  against your question) instead of from an ever-growing transcript. Any
+  session can consult the memories written by every other session.
+- **Contextual chat with any OpenAI-compatible provider**: Kimi, DeepSeek,
+  GPT, OpenRouter, or a self-hosted model behind an OpenAI-compatible
+  endpoint (Ollama, vLLM, llama.cpp). Providers are configured in the UI
+  with per-provider model and endpoint; API keys stay in environment
+  variables and are referenced by name.
+- **Read-only repository tools**: `git_pull`, `git_log`, `git_diff`,
+  `git_show`, `git_status`, `git_branches` (mutating subcommands are
+  rejected by a whitelist), plus `list_files`, `read_file`, `grep`,
+  `read_agents_md`, and `list_docs`, all sandboxed to the project clone.
+- **GitHub tools**: `gh_commits`, `gh_prs`, `gh_issues`, and `gh_ci_runs`
+  against the linked repository via the REST API, with an optional token
+  for higher rate limits and private repos.
+- **Visible agent work**: tool calls and results stream over SSE and render
+  as collapsible rows in the chat, next to a memory browser for inspecting
+  and searching what the agent has learned.
+- **MCP server included**: the same toolset is exposed over MCP on stdio
+  (`home-mcp`, with `HOME_PROJECT_DIR` set), so external agents get the
+  exact same read-only project tools and Totem memory.
+- **Single-container self-hosting**: one Docker image, one volume
+  (`/data`) holding the registry database, the clones, and the totem
+  databases.
+
+## How it works
+
+1. **Register a project** (Projects page): give it a name and a Git URL.
+   `home` clones the repository into the data volume, snapshots its
+   `AGENTS.md`, and initializes the Totem database on first use.
+2. **Configure a provider** (Providers page): pick a preset (Kimi,
+   DeepSeek, OpenAI, OpenRouter, Ollama, custom) or enter a base URL and
+   model by hand. The key is read from the environment variable you name;
+   use Test to verify the connection before chatting.
+3. **Chat** (project Chat tab): every turn starts by assembling a system
+   prompt from the project instructions, the repository layout, and the
+   Totem memories ranked most relevant to your question. The agent then
+   runs its tool-calling loop: recalling memories, inspecting files and git
+   history, and checking GitHub as needed, with each step visible in the
+   UI.
+4. **Memory grows by itself**: when a turn finishes, its essence is written
+   into Totem as a memory, and the agent is instructed to record decisions,
+   facts, and architecture explanations as it goes. Nothing durable lives
+   only in the transcript.
+5. **Come back later, anywhere**: start a new session and the agent already
+   knows the project: the memory digest replaces the chat history. Use the
+   Memory tab to search, review, and audit what has been learned.
 
 ## Quick start
 
-With Docker:
+With Docker Compose:
+
+```sh
+export KIMI_API_KEY=sk-...   # or any provider you plan to use
+docker compose up -d --build
+```
+
+Or plain Docker:
 
 ```sh
 docker build -t home .
@@ -71,7 +126,8 @@ docker run -p 8080:8080 -v home-data:/data \
   home
 ```
 
-Open http://localhost:8080, register a project by Git URL, and chat.
+Open http://localhost:8080, register a project by Git URL, configure a
+provider, and chat.
 
 Local development:
 

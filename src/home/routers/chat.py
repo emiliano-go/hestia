@@ -11,11 +11,17 @@ from home.agent import loop as agent_loop
 from home.agent.prompt import build_system_prompt
 from home.providers.base import OpenAIClient, resolve_api_key
 from home.registry.db import session
-from home.registry.models import Message, Project, Provider, Session as ChatSession
-from home.tools import build_registry
+from home.registry.models import AgentConfig, Message, Project, Provider, Session as ChatSession
+from home.tools import build_registry, subagents
 from home.tools.registry import ProjectContext
 
 router = APIRouter(prefix="/api", tags=["chat"])
+
+_DELEGATION_NOTE = """\
+## Delegation
+You can delegate read-only subtasks to subagent profiles (different models,
+own prompts and tool subsets) via run_subagent; list them with agent_list.
+Delegate exploration and scanning instead of doing everything yourself."""
 
 
 def _sse(event: dict) -> str:
@@ -27,8 +33,16 @@ def chat(project_id: int, body: dict, s: Session = Depends(session)):
     project = s.get(Project, project_id)
     if not project:
         raise HTTPException(404, "project not found")
-    provider_id = body.get("provider_id") or project.default_provider_id
-    provider = s.get(Provider, provider_id) if provider_id else None
+
+    agent_config = None
+    if body.get("agent_id"):
+        agent_config = s.get(AgentConfig, body["agent_id"])
+        if not agent_config:
+            raise HTTPException(404, "agent profile not found")
+        provider = s.get(Provider, agent_config.provider_id)
+    else:
+        provider_id = body.get("provider_id") or project.default_provider_id
+        provider = s.get(Provider, provider_id) if provider_id else None
     if not provider:
         raise HTTPException(400, "no provider configured for this project")
     user_text = (body.get("message") or "").strip()
@@ -50,6 +64,8 @@ def chat(project_id: int, body: dict, s: Session = Depends(session)):
     ctx = ProjectContext.from_project(project)
     client = OpenAIClient(provider.base_url, resolve_api_key(provider.api_key_env), provider.model)
     registry = build_registry()
+    for tool in subagents.make_tools(s):
+        registry.register(tool)
 
     digest = totem_store.digest(ctx.local_path, task=user_text)
     system = build_system_prompt(
@@ -58,6 +74,9 @@ def chat(project_id: int, body: dict, s: Session = Depends(session)):
         memory_context=digest.get("context", ""),
         user_task=user_text,
     )
+    if agent_config and agent_config.system_prompt:
+        system += f"\n\n## Agent instructions\n{agent_config.system_prompt}"
+    system += "\n\n" + _DELEGATION_NOTE
 
     async def stream():
         messages = [

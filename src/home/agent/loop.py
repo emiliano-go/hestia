@@ -22,10 +22,11 @@ async def run_turn(
     client: OpenAIClient,
     registry: Registry,
     messages: list[dict[str, Any]],
+    max_turns: int = MAX_TURNS,
 ) -> AsyncIterator[dict[str, Any]]:
     tools = registry.openai_schemas()
     try:
-        for _ in range(MAX_TURNS):
+        for _ in range(max_turns):
             content, tool_calls = await _accumulate(client, messages, tools)
             yield {"type": "message", "content": content, "tool_calls": tool_calls}
             if not tool_calls:

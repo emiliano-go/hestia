@@ -65,6 +65,7 @@ def register(registry: Registry) -> None:
         description="Fast-forward pull the project clone from its remote. Read-only with respect to local history.",
         parameters=schema({"properties": {}, "required": []}, []),
         handler=lambda ctx, a: _git(ctx, ["pull", "--ff-only"]),
+        group="repo",
     ))
     registry.register(Tool(
         name="git_log",
@@ -77,6 +78,7 @@ def register(registry: Registry) -> None:
         handler=lambda ctx, a: _git(ctx, ["log", f"--max-count={a.get('max_count', 20)}"]
                                     + (["--oneline"] if a.get("oneline") else [])
                                     + (["--", a["path"]] if a.get("path") else [])),
+        group="repo",
     ))
     registry.register(Tool(
         name="git_diff",
@@ -88,28 +90,33 @@ def register(registry: Registry) -> None:
         handler=lambda ctx, a: _git(ctx, ["diff"]
                                     + ([a["ref"]] if a.get("ref") else [])
                                     + (["--", a["path"]] if a.get("path") else [])),
+        group="repo",
     ))
     registry.register(Tool(
         name="git_show",
         description="Show a commit (git show <ref>).",
         parameters=schema({"ref": {"type": "string"}}, ["ref"]),
         handler=lambda ctx, a: _git(ctx, ["show", a["ref"]]),
+        group="repo",
     ))
     registry.register(Tool(
         name="git_status",
         description="Working tree status (git status).",
         parameters=schema({"properties": {}, "required": []}, []),
         handler=lambda ctx, a: _git(ctx, ["status"]),
+        group="repo",
     ))
     registry.register(Tool(
         name="git_branches",
         description="List local and remote branches.",
         parameters=schema({"properties": {}, "required": []}, []),
         handler=lambda ctx, a: _git(ctx, ["branch", "-a", "-v"]),
+        group="repo",
     ))
     registry.register(Tool(
         name="repo_path",
         description="Absolute path of the project clone on this server.",
         parameters=schema({"properties": {}, "required": []}, []),
         handler=lambda ctx, a: _repo_path(ctx),
+        group="repo",
     ))

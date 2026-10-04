@@ -13,18 +13,21 @@ def register(registry: Registry) -> None:
             "limit": {"type": "integer"},
         }, ["query"]),
         handler=lambda ctx, a: totem_store.search(ctx.local_path, a["query"], a.get("limit", 20)),
+        group="memory",
     ))
     registry.register(Tool(
         name="memory_get",
         description="Fetch a single memory item by id.",
         parameters=schema({"id": {"type": "string"}}, ["id"]),
         handler=lambda ctx, a: totem_store.get(ctx.local_path, a["id"]),
+        group="memory",
     ))
     registry.register(Tool(
         name="memory_list",
         description="List recent project memories.",
         parameters=schema({"limit": {"type": "integer"}}, []),
         handler=lambda ctx, a: totem_store.list_all(ctx.local_path, a.get("limit", 50)),
+        group="memory",
     ))
     registry.register(Tool(
         name="memory_create",
@@ -53,6 +56,7 @@ def register(registry: Registry) -> None:
             confidence=a.get("confidence", 1.0),
             importance=a.get("importance", 0.5),
         ),
+        group="memory",
     ))
     registry.register(Tool(
         name="memory_update",
@@ -71,6 +75,7 @@ def register(registry: Registry) -> None:
             statement=a.get("statement"),
             details=a.get("details"),
         ),
+        group="memory",
     ))
     registry.register(Tool(
         name="memory_delete",
@@ -80,4 +85,5 @@ def register(registry: Registry) -> None:
             "reason": {"type": "string"},
         }, ["id", "reason"]),
         handler=lambda ctx, a: totem_store.delete(ctx.local_path, a["id"], a["reason"]),
+        group="memory",
     ))

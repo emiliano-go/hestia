@@ -40,6 +40,7 @@ def register(registry: Registry) -> None:
         description="Recent commits on the default branch (GitHub API).",
         parameters=schema({"per_page": {"type": "integer"}}, []),
         handler=lambda ctx, a: _get(ctx, "/commits", {"per_page": a.get("per_page", 20)}),
+        group="github",
     ))
     registry.register(Tool(
         name="gh_prs",
@@ -49,6 +50,7 @@ def register(registry: Registry) -> None:
             "per_page": {"type": "integer"},
         }, []),
         handler=lambda ctx, a: _get(ctx, "/pulls", {"state": a.get("state", "open"), "per_page": a.get("per_page", 20)}),
+        group="github",
     ))
     registry.register(Tool(
         name="gh_issues",
@@ -58,10 +60,12 @@ def register(registry: Registry) -> None:
             "per_page": {"type": "integer"},
         }, []),
         handler=lambda ctx, a: _get(ctx, "/issues", {"state": a.get("state", "open"), "per_page": a.get("per_page", 20)}),
+        group="github",
     ))
     registry.register(Tool(
         name="gh_ci_runs",
         description="Recent GitHub Actions workflow runs.",
         parameters=schema({"per_page": {"type": "integer"}}, []),
         handler=lambda ctx, a: _get(ctx, "/actions/runs", {"per_page": a.get("per_page", 20)}),
+        group="github",
     ))

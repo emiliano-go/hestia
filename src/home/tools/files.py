@@ -73,12 +73,14 @@ def register(registry: Registry) -> None:
             "limit": {"type": "integer"},
         }, []),
         handler=lambda ctx, a: _list_files(ctx, a.get("pattern", "*"), a.get("limit", 200)),
+        group="files",
     ))
     registry.register(Tool(
         name="read_file",
         description="Read a UTF-8 text file inside the project (max 100 KB returned).",
         parameters=schema({"path": {"type": "string"}}, ["path"]),
         handler=lambda ctx, a: _read_file(ctx, a["path"]),
+        group="files",
     ))
     registry.register(Tool(
         name="grep",
@@ -89,6 +91,7 @@ def register(registry: Registry) -> None:
             "limit": {"type": "integer"},
         }, ["pattern"]),
         handler=lambda ctx, a: _grep(ctx, a["pattern"], a.get("path"), a.get("limit", 50)),
+        group="files",
     ))
     registry.register(Tool(
         name="read_agents_md",
@@ -96,6 +99,7 @@ def register(registry: Registry) -> None:
         parameters=schema({"properties": {}, "required": []}, []),
         handler=lambda ctx, a: _read_file(ctx, "AGENTS.md") if (ctx.local_path / "AGENTS.md").exists()
             else {"found": False},
+        group="files",
     ))
     registry.register(Tool(
         name="list_docs",
@@ -105,4 +109,5 @@ def register(registry: Registry) -> None:
             f for f in _list_files(ctx, "**/*.md", limit=100)
             if f.count(os.sep) <= 1 or f.startswith("docs" + os.sep)
         ),
+        group="files",
     ))

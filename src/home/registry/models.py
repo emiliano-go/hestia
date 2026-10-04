@@ -49,3 +49,19 @@ class Provider(SQLModel, table=True):
     api_key_env: str  # name of the env var holding the key, never the key itself
     model: str
     created_at: datetime = Field(default_factory=_now)
+
+
+class AgentConfig(SQLModel, table=True):
+    """A named agent profile: its own model, prompt, and tool subset.
+
+    Used for the main agent selection and for subagents spawned via the
+    run_subagent tool (e.g. a cheap explore agent).
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+    system_prompt: str = ""
+    provider_id: int = Field(foreign_key="provider.id")
+    tools: str = "repo,files"  # comma-separated tool groups: repo, files, github, memory
+    max_turns: int = 6
+    created_at: datetime = Field(default_factory=_now)
