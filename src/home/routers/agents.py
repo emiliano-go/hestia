@@ -68,11 +68,14 @@ def create_agent(body: dict, s: Session = Depends(session)):
             raise HTTPException(400, f"{field} is required")
     if s.exec(select(AgentConfig).where(AgentConfig.name == body["name"])).first():
         raise HTTPException(409, f"agent profile already exists: {body['name']}")
+    tools = body.get("tools", "repo,files")
+    if isinstance(tools, list):
+        tools = ",".join(tools)
     config = AgentConfig(
         name=body["name"],
         system_prompt=body.get("system_prompt", ""),
         provider_id=body["provider_id"],
-        tools=body.get("tools", "repo,files"),
+        tools=tools,
         max_turns=body.get("max_turns", 6),
     )
     s.add(config)

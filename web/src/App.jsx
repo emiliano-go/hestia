@@ -119,8 +119,10 @@ function ToolResultRow({ name, ok, preview }) {
 function ChatTab({ projectId }) {
   const sessionsReq = useAsync(() => api.listSessions(projectId), [projectId])
   const providersReq = useAsync(api.listProviders, [])
+  const agentsReq = useAsync(api.listAgents, [])
   const [sessionChoice, setSessionChoice] = useState('new')
   const [providerId, setProviderId] = useState('')
+  const [agentId, setAgentId] = useState('')
   const [messages, setMessages] = useState(null)
   const [streamEvents, setStreamEvents] = useState([])
   const [finalMessage, setFinalMessage] = useState(null)
@@ -165,7 +167,9 @@ function ChatTab({ projectId }) {
         {
           message,
           session_id: shownSession || undefined,
-          provider_id: providerId || undefined,
+          ...(agentId
+            ? { agent_id: agentId }
+            : { provider_id: providerId || undefined }),
         },
         {
           onEvent: (evt) => {
@@ -197,6 +201,7 @@ function ChatTab({ projectId }) {
   }
 
   const providers = providersReq.data || []
+  const agents = agentsReq.data || []
 
   return (
     <div>
@@ -209,20 +214,29 @@ function ChatTab({ projectId }) {
             </option>
           ))}
         </select>
-        {providers.length > 0 ? (
-          <select value={providerId} onChange={(e) => setProviderId(e.target.value)}>
-            <option value="">Default provider</option>
-            {providers.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} ({p.model})
-              </option>
-            ))}
-          </select>
-        ) : (
-          <span className="note">
-            No providers configured, see <a href="#/providers">Providers</a>.
-          </span>
-        )}
+        <select value={agentId} onChange={(e) => setAgentId(e.target.value)}>
+          <option value="">Default (no profile)</option>
+          {agents.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+        {!agentId &&
+          (providers.length > 0 ? (
+            <select value={providerId} onChange={(e) => setProviderId(e.target.value)}>
+              <option value="">Default provider</option>
+              {providers.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.model})
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="note">
+              No providers configured, see <a href="#/providers">Providers</a>.
+            </span>
+          ))}
       </div>
       <div className="messages">
         {(messages || []).map((m) => (
@@ -549,6 +563,139 @@ function ProvidersPage() {
   )
 }
 
+// ---------- Agents page ----------
+
+function AgentsPage() {
+  const { data: agents, error, loading, reload } = useAsync(api.listAgents, [])
+  const providersReq = useAsync(api.listProviders, [])
+  const presetsReq = useAsync(api.listAgentPresets, [])
+  const [form, setForm] = useState({
+    name: '',
+    provider_id: '',
+    system_prompt: '',
+    tools: '',
+    max_turns: '',
+  })
+  const [presetKey, setPresetKey] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState(null)
+
+  const presets = presetsReq.data || {}
+  const providers = providersReq.data || []
+
+  const applyPreset = (key) => {
+    setPresetKey(key)
+    const p = presets[key]
+    if (p) {
+      setForm((f) => ({
+        ...f,
+        name: f.name || p.name || key,
+        system_prompt: p.system_prompt || '',
+        tools: Array.isArray(p.tools) ? p.tools.join(', ') : p.tools || '',
+        max_turns: p.max_turns != null ? String(p.max_turns) : '',
+      }))
+    }
+  }
+
+  const submit = (e) => {
+    e.preventDefault()
+    setSaving(true)
+    setFormError(null)
+    const body = {
+      name: form.name,
+      provider_id: form.provider_id || undefined,
+      system_prompt: form.system_prompt || undefined,
+      tools: form.tools
+        ? form.tools.split(',').map((t) => t.trim()).filter(Boolean)
+        : undefined,
+      max_turns: form.max_turns ? parseInt(form.max_turns, 10) : undefined,
+    }
+    api
+      .createAgent(body)
+      .then(() => {
+        setForm({ name: '', provider_id: '', system_prompt: '', tools: '', max_turns: '' })
+        setPresetKey('')
+        reload()
+      })
+      .catch((err) => setFormError(err.message || String(err)))
+      .finally(() => setSaving(false))
+  }
+
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
+
+  const providerName = (id) => providers.find((p) => p.id === id)?.name || id || 'default'
+
+  return (
+    <div>
+      <h2>Agents</h2>
+      <form className="inline-form" onSubmit={submit}>
+        <select value={presetKey} onChange={(e) => applyPreset(e.target.value)}>
+          <option value="">Choose a preset...</option>
+          {Object.entries(presets).map(([k, p]) => (
+            <option key={k} value={k}>
+              {p.name || k}
+            </option>
+          ))}
+        </select>
+        <input placeholder="Name" value={form.name} onChange={set('name')} required />
+        <select value={form.provider_id} onChange={set('provider_id')}>
+          <option value="">Default provider</option>
+          {providers.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name} ({p.model})
+            </option>
+          ))}
+        </select>
+        <input
+          placeholder="Tools (comma separated: repo, files, github, memory)"
+          value={form.tools}
+          onChange={set('tools')}
+        />
+        <input
+          placeholder="Max turns"
+          type="number"
+          min="1"
+          value={form.max_turns}
+          onChange={set('max_turns')}
+        />
+        <textarea
+          placeholder="System prompt"
+          value={form.system_prompt}
+          onChange={set('system_prompt')}
+          rows={6}
+        />
+        <button className="btn" disabled={saving}>
+          {saving ? 'Saving...' : 'Add agent'}
+        </button>
+        {formError && <div className="error-text">{formError}</div>}
+      </form>
+      {loading && <p className="note">Loading...</p>}
+      {error && <p className="error-text">{error}</p>}
+      {agents && agents.length === 0 && <p className="note">No agents configured.</p>}
+      <div className="cards">
+        {(agents || []).map((a) => (
+          <div key={a.id} className="card" style={{ cursor: 'default' }}>
+            <h3>{a.name}</h3>
+            <div className="meta">Provider: {providerName(a.provider_id)}</div>
+            <div className="meta">Tools: {(a.tools || []).join(', ') || '(default)'}</div>
+            <div className="meta">Max turns: {a.max_turns ?? '(default)'}</div>
+            <div className="row" style={{ marginTop: 8, marginBottom: 0 }}>
+              <button
+                className="btn danger"
+                onClick={() =>
+                  api.deleteAgent(a.id).then(reload).catch((e) => alert(e.message))
+                }
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ---------- App shell ----------
 
 export default function App() {
@@ -573,12 +720,19 @@ export default function App() {
         >
           Providers
         </button>
+        <button
+          className={view.page === 'agents' ? 'active' : ''}
+          onClick={() => setView({ page: 'agents' })}
+        >
+          Agents
+        </button>
       </nav>
       <main>
         {view.page === 'projects' && (
           <ProjectsPage onOpen={(id) => setView({ page: 'project', id })} />
         )}
         {view.page === 'providers' && <ProvidersPage />}
+        {view.page === 'agents' && <AgentsPage />}
         {view.page === 'project' && (
           <ProjectView projectId={view.id} onDeleted={() => setView({ page: 'projects' })} />
         )}

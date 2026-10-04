@@ -32,6 +32,11 @@ export const api = {
   deleteProvider: (id) => request(`/providers/${id}`, { method: 'DELETE' }),
   testProvider: (id) => request(`/providers/${id}/test`, { method: 'POST' }),
 
+  listAgentPresets: () => request('/agents/presets'),
+  listAgents: () => request('/agents'),
+  createAgent: (body) => request('/agents', { method: 'POST', body: JSON.stringify(body) }),
+  deleteAgent: (id) => request(`/agents/${id}`, { method: 'DELETE' }),
+
   listSessions: (projectId) => request(`/projects/${projectId}/sessions`),
   listMessages: (sessionId) => request(`/sessions/${sessionId}/messages`),
   searchMemory: (projectId, q) =>

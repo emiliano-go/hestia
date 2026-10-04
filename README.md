@@ -78,6 +78,14 @@ query GitHub, but they do not modify the codebase.
 - **Visible agent work**: tool calls and results stream over SSE and render
   as collapsible rows in the chat, next to a memory browser for inspecting
   and searching what the agent has learned.
+- **Multiple agents, multiple models**: named agent profiles (Agents page)
+  each bind a provider (any OpenAI-compatible model), a system prompt, a
+  tool subset, and a turn budget. Pick a profile for the main chat, and let
+  the main agent delegate to subagents via `run_subagent`: it runs the
+  profile's model against its tool subset and returns a summary. Presets
+  include `explore` (repo + files), `github-scan`, `memory-keeper`, and
+  `code-reviewer`, so cheap models can do the legwork while a stronger one
+  reasons. Subagents cannot spawn further subagents.
 - **MCP server included**: the same toolset is exposed over MCP on stdio
   (`home-mcp`, with `HOME_PROJECT_DIR` set), so external agents get the
   exact same read-only project tools and Totem memory.
@@ -107,6 +115,21 @@ query GitHub, but they do not modify the codebase.
 5. **Come back later, anywhere**: start a new session and the agent already
    knows the project: the memory digest replaces the chat history. Use the
    Memory tab to search, review, and audit what has been learned.
+
+## Agents and subagents
+
+The main chat agent can be any configured agent profile, and it can delegate
+to subagents mid-conversation. A profile is a name, a provider (hence a
+model), a system prompt, a comma-separated tool subset (`repo`, `files`,
+`github`, `memory`), and a `max_turns` budget.
+
+- Create profiles on the Agents page, starting from a preset (`explore`,
+  `github-scan`, `memory-keeper`, `code-reviewer`) or from scratch.
+- In the chat, pick a profile in the Agent dropdown to run the whole
+  conversation with that model and prompt.
+- The main agent also gets `run_subagent` and `agent_list` tools: it can hand
+  a self-contained read-only task to a profile (for example, "explore" on a
+  cheap model) and continue with the summary.
 
 ## Quick start
 
