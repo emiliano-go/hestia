@@ -11,7 +11,7 @@ Yields event dicts:
 import json
 from typing import Any, AsyncIterator
 
-from home.providers.base import OpenAIClient, ProviderError
+from home.providers.base import OpenAIClient
 from home.tools.registry import ProjectContext, Registry
 
 MAX_TURNS = 10
@@ -45,8 +45,8 @@ async def run_turn(
                     "content": json.dumps(result, default=str)[:20_000],
                 })
         yield {"type": "error", "message": f"stopped after {MAX_TURNS} tool-call turns"}
-    except ProviderError as e:
-        yield {"type": "error", "message": str(e)}
+    except Exception as e:
+        yield {"type": "error", "message": str(e)[:1000]}
 
 
 async def _accumulate(

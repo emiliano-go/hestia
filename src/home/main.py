@@ -19,7 +19,7 @@ def create_app() -> FastAPI:
     app.include_router(providers.router)
     app.include_router(sessions.router)
 
-    dist = Path(__file__).parents[3] / "web" / "dist"
+    dist = Path(__file__).parents[2] / "web" / "dist"
     if dist.exists():
         app.mount("/", StaticFiles(directory=dist, html=True), name="web")
     return app
