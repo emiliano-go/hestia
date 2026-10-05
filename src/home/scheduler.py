@@ -18,7 +18,7 @@ from home import actions, events, inbox, notify, overview, reminders, settings, 
 from home.agent.prompt import build_system_prompt
 from home.agent.run import run_once
 from home.registry.db import engine
-from home.registry.models import Event, InboxItem, Project, Provider, Schedule, Task
+from home.registry.models import Event, InboxItem, Project, Provider, Schedule, Task, Usage
 from home.tools.registry import ProjectContext
 
 TICK_SECONDS = max(5, int(os.environ.get("HOME_SCHEDULER_TICK", "30")))
@@ -154,6 +154,197 @@ async def _maybe_send_briefing(db: Session) -> None:
         url=settings.notification_url("/home"),
     )
     settings.set_many(db, {"briefing_last_sent": today})
+
+
+PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+
+DAILY_PLAN_PROMPT = """\
+Write today's plan from the digest below. Rank the work by priority and
+deadline, note anything blocked, and give 3 to 6 concrete steps. Write the
+plan to the project workspace at plans/{date}.md with workspace_write, then
+end with a short plain-text summary. Be brief, no greeting.
+
+## Digest
+{digest}
+"""
+
+WEEKLY_REVIEW_PROMPT = """\
+Write this week's review from the digest below: what moved, what is blocked
+or stale, and the velocity. Then propose next week's focus as 3 to 5 items.
+Write it to the project workspace at reviews/{date}.md with workspace_write,
+then end with a short plain-text summary. Be brief, no greeting.
+
+## Digest
+{digest}
+"""
+
+
+def _parse_hhmm(value: str, default: tuple[int, int]) -> tuple[int, int]:
+    try:
+        hh, mm = (int(part) for part in (value or "").split(":"))
+        return hh, mm
+    except ValueError:
+        return default
+
+
+def _aware(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _due_key(task: Task) -> tuple[int, datetime]:
+    return (
+        PRIORITY_ORDER.get(task.priority, 1),
+        _aware(task.due_at) if task.due_at else datetime.max.replace(tzinfo=timezone.utc),
+    )
+
+
+def _daily_plan_digest(db: Session) -> str:
+    lines: list[str] = []
+    soon = reminders.due(db, datetime.now(timezone.utc) + timedelta(days=1))
+    if soon:
+        lines.append(
+            "Reminders: " + "; ".join(f"{r.text} ({_fmt_due(r.due_at)})" for r in soon[:5])
+        )
+    for project in db.exec(select(Project)).all():
+        tasks = db.exec(select(Task).where(Task.project_id == project.id)).all()
+        blocked = taskboard.blocked_map(db, project.id)
+        ready = sorted(
+            [t for t in tasks if t.status in ("todo", "doing") and t.id not in blocked],
+            key=_due_key,
+        )
+        if ready:
+            lines.append(
+                f"{project.name} ready: "
+                + ", ".join(f"#{t.id} {t.title}" for t in ready[:5])
+            )
+        risky = taskboard.at_risk(db, project.id)
+        if risky:
+            lines.append(
+                f"{project.name} at risk: "
+                + "; ".join(f"#{t.id} {t.title}" for t in risky[:3])
+            )
+    return "\n".join(lines)
+
+
+def _weekly_review_digest(db: Session) -> str:
+    now = datetime.now(timezone.utc)
+    start = (now - timedelta(days=now.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    lines: list[str] = []
+    total_done = 0
+    total_blocked = 0
+    for project in db.exec(select(Project)).all():
+        tasks = db.exec(select(Task).where(Task.project_id == project.id)).all()
+        blocked = taskboard.blocked_map(db, project.id)
+        done = [t for t in tasks if t.status == "done" and _aware(t.updated_at) >= start]
+        blocked_open = [t for t in tasks if t.status != "done" and t.id in blocked]
+        stale = [
+            t
+            for t in tasks
+            if t.status in ("todo", "doing") and _aware(t.updated_at) < now - timedelta(days=14)
+        ]
+        total_done += len(done)
+        total_blocked += len(blocked_open)
+        lines.append(
+            f"{project.name}: {len(done)} done this week, {len(blocked_open)} blocked, "
+            f"{len(stale)} stale (>14d)"
+        )
+    week_runs = db.exec(select(Usage).where(Usage.created_at >= start)).all()
+    tokens = sum(u.prompt_tokens + u.completion_tokens for u in week_runs)
+    lines.insert(
+        0,
+        f"This week: {total_done} tasks done, {total_blocked} blocked, "
+        f"{len(week_runs)} agent runs, {tokens} tokens.",
+    )
+    return "\n".join(lines)
+
+
+async def _agent_narrative(db: Session, project: Project, digest: str, prompt: str) -> str | None:
+    agent = actions.resolve_action(db, "chat")
+    provider_id = (agent.provider_id if agent else None) or project.default_provider_id
+    provider = db.get(Provider, provider_id) if provider_id else None
+    if provider is None:
+        return None
+    system = build_system_prompt(
+        ProjectContext.from_project(project),
+        agents_md=project.agents_md,
+        memory_context="",
+        user_task="Write the plan",
+        extra_context=settings.prompt_context(db),
+    )
+    if agent and agent.system_prompt:
+        system += f"\n\n## Agent instructions\n{agent.system_prompt}"
+    system += "\n\n" + prompt.format(digest=digest, date=_now().date().isoformat())
+    report, error, tokens = await run_once(
+        project,
+        provider,
+        system,
+        "Write it.",
+        groups="workspace,repo,files,tasks",
+        max_turns=6,
+        tasks_db=db,
+    )
+    usage.record(db, project.id, action="plan", model=provider.model, usage=tokens)
+    return report if report and not error else None
+
+
+async def _maybe_send_daily_plan(db: Session) -> None:
+    if not settings.get_bool(db, "daily_plan_enabled"):
+        return
+    local = settings.local_now(db)
+    hh, mm = _parse_hhmm(settings.get(db, "daily_plan_time") or "08:30", (8, 30))
+    if (local.hour, local.minute) < (hh, mm):
+        return
+    today = local.date().isoformat()
+    if settings.get(db, "daily_plan_last_sent") == today:
+        return
+    digest = _daily_plan_digest(db) or "Nothing scheduled today."
+    message = digest
+    project = _first_provider_project(db)
+    if project is not None:
+        narrative = await _agent_narrative(db, project, digest, DAILY_PLAN_PROMPT)
+        if narrative:
+            message = f"{narrative.strip()}\n\n{digest}"
+    notify.send(
+        "Daily plan",
+        message[:1800],
+        tags=["calendar"],
+        url=settings.notification_url("/home"),
+    )
+    settings.set_many(db, {"daily_plan_last_sent": today})
+
+
+async def _maybe_send_weekly_review(db: Session) -> None:
+    if not settings.get_bool(db, "weekly_review_enabled"):
+        return
+    local = settings.local_now(db)
+    try:
+        day = int(settings.get(db, "weekly_review_day") or "4")
+    except ValueError:
+        day = 4
+    if local.weekday() != day:
+        return
+    hh, mm = _parse_hhmm(settings.get(db, "weekly_review_time") or "16:00", (16, 0))
+    if (local.hour, local.minute) < (hh, mm):
+        return
+    today = local.date().isoformat()
+    if settings.get(db, "weekly_review_last_sent") == today:
+        return
+    digest = _weekly_review_digest(db) or "No activity recorded this week."
+    message = digest
+    project = _first_provider_project(db)
+    if project is not None:
+        narrative = await _agent_narrative(db, project, digest, WEEKLY_REVIEW_PROMPT)
+        if narrative:
+            message = f"{narrative.strip()}\n\n{digest}"
+    notify.send(
+        "Weekly review",
+        message[:1800],
+        tags=["bar_chart"],
+        url=settings.notification_url("/home"),
+    )
+    settings.set_many(db, {"weekly_review_last_sent": today})
 
 
 def _now() -> datetime:
@@ -340,6 +531,8 @@ async def worker() -> None:
             with Session(engine()) as db:
                 reminders.fire_due(db)
                 await _maybe_send_briefing(db)
+                await _maybe_send_daily_plan(db)
+                await _maybe_send_weekly_review(db)
                 await watchers.check_due(db)
 
             with Session(engine()) as db:

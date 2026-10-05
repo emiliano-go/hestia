@@ -23,6 +23,13 @@ DEFAULTS: dict[str, str] = {
     "briefing_time": "08:00",
     "briefing_agent": "0",
     "briefing_last_sent": "",
+    "daily_plan_enabled": "0",
+    "daily_plan_time": "08:30",
+    "daily_plan_last_sent": "",
+    "weekly_review_enabled": "0",
+    "weekly_review_day": "4",  # Monday=0 .. Sunday=6
+    "weekly_review_time": "16:00",
+    "weekly_review_last_sent": "",
     "web_fetch_enabled": "1",
     "github_oauth_client_id": "",
 }

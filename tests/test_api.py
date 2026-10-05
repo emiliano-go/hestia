@@ -2515,3 +2515,42 @@ def test_inbox_poll_emits_ci_event(client, monkeypatch):
             )
         ).all()
         assert any(e.key == "run:100" for e in rows)
+
+
+def test_daily_plan_and_weekly_review_gates(client, monkeypatch):
+    import asyncio
+
+    from sqlmodel import Session as SqlSession
+
+    from home import notify, scheduler, settings
+    from home.registry.db import engine
+
+    _mk_project(client)
+    calls = []
+    monkeypatch.setattr(notify, "send", lambda *a, **k: calls.append(a))
+
+    client.put(
+        "/api/settings",
+        json={
+            "daily_plan_enabled": "1",
+            "daily_plan_time": "00:00",
+            "weekly_review_enabled": "1",
+            "weekly_review_time": "00:00",
+        },
+    )
+    with SqlSession(engine()) as db:
+        day = settings.local_now(db).weekday()
+    client.put("/api/settings", json={"weekly_review_day": str(day)})
+
+    with SqlSession(engine()) as db:
+        asyncio.run(scheduler._maybe_send_daily_plan(db))
+        asyncio.run(scheduler._maybe_send_daily_plan(db))
+    assert len([c for c in calls if c[0] == "Daily plan"]) == 1
+
+    with SqlSession(engine()) as db:
+        asyncio.run(scheduler._maybe_send_weekly_review(db))
+        asyncio.run(scheduler._maybe_send_weekly_review(db))
+    assert len([c for c in calls if c[0] == "Weekly review"]) == 1
+
+    assert client.put("/api/settings", json={"weekly_review_time": "25:00"}).status_code == 400
+    assert client.put("/api/settings", json={"weekly_review_day": "9"}).status_code == 400

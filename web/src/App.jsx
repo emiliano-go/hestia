@@ -1642,6 +1642,59 @@ function AssistantPanel() {
         />
         Let the agent add commentary to the briefing
       </label>
+      <div className="field-row">
+        <label className="field">
+          <span className="field-label">Daily plan</span>
+          <select
+            value={form.daily_plan_enabled}
+            onChange={(e) => field('daily_plan_enabled', e.target.value)}
+          >
+            <option value="0">Off</option>
+            <option value="1">On</option>
+          </select>
+        </label>
+        <label className="field">
+          <span className="field-label">Plan time</span>
+          <input
+            type="time"
+            value={form.daily_plan_time || '08:30'}
+            onChange={(e) => field('daily_plan_time', e.target.value)}
+          />
+        </label>
+      </div>
+      <div className="field-row">
+        <label className="field">
+          <span className="field-label">Weekly review</span>
+          <select
+            value={form.weekly_review_enabled}
+            onChange={(e) => field('weekly_review_enabled', e.target.value)}
+          >
+            <option value="0">Off</option>
+            <option value="1">On</option>
+          </select>
+        </label>
+        <label className="field">
+          <span className="field-label">Review day</span>
+          <select
+            value={form.weekly_review_day}
+            onChange={(e) => field('weekly_review_day', e.target.value)}
+          >
+            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d, i) => (
+              <option key={d} value={String(i)}>
+                {d}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span className="field-label">Review time</span>
+          <input
+            type="time"
+            value={form.weekly_review_time || '16:00'}
+            onChange={(e) => field('weekly_review_time', e.target.value)}
+          />
+        </label>
+      </div>
       <label className="dep-item" style={{ flex: 'none' }}>
         <input
           type="checkbox"

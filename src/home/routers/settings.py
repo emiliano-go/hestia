@@ -27,8 +27,16 @@ def update_settings(body: dict, s: Session = Depends(session)):
             ZoneInfo(str(body["timezone"]).strip())
         except (ZoneInfoNotFoundError, ValueError):
             raise HTTPException(400, f"unknown timezone: {body['timezone']}")
-    if "briefing_time" in body and not _TIME_RE.match(str(body["briefing_time"]).strip()):
-        raise HTTPException(400, "briefing_time must be HH:MM")
+    for key in ("briefing_time", "daily_plan_time", "weekly_review_time"):
+        if key in body and not _TIME_RE.match(str(body[key]).strip()):
+            raise HTTPException(400, f"{key} must be HH:MM")
+    if "weekly_review_day" in body:
+        try:
+            day = int(body["weekly_review_day"])
+        except (TypeError, ValueError):
+            raise HTTPException(400, "weekly_review_day must be 0 (Mon) to 6 (Sun)")
+        if not 0 <= day <= 6:
+            raise HTTPException(400, "weekly_review_day must be 0 (Mon) to 6 (Sun)")
     unknown = [k for k in body if k not in settings.DEFAULTS]
     if unknown:
         raise HTTPException(400, f"unknown setting: {', '.join(unknown)}")
