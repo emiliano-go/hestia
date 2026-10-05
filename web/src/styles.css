@@ -2864,7 +2864,7 @@ pre {
   .field-row,
   .tool-groups,
   .milestone-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .help-table-row {
     grid-template-columns: 1fr;
@@ -3405,6 +3405,19 @@ pre {
 }
 
 @media (max-width: 620px) {
+  .row {
+    flex-wrap: wrap;
+  }
+  .field-row,
+  .docs-card .field-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .theme-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .inbox-head {
+    flex-wrap: wrap;
+  }
   .inbox-item {
     flex-wrap: wrap;
   }
