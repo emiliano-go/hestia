@@ -2620,3 +2620,58 @@ def test_run_once_registers_db_tools(client, monkeypatch):
     assert error is None
     for name in ("task_create", "remind_me", "watch_add", "schedule_create"):
         assert name in seen["tools"]
+
+
+def test_implement_requires_git_writes(client):
+    project = _mk_project(client)
+    task = client.post(
+        f"/api/projects/{project['id']}/tasks", json={"title": "do it"}
+    ).json()
+    assert client.post(f"/api/tasks/{task['id']}/implement").status_code == 403
+
+
+def test_run_next_picks_ready_task(client, monkeypatch):
+    from sqlmodel import Session as SqlSession, select
+
+    from home import jobs
+    from home.registry.db import engine
+    from home.registry.models import BackgroundTask, Task
+
+    project = _mk_project(client)
+    pid = project["id"]
+    client.put(f"/api/projects/{pid}/git-writes", json={"enabled": True})
+    monkeypatch.setattr(jobs.manager, "enqueue", lambda job_id: None)
+
+    dep = client.post(f"/api/projects/{pid}/tasks", json={"title": "dep"}).json()
+    low = client.post(
+        f"/api/projects/{pid}/tasks",
+        json={"title": "low ready", "status": "todo", "priority": "low"},
+    ).json()
+    high = client.post(
+        f"/api/projects/{pid}/tasks",
+        json={"title": "high ready", "status": "todo", "priority": "high"},
+    ).json()
+    blocked = client.post(
+        f"/api/projects/{pid}/tasks",
+        json={"title": "blocked", "status": "todo", "priority": "high", "depends_on": [dep["id"]]},
+    ).json()
+
+    result = client.post(f"/api/projects/{pid}/tasks/run-next").json()
+    assert result["task_id"] == high["id"], result
+
+    with SqlSession(engine()) as db:
+        job = db.get(BackgroundTask, result["job_id"])
+        assert job.kind == "agent" and job.action == "implement"
+        assert db.get(Task, high["id"]).status == "doing"
+        assert db.get(Task, blocked["id"]).status == "todo"
+
+
+def test_task_pr_url_roundtrip(client):
+    project = _mk_project(client)
+    task = client.post(
+        f"/api/projects/{project['id']}/tasks", json={"title": "pr task"}
+    ).json()
+    updated = client.put(
+        f"/api/tasks/{task['id']}", json={"pr_url": "https://github.com/a/b/pull/7"}
+    ).json()
+    assert updated["pr_url"] == "https://github.com/a/b/pull/7"

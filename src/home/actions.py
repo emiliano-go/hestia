@@ -69,6 +69,15 @@ ACTIONS: list[dict] = [
         "tools": "workspace,memory,repo,files",
     },
     {
+        "key": "implement",
+        "label": "Implement a task",
+        "description": (
+            "Implement a board task on a new branch, commit, push, and open a "
+            "pull request, then move the task to review."
+        ),
+        "tools": "repo,files,github,workspace,tasks",
+    },
+    {
         "key": "capture",
         "label": "Capture notes",
         "description": (

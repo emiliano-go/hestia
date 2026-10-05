@@ -193,6 +193,10 @@ def make_tools(db: Session) -> list[Tool]:
                         "type": "string",
                         "description": "deadline as ISO date or datetime; empty string clears it",
                     },
+                    "pr_url": {
+                        "type": "string",
+                        "description": "pull request URL once the task has been implemented",
+                    },
                     "reviewed": {
                         "type": "boolean",
                         "description": "confirm the review; required to move a task with acceptance criteria to done",

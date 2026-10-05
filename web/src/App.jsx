@@ -4108,6 +4108,7 @@ function TaskEditor({ task, projectId, onClose, onSaved, onImplement, gitWrites 
   const [commentBody, setCommentBody] = useState('')
   const [posting, setPosting] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [running, setRunning] = useState(false)
   const [issueNumber, setIssueNumber] = useState(task.github_issue || null)
   const milestonesReq = useAsync(() => api.listMilestones(projectId), [projectId])
   const milestones = milestonesReq.data || []
@@ -4156,6 +4157,19 @@ function TaskEditor({ task, projectId, onClose, onSaved, onImplement, gitWrites 
     ].join('\n')
     api.updateTask(task.id, { status: 'doing' }).catch(() => {})
     onImplement(brief)
+  }
+
+  const runInBackground = () => {
+    setRunning(true)
+    setError(null)
+    api
+      .implementTask(task.id)
+      .then(() => {
+        onSaved?.()
+        onClose()
+      })
+      .catch((err) => setError(err.message || String(err)))
+      .finally(() => setRunning(false))
   }
 
   const syncIssue = () => {
@@ -4347,6 +4361,24 @@ function TaskEditor({ task, projectId, onClose, onSaved, onImplement, gitWrites 
               <Icon name="sparkles" size={14} /> Implement with agent
             </button>
           )}
+          {!isNew && gitWrites && (
+            <button type="button" className="btn" disabled={running} onClick={runInBackground}>
+              {running ? (
+                <>
+                  <Spinner size={13} /> Starting
+                </>
+              ) : (
+                <>
+                  <Icon name="play" size={14} /> Run in background
+                </>
+              )}
+            </button>
+          )}
+          {task.pr_url && (
+            <a className="note" href={task.pr_url} target="_blank" rel="noreferrer">
+              Pull request
+            </a>
+          )}
           {!isNew && gitWrites && !issueNumber && (
             <button type="button" className="btn" disabled={syncing} onClick={syncIssue}>
               {syncing ? (
@@ -4381,6 +4413,17 @@ function TasksView({ projectId, onImplement, gitWrites }) {
   const [suggesting, setSuggesting] = useState(false)
   const [suggestReport, setSuggestReport] = useState(null)
   const [suggestError, setSuggestError] = useState(null)
+  const [runningNext, setRunningNext] = useState(false)
+
+  const runNext = () => {
+    setRunningNext(true)
+    setSuggestError(null)
+    api
+      .runNextTask(projectId)
+      .then(() => reload())
+      .catch((e) => setSuggestError(e.message || String(e)))
+      .finally(() => setRunningNext(false))
+  }
 
   const suggest = () => {
     setSuggesting(true)
@@ -4458,6 +4501,19 @@ function TasksView({ projectId, onImplement, gitWrites }) {
               </>
             )}
           </button>
+          {gitWrites && (
+            <button className="btn" disabled={runningNext} onClick={runNext}>
+              {runningNext ? (
+                <>
+                  <Spinner size={13} /> Starting
+                </>
+              ) : (
+                <>
+                  <Icon name="play" size={14} /> Run next
+                </>
+              )}
+            </button>
+          )}
           <button className="btn primary" onClick={() => setEditor({ status: 'backlog' })}>
             <Icon name="plus" size={14} /> New task
           </button>
@@ -4527,6 +4583,18 @@ function TasksView({ projectId, onImplement, gitWrites }) {
                           )
                         )
                       })()}
+                      {t.pr_url && (
+                        <a
+                          className="due-chip"
+                          href={t.pr_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Pull request"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Icon name="git" size={11} /> PR
+                        </a>
+                      )}
                       <span className="kanban-card-time">{relDate(t.updated_at)}</span>
                     </div>
                   </div>

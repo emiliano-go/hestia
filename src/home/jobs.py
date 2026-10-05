@@ -258,6 +258,7 @@ async def _execute_job(
         groups=groups,
         max_turns=agent.max_turns if agent else 10,
         tasks_db=db,
+        writes=bool(project.allow_git_writes),
     )
     usage.record(
         db,

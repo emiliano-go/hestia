@@ -134,6 +134,10 @@ export const api = {
   getSettings: () => request('/settings'),
   updateSettings: (body) =>
     request('/settings', { method: 'PUT', body: JSON.stringify(body) }),
+  implementTask: (taskId) =>
+    request(`/tasks/${taskId}/implement`, { method: 'POST', body: '{}' }),
+  runNextTask: (projectId) =>
+    request(`/projects/${projectId}/tasks/run-next`, { method: 'POST', body: '{}' }),
   capture: (projectId, body) =>
     request(`/projects/${projectId}/capture`, {
       method: 'POST',

@@ -61,6 +61,8 @@ def _migrate() -> None:
             conn.exec_driver_sql("ALTER TABLE task ADD COLUMN source TEXT DEFAULT 'user'")
         if task_columns and "due_at" not in task_columns:
             conn.exec_driver_sql("ALTER TABLE task ADD COLUMN due_at DATETIME")
+        if task_columns and "pr_url" not in task_columns:
+            conn.exec_driver_sql("ALTER TABLE task ADD COLUMN pr_url TEXT")
 
         question_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(question)")}
         if question_columns and "kind" not in question_columns:

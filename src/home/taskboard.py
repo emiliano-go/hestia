@@ -119,6 +119,7 @@ def as_dict(task: Task, blocked_by: list[int] | None = None) -> dict:
         "source": task.source or "user",
         "github_issue": task.github_issue,
         "due_at": task.due_at.isoformat() if task.due_at else None,
+        "pr_url": task.pr_url,
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "updated_at": task.updated_at.isoformat() if task.updated_at else None,
     }
@@ -155,6 +156,30 @@ def at_risk(db: Session, project_id: int, within_hours: int = 48) -> list[Task]:
 
     due = [t for t in rows if t.due_at and aware(t.due_at) <= horizon]
     return sorted(due, key=lambda t: aware(t.due_at))
+
+
+PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+
+
+def next_ready(db: Session, project_id: int) -> Task | None:
+    """Highest-priority unblocked task in todo or doing, or None."""
+    blocked = blocked_map(db, project_id)
+    rows = db.exec(
+        select(Task).where(
+            Task.project_id == project_id,
+            Task.status.in_(("todo", "doing")),  # noqa: E712
+        )
+    ).all()
+    ready = [t for t in rows if t.id not in blocked]
+
+    def key(task: Task):
+        due = datetime.max.replace(tzinfo=timezone.utc) if not task.due_at else (
+            task.due_at if task.due_at.tzinfo else task.due_at.replace(tzinfo=timezone.utc)
+        )
+        return (PRIORITY_ORDER.get(task.priority, 1), due)
+
+    ready.sort(key=key)
+    return ready[0] if ready else None
 
 
 def _clean(value: str | None, allowed: list[str], field: str, default: str) -> str:
@@ -252,6 +277,8 @@ def update(db: Session, task: Task, fields: dict) -> Task:
         task.depends_on = json.dumps(deps)
     if "due_at" in fields:
         task.due_at = parse_due(fields["due_at"])
+    if "pr_url" in fields:
+        task.pr_url = (fields["pr_url"] or "").strip() or None
     if task.status != old_status and task.status in ("review", "done"):
         events.emit(
             db,

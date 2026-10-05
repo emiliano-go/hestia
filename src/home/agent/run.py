@@ -22,13 +22,14 @@ async def run_once(
     groups: str = "",
     max_turns: int = 8,
     tasks_db: Session | None = None,
+    writes: bool = False,
 ) -> tuple[str, str | None, dict]:
     """Run one agent turn to completion.
 
     Returns ``(final_text, error, token_usage)``.
     """
     ctx = ProjectContext.from_project(project)
-    registry = build_registry()
+    registry = build_registry(writes=writes)
     wanted = [g for g in (groups or "").split(",") if g]
     if wanted:
         registry = registry.filtered(wanted)

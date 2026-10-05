@@ -20,6 +20,7 @@ from home.routers import (
     docs,
     github,
     goals,
+    implement,
     inbox,
     jobs as jobs_router,
     milestones,
@@ -80,6 +81,7 @@ def create_app() -> FastAPI:
     app.include_router(projects.router)
     app.include_router(chat.router)
     app.include_router(capture.router)
+    app.include_router(implement.router)
     app.include_router(jobs_router.router)
     app.include_router(providers.router)
     app.include_router(sessions.router)

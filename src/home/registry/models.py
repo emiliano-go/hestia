@@ -113,6 +113,7 @@ class Task(SQLModel, table=True):
     github_issue: Optional[int] = None  # synced GitHub issue number
     source: str = "user"  # user | suggested
     due_at: Optional[datetime] = None  # UTC deadline, surfaced as at-risk
+    pr_url: Optional[str] = None  # pull request opened by the implement runner
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
