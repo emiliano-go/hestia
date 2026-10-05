@@ -1,15 +1,30 @@
 """Project CRUD + clone + repo status."""
 
+import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import delete
 from sqlmodel import Session, select
 
 from home import config, totem_store
 from home.registry.db import session
-from home.registry.models import Project
+from home.registry.models import (
+    Goal,
+    InboxItem,
+    Message,
+    Milestone,
+    Project,
+    Reminder,
+    Schedule,
+    Task,
+    TaskComment,
+    Usage,
+    Watch,
+)
+from home.registry.models import Session as ChatSession
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -161,8 +176,37 @@ def pull_project(project_id: int, s: Session = Depends(session)):
 
 @router.delete("/{project_id}", status_code=204)
 def delete_project(project_id: int, s: Session = Depends(session)):
+    """Delete a project, every row that belongs to it, and its clone/workspace."""
     project = s.get(Project, project_id)
     if not project:
         raise HTTPException(404, "project not found")
+
+    session_ids = list(
+        s.exec(select(ChatSession.id).where(ChatSession.project_id == project_id)).all()
+    )
+    task_ids = list(
+        s.exec(select(Task.id).where(Task.project_id == project_id)).all()
+    )
+    if session_ids:
+        s.exec(delete(Message).where(Message.session_id.in_(session_ids)))
+    if task_ids:
+        s.exec(delete(TaskComment).where(TaskComment.task_id.in_(task_ids)))
+    for model in (
+        Task,
+        Milestone,
+        Goal,
+        Schedule,
+        Reminder,
+        Watch,
+        InboxItem,
+        Usage,
+        ChatSession,
+    ):
+        s.exec(delete(model).where(model.project_id == project_id))
     s.delete(project)
     s.commit()
+
+    shutil.rmtree(config.data_dir() / "repos" / config.slug(project.name), ignore_errors=True)
+    shutil.rmtree(
+        config.data_dir() / "workspaces" / config.slug(project.name), ignore_errors=True
+    )

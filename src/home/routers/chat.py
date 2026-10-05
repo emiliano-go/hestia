@@ -1,13 +1,16 @@
 """Chat endpoint: SSE-streamed agent turn with Totem bootstrapping."""
 
+import asyncio
 import json
+import os
+from contextlib import suppress
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
-from home import settings, actions, memory_ingest, questions, totem_store, usage
+from home import actions, memory_ingest, questions, settings, totem_store, usage
 from home.agent import loop as agent_loop
 from home.agent.prompt import build_system_prompt
 from home.providers.base import OpenAIClient, resolve_api_key
@@ -22,6 +25,8 @@ from home.tools import watches as watch_tools
 from home.tools.registry import ProjectContext
 
 router = APIRouter(prefix="/api", tags=["chat"])
+
+HEARTBEAT_SECONDS = float(os.environ.get("HOME_SSE_HEARTBEAT", "15"))
 
 _DELEGATION_NOTE = """\
 ## Delegation
@@ -50,8 +55,20 @@ def chat(project_id: int, body: dict, s: Session = Depends(session)):
     if not project:
         raise HTTPException(404, "project not found")
 
+    user_text = (body.get("message") or "").strip()
+    if not user_text:
+        raise HTTPException(400, "message is required")
+
+    chat_session = None
+    if body.get("session_id"):
+        chat_session = s.get(ChatSession, body["session_id"])
+        if chat_session and chat_session.project_id != project.id:
+            raise HTTPException(404, "session not found")
+
     agent_config = None
-    action_key = (body.get("action") or "chat").strip()
+    action_key = (
+        body.get("action") or (chat_session.action if chat_session else None) or "chat"
+    ).strip()
     if action_key not in actions.ACTIONS_BY_KEY:
         action_key = "chat"
     if body.get("agent_id"):
@@ -67,16 +84,10 @@ def chat(project_id: int, body: dict, s: Session = Depends(session)):
         provider = s.get(Provider, provider_id) if provider_id else None
     if not provider:
         raise HTTPException(400, "no provider configured for this project")
-    user_text = (body.get("message") or "").strip()
-    if not user_text:
-        raise HTTPException(400, "message is required")
 
-    chat_session = None
-    if body.get("session_id"):
-        chat_session = s.get(ChatSession, body["session_id"])
     if chat_session is None:
         title = (user_text.splitlines()[0].strip() or "New session")[:60]
-        chat_session = ChatSession(project_id=project.id, title=title)
+        chat_session = ChatSession(project_id=project.id, title=title, action=action_key)
         s.add(chat_session)
         s.commit()
         s.refresh(chat_session)
@@ -123,42 +134,123 @@ def chat(project_id: int, body: dict, s: Session = Depends(session)):
         system += "\n\n" + _GOAL_NOTE
 
     async def stream():
-        messages = [
-            {"role": "system", "content": system},
-            *[
-                {"role": m.role, "content": m.content}
-                for m in s.exec(
-                    select(Message)
-                    .where(Message.session_id == chat_session.id)
-                    .order_by(Message.id)
-                ).all()
-            ],
-        ]
-        full_text = ""
-        tokens: dict = {}
-        async for event in agent_loop.run_turn(ctx, client, registry, messages):
-            if event["type"] == "usage":
-                usage.merge(tokens, event.get("usage"))
-                continue
-            if event["type"] == "question":
-                asked = event.get("question", "")
-                full_text = f"{full_text}\n\n{asked}".strip() if full_text else asked
-                yield _sse(
+        rows = s.exec(
+            select(Message)
+            .where(Message.session_id == chat_session.id)
+            .order_by(Message.id)
+        ).all()
+        messages: list[dict] = [{"role": "system", "content": system}]
+        for m in rows:
+            if m.role == "assistant" and m.tool_calls:
+                try:
+                    calls = json.loads(m.tool_calls)
+                except ValueError:
+                    calls = []
+                messages.append(
+                    {"role": "assistant", "content": m.content, "tool_calls": calls}
+                )
+            elif m.role == "tool":
+                messages.append(
                     {
-                        "event": "question",
-                        "id": event.get("id"),
-                        "question": asked,
-                        "options": event.get("options") or [],
-                        "kind": event.get("kind") or "question",
+                        "role": "tool",
+                        "tool_call_id": m.tool_call_id,
+                        "name": m.name,
+                        "content": m.content,
                     }
                 )
-                break
-            if event["type"] == "message" and event.get("content"):
-                full_text = event["content"]
-            yield _sse({k: v for k, v in event.items() if k != "type"} | {"event": event["type"]})
+            else:
+                messages.append({"role": m.role, "content": m.content})
+
+        full_text = ""
+        tokens: dict = {}
+        pending_turns: list[dict] = []
+        paused = False
+
+        queue: asyncio.Queue = asyncio.Queue()
+
+        async def pump():
+            try:
+                async for event in agent_loop.run_turn(ctx, client, registry, messages):
+                    await queue.put(event)
+            finally:
+                await queue.put(None)
+
+        task = asyncio.create_task(pump())
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_SECONDS)
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+                    continue
+                if event is None:
+                    break
+                etype = event["type"]
+                if etype == "usage":
+                    usage.merge(tokens, event.get("usage"))
+                    continue
+                if etype == "question":
+                    asked = event.get("question", "")
+                    full_text = f"{full_text}\n\n{asked}".strip() if full_text else asked
+                    pending_turns = []
+                    paused = True
+                    yield _sse(
+                        {
+                            "event": "question",
+                            "id": event.get("id"),
+                            "question": asked,
+                            "options": event.get("options") or [],
+                            "kind": event.get("kind") or "question",
+                        }
+                    )
+                    continue
+                if etype == "message":
+                    calls = event.get("tool_calls") or []
+                    if calls:
+                        pending_turns.append(
+                            {"content": event.get("content") or "", "calls": calls, "results": []}
+                        )
+                    elif event.get("content"):
+                        full_text = event["content"]
+                elif etype == "tool_result" and pending_turns:
+                    pending_turns[-1]["results"].append(event)
+                yield _sse(
+                    {k: v for k, v in event.items() if k != "type"} | {"event": etype}
+                )
+        finally:
+            if not task.done():
+                task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+        # Persist complete tool turns so reloads keep the chips and the next
+        # turn replays valid assistant/tool pairs to the provider.
+        for turn in pending_turns:
+            if paused or len(turn["results"]) != len(turn["calls"]):
+                continue
+            s.add(
+                Message(
+                    session_id=chat_session.id,
+                    role="assistant",
+                    content=turn["content"],
+                    tool_calls=json.dumps(turn["calls"]),
+                )
+            )
+            for result in turn["results"]:
+                s.add(
+                    Message(
+                        session_id=chat_session.id,
+                        role="tool",
+                        name=result.get("name"),
+                        tool_call_id=result.get("id"),
+                        ok=result.get("ok"),
+                        content=str(result.get("preview", ""))[:20_000],
+                    )
+                )
         if full_text.strip():
             s.add(Message(session_id=chat_session.id, role="assistant", content=full_text))
-            s.commit()
+        s.commit()
+
         usage.record(
             s,
             project.id,

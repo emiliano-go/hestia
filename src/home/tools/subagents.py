@@ -85,7 +85,17 @@ def make_tools(db: Session) -> list[Tool]:
                 "action": {
                     "type": "string",
                     "description": "configured action/role for the subtask (preferred)",
-                    "enum": ["explore", "github-scan", "memory-keeper", "writer", "code-reviewer"],
+                    "enum": [
+                        "explore",
+                        "github-scan",
+                        "memory-keeper",
+                        "writer",
+                        "code-reviewer",
+                        "goal",
+                        "docs",
+                        "triage",
+                        "memory-fix",
+                    ],
                 },
                 "agent": {"type": "string", "description": "agent profile name (see agent_list)"},
                 "task": {"type": "string", "description": "self-contained task for the subagent"},

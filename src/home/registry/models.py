@@ -33,6 +33,7 @@ class Session(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     project_id: int = Field(foreign_key="project.id", index=True)
     title: str = "New session"
+    action: str = "chat"  # action key the session was started with
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
@@ -43,6 +44,8 @@ class Message(SQLModel, table=True):
     role: str
     content: str
     tool_calls: Optional[str] = None  # JSON: OpenAI tool-call list
+    tool_call_id: Optional[str] = None  # for role=tool rows
+    ok: Optional[bool] = None  # tool result success (role=tool)
     name: Optional[str] = None  # tool name for role=tool
     created_at: datetime = Field(default_factory=_now)
 

@@ -64,6 +64,16 @@ def _migrate() -> None:
         if question_columns and "meta" not in question_columns:
             conn.exec_driver_sql("ALTER TABLE question ADD COLUMN meta TEXT DEFAULT '{}'")
 
+        session_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(session)")}
+        if session_columns and "action" not in session_columns:
+            conn.exec_driver_sql("ALTER TABLE session ADD COLUMN action TEXT DEFAULT 'chat'")
+
+        message_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(message)")}
+        if message_columns and "tool_call_id" not in message_columns:
+            conn.exec_driver_sql("ALTER TABLE message ADD COLUMN tool_call_id TEXT")
+        if message_columns and "ok" not in message_columns:
+            conn.exec_driver_sql("ALTER TABLE message ADD COLUMN ok BOOLEAN")
+
 
 def session() -> Iterator[Session]:
     with Session(engine()) as s:

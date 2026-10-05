@@ -57,14 +57,20 @@ async def run_turn(
             for call in tool_calls:
                 name = call["function"]["name"]
                 args = json.loads(call["function"].get("arguments") or "{}")
-                yield {"type": "tool_call", "name": name, "arguments": args}
+                yield {"type": "tool_call", "id": call["id"], "name": name, "arguments": args}
                 try:
                     ok, result = _execute(registry, ctx, name, args)
                 except AgentPause as pause:
                     yield {"type": "question", **pause.payload}
                     return
                 preview = json.dumps(result, default=str)[:2000]
-                yield {"type": "tool_result", "name": name, "ok": ok, "preview": preview}
+                yield {
+                    "type": "tool_result",
+                    "id": call["id"],
+                    "name": name,
+                    "ok": ok,
+                    "preview": preview,
+                }
                 messages.append({
                     "role": "tool",
                     "tool_call_id": call["id"],

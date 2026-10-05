@@ -1830,6 +1830,235 @@ def test_clone_auth_args(client, monkeypatch):
     assert projects._auth_args("https://github.com/a/b.git") == []
 
 
+def test_project_delete_cascade(client):
+    from sqlmodel import Session as SqlSession
+    from sqlmodel import select as sqlselect
+
+    from home.registry.db import engine
+    from home.registry.models import (
+        Goal,
+        InboxItem,
+        Message,
+        Milestone,
+        Project,
+        Reminder,
+        Schedule,
+        Task,
+        TaskComment,
+        Usage,
+        Watch,
+    )
+    from home.registry.models import Session as ChatSession
+
+    alpha = _mk_project(client, name="alpha")
+    beta = _mk_project(client, name="beta")
+    ws_alpha = config.workspace_dir("alpha")
+    ws_beta = config.workspace_dir("beta")
+    (ws_alpha / "plan.md").write_text("x")
+    (ws_beta / "keep.md").write_text("x")
+    repos_alpha = config.data_dir() / "repos" / "alpha"
+    repos_beta = config.data_dir() / "repos" / "beta"
+
+    task = client.post(f"/api/projects/{alpha['id']}/tasks", json={"title": "t"}).json()
+    client.post(f"/api/tasks/{task['id']}/comments", json={"body": "note"})
+    client.post(f"/api/projects/{alpha['id']}/goals", json={"title": "g"})
+    client.post(f"/api/projects/{alpha['id']}/milestones", json={"title": "m"})
+    client.post(
+        f"/api/projects/{alpha['id']}/schedules",
+        json={"action": "chat", "instruction": "x"},
+    )
+    client.post(
+        "/api/reminders",
+        json={"text": "r", "due_at": "2030-01-01T00:00:00+00:00", "project_id": alpha["id"]},
+    )
+    client.post(
+        "/api/watches",
+        json={"kind": "page", "url": "https://example.com", "project_id": alpha["id"]},
+    )
+    with SqlSession(engine()) as db:
+        chat = ChatSession(project_id=alpha["id"], title="s")
+        db.add(chat)
+        db.commit()
+        db.refresh(chat)
+        session_id = chat.id
+        db.add(Message(session_id=session_id, role="user", content="hi"))
+        db.add(InboxItem(project_id=alpha["id"], kind="pr", external_id="pr:1", title="x"))
+        db.add(Usage(project_id=alpha["id"], action="chat", prompt_tokens=5))
+        db.commit()
+
+    client.post(f"/api/projects/{beta['id']}/tasks", json={"title": "keep"})
+
+    assert client.delete(f"/api/projects/{alpha['id']}").status_code == 204
+
+    with SqlSession(engine()) as db:
+        for model in (Task, Goal, Milestone, Schedule, Reminder, Watch, InboxItem, Usage, ChatSession):
+            assert db.exec(sqlselect(model).where(model.project_id == alpha["id"])).all() == [], model.__name__
+        assert db.exec(sqlselect(Message).where(Message.session_id == session_id)).all() == []
+        assert db.exec(sqlselect(TaskComment).where(TaskComment.task_id == task["id"])).all() == []
+        assert db.get(Project, alpha["id"]) is None
+        assert len(db.exec(sqlselect(Task).where(Task.project_id == beta["id"])).all()) == 1
+
+    assert not repos_alpha.exists()
+    assert not ws_alpha.exists()
+    assert repos_beta.exists()
+    assert ws_beta.exists()
+    assert (ws_beta / "keep.md").exists()
+
+
+def test_chat_rejects_foreign_session(client):
+    from sqlmodel import Session as SqlSession
+    from sqlmodel import select as sqlselect
+
+    from home.registry.db import engine
+    from home.registry.models import Message
+    from home.registry.models import Session as ChatSession
+
+    alpha = _mk_project(client, name="aa")
+    beta = _mk_project(client, name="bb")
+    provider = _mk_provider(client)
+    with SqlSession(engine()) as db:
+        chat = ChatSession(project_id=alpha["id"], title="a session")
+        db.add(chat)
+        db.commit()
+        db.refresh(chat)
+        session_id = chat.id
+
+    resp = client.post(
+        f"/api/projects/{beta['id']}/chat",
+        json={"message": "hi", "session_id": session_id, "provider_id": provider["id"]},
+    )
+    assert resp.status_code == 404
+    with SqlSession(engine()) as db:
+        assert db.exec(sqlselect(Message).where(Message.session_id == session_id)).all() == []
+
+
+def test_goal_action_persists_on_session(client, monkeypatch):
+    from sqlmodel import Session as SqlSession
+
+    from home.registry.db import engine
+    from home.registry.models import Session as ChatSession
+    from home.routers import chat as chat_router
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+    goal = client.post(
+        f"/api/projects/{project['id']}/goals", json={"title": "Ship it"}
+    ).json()
+    discussed = client.post(f"/api/goals/{goal['id']}/discuss").json()
+    session_id = discussed["session_id"]
+
+    with SqlSession(engine()) as db:
+        assert db.get(ChatSession, session_id).action == "goal"
+
+    seen = {}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def stream_chat(self, messages, tools=None):
+            seen["system"] = messages[0]["content"]
+            yield {"choices": [{"delta": {"content": "ok"}}]}
+
+    monkeypatch.setattr(chat_router, "OpenAIClient", FakeClient)
+    resp = client.post(
+        f"/api/projects/{project['id']}/chat",
+        json={"message": "continue", "session_id": session_id, "provider_id": provider["id"]},
+    )
+    assert resp.status_code == 200
+    assert "Goal mode" in seen["system"]
+
+
+def test_chat_persists_tool_history(client, monkeypatch):
+    import json as jsonlib
+
+    from home.agent import loop as agent_loop
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+    captured = {}
+    calls = {"n": 0}
+
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            yield {"type": "token", "text": "checking "}
+            yield {
+                "type": "message",
+                "content": "checking",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "read_agents_md", "arguments": "{}"},
+                    }
+                ],
+            }
+            yield {"type": "tool_call", "id": "call_1", "name": "read_agents_md", "arguments": {}}
+            yield {
+                "type": "tool_result",
+                "id": "call_1",
+                "name": "read_agents_md",
+                "ok": True,
+                "preview": '"# demo"',
+            }
+            yield {"type": "message", "content": "Done.", "tool_calls": []}
+        else:
+            captured["messages"] = messages
+            yield {"type": "message", "content": "Again.", "tool_calls": []}
+
+    monkeypatch.setattr(agent_loop, "run_turn", fake_run_turn)
+
+    resp = client.post(
+        f"/api/projects/{project['id']}/chat",
+        json={"message": "read it", "provider_id": provider["id"]},
+    )
+    assert resp.status_code == 200
+    session_id = client.get(f"/api/projects/{project['id']}/sessions").json()[0]["id"]
+    rows = client.get(f"/api/sessions/{session_id}/messages").json()
+    assert [r["role"] for r in rows] == ["user", "assistant", "tool", "assistant"]
+    assert jsonlib.loads(rows[1]["tool_calls"])[0]["id"] == "call_1"
+    assert rows[2]["tool_call_id"] == "call_1"
+    assert rows[2]["name"] == "read_agents_md"
+    assert rows[2]["ok"] is True
+    assert rows[3]["content"] == "Done."
+
+    # the next turn replays valid assistant/tool pairs to the provider
+    resp = client.post(
+        f"/api/projects/{project['id']}/chat",
+        json={"message": "again", "session_id": session_id, "provider_id": provider["id"]},
+    )
+    assert resp.status_code == 200
+    sent = captured["messages"]
+    assert any(m.get("tool_calls") for m in sent if m["role"] == "assistant")
+    tool_rows = [m for m in sent if m["role"] == "tool"]
+    assert tool_rows and tool_rows[0]["tool_call_id"] == "call_1"
+
+
+def test_chat_heartbeat(client, monkeypatch):
+    import asyncio
+
+    from home.agent import loop as agent_loop
+    from home.routers import chat as chat_router
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+
+    async def slow_run_turn(ctx, client_, registry, messages, max_turns=10):
+        await asyncio.sleep(0.5)
+        yield {"type": "message", "content": "late", "tool_calls": []}
+
+    monkeypatch.setattr(agent_loop, "run_turn", slow_run_turn)
+    monkeypatch.setattr(chat_router, "HEARTBEAT_SECONDS", 0.1)
+    resp = client.post(
+        f"/api/projects/{project['id']}/chat",
+        json={"message": "slow", "provider_id": provider["id"]},
+    )
+    assert resp.status_code == 200
+    assert ": ping" in resp.text
+    assert "late" in resp.text
+
+
 def test_chat_usage_tracking(client, monkeypatch):
     from home.routers import chat as chat_router
 

@@ -162,7 +162,7 @@ def discuss_goal(goal_id: int, s: Session = Depends(session)):
     spec_path = _spec_path(goal)
     if goal.session_id and s.get(ChatSession, goal.session_id):
         return {"session_id": goal.session_id, "seed": None, "spec_path": spec_path}
-    chat = ChatSession(project_id=goal.project_id, title=f"Goal: {goal.title}")
+    chat = ChatSession(project_id=goal.project_id, title=f"Goal: {goal.title}", action="goal")
     s.add(chat)
     s.commit()
     s.refresh(chat)

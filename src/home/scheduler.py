@@ -8,6 +8,7 @@ single-user cockpit.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -22,6 +23,8 @@ from home.tools.registry import ProjectContext
 
 TICK_SECONDS = max(5, int(os.environ.get("HOME_SCHEDULER_TICK", "30")))
 INBOX_POLL_SECONDS = max(60, int(os.environ.get("HOME_INBOX_POLL_SECONDS", "600")))
+
+logger = logging.getLogger("home.scheduler")
 
 SCHEDULE_NOTE = """\
 
@@ -267,28 +270,33 @@ async def run_schedule(schedule_id: int) -> dict | None:
         return as_dict(schedule)
 
 
+def _poll_inbox() -> None:
+    """In its own thread and session, so notify.send never blocks the loop."""
+    with Session(engine()) as db:
+        inbox.poll_all(db)
+
+
 async def worker() -> None:
-    """Tick forever: run due schedules, poll the inbox on its own interval."""
+    """Tick forever: reminders, briefing, watches, schedules, then inbox."""
     inbox_clock = INBOX_POLL_SECONDS
     while True:
         try:
+            with Session(engine()) as db:
+                reminders.fire_due(db)
+                await _maybe_send_briefing(db)
+                await watchers.check_due(db)
+
             with Session(engine()) as db:
                 due_ids = [s.id for s in due_schedules(db)]
             for schedule_id in due_ids:
                 await run_schedule(schedule_id)
 
-            with Session(engine()) as db:
-                reminders.fire_due(db)
-                await watchers.check_due(db)
-                await _maybe_send_briefing(db)
-
             inbox_clock += TICK_SECONDS
             if inbox_clock >= INBOX_POLL_SECONDS:
                 inbox_clock = 0
-                with Session(engine()) as db:
-                    inbox.poll_all(db)
+                await asyncio.to_thread(_poll_inbox)
         except asyncio.CancelledError:
             raise
         except Exception:
-            pass  # a bad tick must not kill the worker
+            logger.exception("scheduler tick failed")
         await asyncio.sleep(TICK_SECONDS)
