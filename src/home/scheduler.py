@@ -69,6 +69,13 @@ def _briefing_digest(db: Session) -> str:
         if ready:
             titles = ", ".join(f"#{t.id} {t.title}" for t in ready[:3])
             lines.append(f"{project.name} next up: {titles}")
+        risky = taskboard.at_risk(db, project.id)
+        if risky:
+            items = "; ".join(
+                f"#{t.id} {t.title} (due {t.due_at.date().isoformat()})"
+                for t in risky[:4]
+            )
+            lines.append(f"{project.name} at risk: {items}")
         budget = usage.budget_state(db, project)
         if budget["budget"] and budget["percent"] is not None and budget["percent"] >= 80:
             lines.append(f"{project.name} token budget at {budget['percent']}%")

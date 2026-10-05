@@ -32,6 +32,7 @@ def make_tools(db: Session) -> list[Tool]:
                 "milestone_id": t.milestone_id,
                 "depends_on": taskboard.parse_depends(t.depends_on),
                 "blocked_by": blocked.get(t.id, []),
+                "due_at": t.due_at.isoformat() if t.due_at else None,
             }
             for t in tasks
         ]
@@ -48,6 +49,7 @@ def make_tools(db: Session) -> list[Tool]:
             depends_on=args.get("depends_on"),
             acceptance=args.get("acceptance", ""),
             source=args.get("source", "user"),
+            due_at=args.get("due_at"),
         )
         return taskboard.as_dict(task)
 
@@ -157,6 +159,10 @@ def make_tools(db: Session) -> list[Tool]:
                         "enum": ["user", "suggested"],
                         "description": "use suggested when proposing work rather than doing it",
                     },
+                    "due_at": {
+                        "type": "string",
+                        "description": "optional deadline, ISO date (YYYY-MM-DD) or datetime",
+                    },
                 },
                 ["title"],
             ),
@@ -183,6 +189,10 @@ def make_tools(db: Session) -> list[Tool]:
                         "description": "replace the task's dependencies (empty list clears)",
                     },
                     "acceptance": {"type": "string", "description": "definition of done"},
+                    "due_at": {
+                        "type": "string",
+                        "description": "deadline as ISO date or datetime; empty string clears it",
+                    },
                     "reviewed": {
                         "type": "boolean",
                         "description": "confirm the review; required to move a task with acceptance criteria to done",

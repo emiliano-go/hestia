@@ -3590,3 +3590,24 @@ pre {
   overflow: auto;
   overflow-wrap: anywhere;
 }
+
+/* ---------- task due dates ---------- */
+
+.due-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.due-chip.soon {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.due-chip.overdue {
+  color: var(--err);
+  border-color: var(--err);
+}

@@ -52,6 +52,7 @@ def create_task(project_id: int, body: dict, s: Session = Depends(session)):
             depends_on=body.get("depends_on"),
             acceptance=body.get("acceptance", ""),
             source=body.get("source", "user"),
+            due_at=body.get("due_at"),
         )
     except taskboard.InvalidTask as e:
         raise HTTPException(400, str(e))
@@ -98,7 +99,8 @@ Propose the next work for this project's board.
 Read the current board with task_list and the project's Totem memory. Then
 create between 2 and 5 tasks with task_create. Every task needs a short title,
 a one-line description, acceptance criteria, and a priority; use depends_on
-when ordering matters. Pass source="suggested" on every task so the owner can
+when ordering matters and due_at when a deadline is implied. Pass
+source="suggested" on every task so the owner can
 tell them apart. Do not duplicate existing tasks. End with a short plain-text
 report of what you proposed and why.
 """

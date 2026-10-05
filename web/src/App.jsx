@@ -3957,6 +3957,20 @@ const TASK_COLUMNS = [
 
 const PRIORITY_LABEL = { low: 'Low', medium: 'Medium', high: 'High' }
 
+function dueInfo(due) {
+  if (!due) return null
+  const d = new Date(due)
+  if (Number.isNaN(d.getTime())) return null
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const days = Math.round((d - today) / 86400000)
+  return {
+    text: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+    overdue: d < today,
+    soon: days >= 0 && days <= 2,
+  }
+}
+
 function TaskEditor({ task, projectId, onClose, onSaved, onImplement, gitWrites }) {
   const isNew = !task.id
   const [title, setTitle] = useState(task.title || '')
@@ -3964,6 +3978,7 @@ function TaskEditor({ task, projectId, onClose, onSaved, onImplement, gitWrites 
   const [status, setStatus] = useState(task.status || 'backlog')
   const [priority, setPriority] = useState(task.priority || 'medium')
   const [milestoneId, setMilestoneId] = useState(task.milestone_id || '')
+  const [dueDate, setDueDate] = useState((task.due_at || '').slice(0, 10))
   const [dependsOn, setDependsOn] = useState(task.depends_on || [])
   const [acceptance, setAcceptance] = useState(task.acceptance || '')
   const [saving, setSaving] = useState(false)
@@ -4047,6 +4062,7 @@ function TaskEditor({ task, projectId, onClose, onSaved, onImplement, gitWrites 
       priority,
       milestone_id: milestoneId ? parseInt(milestoneId, 10) : 0,
       depends_on: dependsOn,
+      due_at: dueDate || '',
     }
     if (!isNew && status === 'done' && task.status !== 'done' && acceptance.trim()) {
       const ok = window.confirm(
@@ -4120,17 +4136,27 @@ function TaskEditor({ task, projectId, onClose, onSaved, onImplement, gitWrites 
             </select>
           </label>
         </div>
-        <label className="field">
-          <span className="field-label">Milestone</span>
-          <select value={milestoneId} onChange={(e) => setMilestoneId(e.target.value)}>
-            <option value="">No milestone</option>
-            {milestones.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.title}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="field-row">
+          <label className="field">
+            <span className="field-label">Due date</span>
+            <input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span className="field-label">Milestone</span>
+            <select value={milestoneId} onChange={(e) => setMilestoneId(e.target.value)}>
+              <option value="">No milestone</option>
+              {milestones.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.title}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         {otherTasks.length > 0 && (
           <div className="field">
             <span className="field-label">Blocked by</span>
@@ -4366,6 +4392,19 @@ function TasksView({ projectId, onImplement, gitWrites }) {
                         {PRIORITY_LABEL[t.priority]}
                       </span>
                       {t.source === 'suggested' && <span className="badge accent">suggested</span>}
+                      {(() => {
+                        const dl = dueInfo(t.due_at)
+                        return (
+                          dl && (
+                            <span
+                              className={`due-chip ${dl.overdue ? 'overdue' : dl.soon ? 'soon' : ''}`}
+                              title="Due date"
+                            >
+                              <Icon name="clock" size={11} /> {dl.text}
+                            </span>
+                          )
+                        )
+                      })()}
                       <span className="kanban-card-time">{relDate(t.updated_at)}</span>
                     </div>
                   </div>

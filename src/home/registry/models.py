@@ -112,6 +112,7 @@ class Task(SQLModel, table=True):
     acceptance: str = ""  # definition of done; gates the done column
     github_issue: Optional[int] = None  # synced GitHub issue number
     source: str = "user"  # user | suggested
+    due_at: Optional[datetime] = None  # UTC deadline, surfaced as at-risk
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 

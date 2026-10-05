@@ -2348,3 +2348,59 @@ def test_run_subagent_background_returns_job(client, monkeypatch):
         assert result["status"] == "queued"
         job = db.get(BackgroundTask, result["job_id"])
         assert job.kind == "subagent" and job.action == "explore"
+
+
+def test_task_due_date_roundtrip_and_at_risk(client):
+    from datetime import datetime, timedelta, timezone
+
+    from sqlmodel import Session as SqlSession
+
+    from home import taskboard
+    from home.registry.db import engine
+
+    project = _mk_project(client)
+    pid = project["id"]
+    past = (datetime.now(timezone.utc) - timedelta(days=1)).date().isoformat()
+    far = (datetime.now(timezone.utc) + timedelta(days=30)).date().isoformat()
+
+    overdue = client.post(
+        f"/api/projects/{pid}/tasks", json={"title": "ship it", "due_at": past}
+    ).json()
+    assert overdue["due_at"].startswith(past)
+
+    client.post(
+        f"/api/projects/{pid}/tasks", json={"title": "later", "due_at": far}
+    )
+
+    with SqlSession(engine()) as db:
+        risky = taskboard.at_risk(db, pid)
+        assert [t.id for t in risky] == [overdue["id"]]
+
+    cleared = client.put(f"/api/tasks/{overdue['id']}", json={"due_at": ""}).json()
+    assert cleared["due_at"] is None
+
+
+def test_schedule_agent_tools(client):
+    from sqlmodel import Session as SqlSession, select
+
+    from home.registry.db import engine
+    from home.registry.models import Project, Schedule
+    from home.tools import schedules as schedule_tools
+    from home.tools.registry import ProjectContext
+
+    project = _mk_project(client)
+    with SqlSession(engine()) as db:
+        project_obj = db.get(Project, project["id"])
+        ctx = ProjectContext.from_project(project_obj)
+        tools = {t.name: t for t in schedule_tools.make_tools(db)}
+        created = tools["schedule_create"].handler(
+            ctx,
+            {"instruction": "Check the feed every Friday", "interval_minutes": 10080},
+        )
+        assert created["interval_minutes"] == 10080
+        listed = tools["schedule_list"].handler(ctx, {})
+        assert any(s["id"] == created["id"] for s in listed)
+        tools["schedule_cancel"].handler(ctx, {"id": created["id"]})
+        assert db.exec(
+            select(Schedule).where(Schedule.project_id == project["id"])
+        ).all() == []

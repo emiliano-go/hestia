@@ -9,7 +9,7 @@ of ids); a task is "blocked" while any dependency is not done.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlmodel import Session, select
 
@@ -117,9 +117,43 @@ def as_dict(task: Task, blocked_by: list[int] | None = None) -> dict:
         "acceptance": task.acceptance or "",
         "source": task.source or "user",
         "github_issue": task.github_issue,
+        "due_at": task.due_at.isoformat() if task.due_at else None,
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "updated_at": task.updated_at.isoformat() if task.updated_at else None,
     }
+
+
+def parse_due(value) -> datetime | None:
+    """Parse an ISO date or datetime into an aware UTC datetime, or None."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        try:
+            dt = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+        except ValueError:
+            raise InvalidTask("due_at must be an ISO date or datetime")
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def at_risk(db: Session, project_id: int, within_hours: int = 48) -> list[Task]:
+    """Open tasks overdue or due within the horizon, soonest first."""
+    now = datetime.now(timezone.utc)
+    horizon = now + timedelta(hours=within_hours)
+    rows = db.exec(
+        select(Task).where(
+            Task.project_id == project_id,
+            Task.status != "done",
+            Task.due_at != None,  # noqa: E711
+        )
+    ).all()
+
+    def aware(dt: datetime) -> datetime:
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+    due = [t for t in rows if t.due_at and aware(t.due_at) <= horizon]
+    return sorted(due, key=lambda t: aware(t.due_at))
 
 
 def _clean(value: str | None, allowed: list[str], field: str, default: str) -> str:
@@ -147,6 +181,7 @@ def create(
     depends_on=None,
     acceptance: str = "",
     source: str = "user",
+    due_at=None,
 ) -> Task:
     title = (title or "").strip()
     if not title:
@@ -169,6 +204,7 @@ def create(
         depends_on=json.dumps(deps),
         acceptance=acceptance or "",
         source=source,
+        due_at=parse_due(due_at),
     )
     db.add(task)
     db.commit()
@@ -212,6 +248,8 @@ def update(db: Session, task: Task, fields: dict) -> Task:
         deps = parse_depends(fields["depends_on"])
         validate_depends(db, task.project_id, task.id, deps)
         task.depends_on = json.dumps(deps)
+    if "due_at" in fields:
+        task.due_at = parse_due(fields["due_at"])
     task.updated_at = datetime.now(timezone.utc)
     db.add(task)
     db.commit()

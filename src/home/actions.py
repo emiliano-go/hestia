@@ -18,7 +18,7 @@ ACTIONS: list[dict] = [
             "The conversation in the Chat tab: answers questions, inspects the "
             "repo and GitHub, recalls and writes Totem memory, and can delegate."
         ),
-        "tools": "repo,files,github,memory,workspace,tasks,agents,background",
+        "tools": "repo,files,github,memory,workspace,tasks,agents,background,automations",
     },
     {
         "key": "explore",
@@ -57,7 +57,7 @@ ACTIONS: list[dict] = [
             "Discuss a goal, keep a living spec in the workspace, and plan it "
             "into a milestone with dependency-aware tasks."
         ),
-        "tools": "repo,files,github,memory,workspace,tasks,agents,background",
+        "tools": "repo,files,github,memory,workspace,tasks,agents,background,automations",
     },
     {
         "key": "docs",
