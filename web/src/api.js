@@ -149,6 +149,11 @@ export const api = {
   listPreferences: () => request('/settings/preferences'),
   addPreference: (text) =>
     request('/settings/preferences', { method: 'POST', body: JSON.stringify({ text }) }),
+  setPreference: (index, text) =>
+    request(`/settings/preferences/${index}`, {
+      method: 'PUT',
+      body: JSON.stringify({ text }),
+    }),
   removePreference: (index) =>
     request(`/settings/preferences/${index}`, { method: 'DELETE' }),
 

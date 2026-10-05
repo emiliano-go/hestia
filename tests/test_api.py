@@ -2723,3 +2723,11 @@ def test_user_note_in_chat_prompt(client, monkeypatch):
     assert "About the owner" in seen["system"]
     assert "set_owner_name" in seen["system"]
     assert "remember_preference" in seen["system"]
+
+
+def test_preference_edit(client):
+    client.post("/api/settings/preferences", json={"text": "one"})
+    client.post("/api/settings/preferences", json={"text": "two"})
+    updated = client.put("/api/settings/preferences/1", json={"text": "TWO"}).json()
+    assert updated["preferences"] == ["one", "TWO"]
+    assert client.put("/api/settings/preferences/1", json={"text": "  "}).status_code == 400

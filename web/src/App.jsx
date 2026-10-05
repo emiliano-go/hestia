@@ -131,6 +131,7 @@ const ICON_PATHS = {
   search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35',
   folder: 'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z',
   check: 'M20 6 9 17l-5-5',
+  edit: 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
   clock: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 7v5l3 2',
   help: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01',
   menu: 'M3 6h18M3 12h18M3 18h18',
@@ -1488,6 +1489,8 @@ function AssistantPanel() {
   const [prefs, setPrefs] = useState(null)
   const [newPref, setNewPref] = useState('')
   const [prefBusy, setPrefBusy] = useState(false)
+  const [editPref, setEditPref] = useState(null)
+  const [prefDraft, setPrefDraft] = useState('')
 
   useEffect(() => {
     if (data) setForm(data)
@@ -1518,6 +1521,23 @@ function AssistantPanel() {
     api
       .removePreference(index)
       .then((r) => setPrefs(r.preferences || []))
+      .catch((err) => setError(err.message || String(err)))
+  }
+
+  const startEdit = (index) => {
+    setEditPref(index)
+    setPrefDraft((prefs || [])[index] || '')
+  }
+
+  const saveEdit = () => {
+    const text = prefDraft.trim()
+    if (!text) return
+    api
+      .setPreference(editPref, text)
+      .then((r) => {
+        setPrefs(r.preferences || [])
+        setEditPref(null)
+      })
       .catch((err) => setError(err.message || String(err)))
   }
 
@@ -1578,19 +1598,55 @@ function AssistantPanel() {
           Always injected into every prompt. Add rules the agent must never forget.
         </span>
         <div className="pref-list">
-          {(prefs || []).map((p, i) => (
-            <div key={`${i}-${p}`} className="pref-item">
-              <span>{p}</span>
-              <button
-                type="button"
-                className="icon-btn"
-                title="Remove preference"
-                onClick={() => removePref(i)}
-              >
-                <Icon name="x" size={13} />
-              </button>
-            </div>
-          ))}
+          {(prefs || []).map((p, i) =>
+            editPref === i ? (
+              <div key={`edit-${i}`} className="pref-item">
+                <input
+                  autoFocus
+                  value={prefDraft}
+                  onChange={(e) => setPrefDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      saveEdit()
+                    }
+                    if (e.key === 'Escape') setEditPref(null)
+                  }}
+                />
+                <button type="button" className="icon-btn" title="Save" onClick={saveEdit}>
+                  <Icon name="check" size={13} />
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  title="Cancel"
+                  onClick={() => setEditPref(null)}
+                >
+                  <Icon name="x" size={13} />
+                </button>
+              </div>
+            ) : (
+              <div key={`${i}-${p}`} className="pref-item">
+                <span>{p}</span>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  title="Edit preference"
+                  onClick={() => startEdit(i)}
+                >
+                  <Icon name="edit" size={13} />
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  title="Remove preference"
+                  onClick={() => removePref(i)}
+                >
+                  <Icon name="x" size={13} />
+                </button>
+              </div>
+            )
+          )}
           {prefs && prefs.length === 0 && <span className="note">No preferences yet.</span>}
         </div>
         <div className="row" style={{ marginBottom: 0 }}>
@@ -2543,11 +2599,10 @@ function AboutView({ projectId, onDeleted }) {
 
 // ---------- landing / home ----------
 
-function greeting() {
+function greeting(name) {
   const h = new Date().getHours()
-  if (h < 12) return 'Good morning'
-  if (h < 18) return 'Good afternoon'
-  return 'Good evening'
+  const base = h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'
+  return name ? `${base}, ${name}` : base
 }
 
 function SectionEmpty({ icon, title, hint, action }) {
@@ -2751,6 +2806,7 @@ function InboxCard({ onOpenProject, onStartChat }) {
 
 function HomeView({ onOpenProject, onOpenSession, onOpenFile, onNewProject, onNavigate, onStartChat }) {
   const { data, error, loading } = useAsync(api.activity, [])
+  const { data: settings } = useAsync(api.getSettings, [])
   const counts = (data && data.counts) || { projects: 0, sessions: 0, files: 0 }
   const projects = (data && data.projects) || []
   const sessions = (data && data.sessions) || []
@@ -2760,7 +2816,7 @@ function HomeView({ onOpenProject, onOpenSession, onOpenFile, onNewProject, onNa
     <div className="home">
       <header className="home-hero">
         <div>
-          <h1>{greeting()}</h1>
+          <h1>{greeting((settings && settings.user_name) || '')}</h1>
           <p>Your projects, recent conversations, and agent-generated files in one place.</p>
         </div>
         <button className="btn primary" onClick={onNewProject}>
@@ -2963,6 +3019,8 @@ function HelpView() {
         <a href="#agents">Agents &amp; actions</a>
         <a href="#chat">Chat &amp; tools</a>
         <a href="#memory">Memory</a>
+        <a href="#background">Background tasks</a>
+        <a href="#capture">Capture notes</a>
         <a href="#files">Files &amp; gallery</a>
         <a href="#automation">Search, inbox &amp; automations</a>
         <a href="#assistant">Reminders, watches &amp; briefing</a>
@@ -3089,16 +3147,24 @@ function HelpView() {
             on another card to reorder.
           </li>
           <li>
-            <strong>Click a card</strong> to edit its title, description, column, priority, and
-            milestone, or delete it. Cards can <strong>depend on other tasks</strong> (a blocked
-            badge appears until every dependency is done), carry <strong>acceptance criteria</strong>{' '}
-            (moving to done asks for review confirmation), and hold{' '}
-            <strong>comments</strong> that carry context into the next session.
+            <strong>Click a card</strong> to edit its title, description, column, priority,
+            milestone, and due date, or delete it. Cards can <strong>depend on other tasks</strong>{' '}
+            (a blocked badge appears until every dependency is done), carry{' '}
+            <strong>acceptance criteria</strong> (moving to done asks for review confirmation), and
+            hold <strong>comments</strong> that carry context into the next session. A due date
+            shows as a chip, red when overdue, soon when within two days.
           </li>
           <li>
             <strong>Implement with agent</strong> in the task editor opens a chat seeded with the
             task's brief, acceptance criteria, dependencies, and comments, and moves the card to
             in-progress.
+          </li>
+          <li>
+            <strong>Run in background</strong> (with git writes on) hands the task to the agent as
+            a detached job: it works on a branch, opens a pull request, records the PR link, and
+            moves the card to <em>Review</em>. <strong>Run next</strong> on the board does the same
+            for the highest-priority unblocked task. Review the PR on GitHub, then mark the task
+            done or send it back.
           </li>
           <li>
             <strong>Push to GitHub</strong> creates an issue for a task when git writes are on; the
@@ -3322,7 +3388,49 @@ function HelpView() {
             <strong>Repair</strong> memory by describing the fix in plain language and pressing{' '}
             <em>Fix with agent</em>. A memory-only agent applies the changes and reports back.
           </li>
+          <li>
+            <strong>Preferences and client facts</strong>: memories tagged{' '}
+            <code>preference</code> or <code>client:&lt;name&gt;</code> are always injected into
+            the agent's context, not just retrieved by relevance. Tag them when writing memory.
+          </li>
+          <li>
+            <strong>About you</strong>: tell the agent "call me Sam" or "remember: reply in short
+            bullets" and it saves a global name and standing preferences that are injected into
+            every future prompt. Manage them under Settings, Assistant. A{' '}
+            <em>Remember this</em> button under each reply saves it as a preference.
+          </li>
         </ul>
+      </Doc>
+
+      <Doc id="background" title="Background tasks">
+        <p>
+          Long work runs detached. When the agent calls <code>start_background_task</code> (or
+          delegates a subagent with <code>run_in_background</code>), it gets a task id back
+          immediately and keeps working or stops, and a notification arrives when the task
+          finishes. The <em>Background</em> project tab lists every run with status, wall time,
+          output, and a <em>Stop</em> button.
+        </p>
+        <ul>
+          <li>
+            On completion Home appends a notification to the originating chat and, if that chat is
+            idle, runs a continuation turn that reacts to the result.
+          </li>
+          <li>
+            Up to three tasks run at once; the rest queue. Statuses are{' '}
+            <code>completed</code>, <code>failed</code>, <code>timed_out</code>,{' '}
+            <code>stopped</code>, and <code>lost</code> (interrupted by a restart).
+          </li>
+        </ul>
+      </Doc>
+
+      <Doc id="capture" title="Capture notes">
+        <p>
+          Paste raw notes, an email, or a thread into the <em>Capture</em> project tab. The agent
+          turns them into structure on your board: concrete items become tasks (with due dates
+          when a deadline is stated), time-based nudges become reminders, client and people facts
+          become memory tagged <code>client:&lt;name&gt;</code>, decisions become memories, and an
+          implied ongoing signal can become a watch. It reports exactly what it created.
+        </p>
       </Doc>
 
       <Doc id="files" title="Files &amp; gallery">
@@ -3376,6 +3484,14 @@ function HelpView() {
             repo digest, daily PR review, and weekly memory curation. <em>Run now</em> executes one
             immediately. <code>{'{date}'}</code> in the instruction expands to the run date.
           </li>
+          <li>
+            <strong>Event triggers</strong>: set an automation's trigger to "When an event happens"
+            and the agent reacts as things occur instead of on a schedule. Events are CI failures,
+            pull requests and issues opened, watch matches, and tasks entering review or done. The
+            instruction can use <code>{'{event}'}</code>, <code>{'{event_title}'}</code>, and{' '}
+            <code>{'{event_url}'}</code>, with an optional filter substring. The agent can create
+            these too via <code>schedule_create</code>.
+          </li>
         </ul>
       </Doc>
 
@@ -3403,9 +3519,18 @@ function HelpView() {
             <code>briefings/&lt;date&gt;.md</code>.
           </li>
           <li>
+            <strong>Daily plan and weekly review</strong>: enable each under Settings,
+            Assistant with a local time (and a weekday for the review). The daily plan
+            ranks ready work by priority and due date; the weekly review reports what
+            moved, what is blocked or stale, and velocity. With a provider the agent
+            writes <code>plans/&lt;date&gt;.md</code> or <code>reviews/&lt;date&gt;.md</code>{' '}
+            to the workspace.
+          </li>
+          <li>
             <strong>Standing preferences</strong> (Settings, Assistant): your name,
-            timezone, and instructions are injected into every system prompt. The clock
-            in that context is what lets the agent resolve "tomorrow at 9".
+            timezone, instructions, and a list of always-on preferences are injected
+            into every system prompt and are applied without being asked. The clock in
+            that context is what lets the agent resolve "tomorrow at 9".
           </li>
         </ul>
       </Doc>

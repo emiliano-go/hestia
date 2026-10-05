@@ -96,6 +96,15 @@ def add_preference(db: Session, text: str) -> list[str]:
     return items
 
 
+def set_preference(db: Session, index: int, text: str) -> list[str]:
+    text = (text or "").strip()
+    items = preferences(db)
+    if 0 <= index < len(items) and text:
+        items[index] = text
+        set_many(db, {"preferences": json.dumps(items)})
+    return items
+
+
 def remove_preference(db: Session, index: int) -> list[str]:
     items = preferences(db)
     if 0 <= index < len(items):

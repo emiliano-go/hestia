@@ -56,6 +56,14 @@ def add_preference(body: dict, s: Session = Depends(session)):
     return {"preferences": settings.add_preference(s, text)}
 
 
+@router.put("/preferences/{index}")
+def set_preference(index: int, body: dict, s: Session = Depends(session)):
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(400, "text is required")
+    return {"preferences": settings.set_preference(s, index, text)}
+
+
 @router.delete("/preferences/{index}")
 def remove_preference(index: int, s: Session = Depends(session)):
     return {"preferences": settings.remove_preference(s, index)}

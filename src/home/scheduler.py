@@ -438,16 +438,14 @@ async def run_schedule(schedule_id: int, event: dict | None = None) -> dict | No
             schedule.last_status = "error"
             schedule.last_report = "no provider configured for this project"
         else:
-            instruction = schedule.instruction.replace(
-                "{date}", _now().date().isoformat()
+            payload = (event or {}).get("payload") or {}
+            instruction = (
+                schedule.instruction.replace("{date}", _now().date().isoformat())
+                .replace("{event}", str((event or {}).get("kind", "")))
+                .replace("{event_title}", str(payload.get("title", "")))
+                .replace("{event_url}", str(payload.get("url", "")))
             )
             if event:
-                payload = event.get("payload") or {}
-                instruction = (
-                    instruction.replace("{event}", str(event.get("kind", "")))
-                    .replace("{event_title}", str(payload.get("title", "")))
-                    .replace("{event_url}", str(payload.get("url", "")))
-                )
                 if not instruction.strip():
                     instruction = (
                         f"React to this event: {event.get('kind')} "
