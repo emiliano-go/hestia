@@ -32,9 +32,25 @@ async def run_once(
     wanted = [g for g in (groups or "").split(",") if g]
     if wanted:
         registry = registry.filtered(wanted)
-    if "tasks" in wanted and tasks_db is not None:
-        for tool in task_tools.make_tools(tasks_db):
-            registry.register(tool)
+    if tasks_db is not None:
+        from home.tools import jobs as job_tools
+        from home.tools import preferences as pref_tools
+        from home.tools import reminders as reminder_tools
+        from home.tools import schedules as schedule_tools
+        from home.tools import watches as watch_tools
+
+        builders = {
+            "tasks": task_tools.make_tools,
+            "reminders": reminder_tools.make_tools,
+            "watches": watch_tools.make_tools,
+            "background": job_tools.make_tools,
+            "automations": schedule_tools.make_tools,
+            "memory": pref_tools.make_tools,
+        }
+        for group, builder in builders.items():
+            if group in wanted:
+                for tool in builder(tasks_db):
+                    registry.register(tool)
     client = OpenAIClient(
         provider.base_url, resolve_api_key(provider.api_key_env), provider.model
     )

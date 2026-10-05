@@ -15,6 +15,7 @@ from home.routers import (
     activity,
     agents,
     auth as auth_router,
+    capture,
     chat,
     docs,
     github,
@@ -78,6 +79,7 @@ def create_app() -> FastAPI:
     app.include_router(docs.router)
     app.include_router(projects.router)
     app.include_router(chat.router)
+    app.include_router(capture.router)
     app.include_router(jobs_router.router)
     app.include_router(providers.router)
     app.include_router(sessions.router)

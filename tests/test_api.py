@@ -2554,3 +2554,69 @@ def test_daily_plan_and_weekly_review_gates(client, monkeypatch):
 
     assert client.put("/api/settings", json={"weekly_review_time": "25:00"}).status_code == 400
     assert client.put("/api/settings", json={"weekly_review_day": "9"}).status_code == 400
+
+
+def test_capture_endpoint(client, monkeypatch):
+    from home.routers import capture as capture_router
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+    seen = {}
+
+    async def fake_run_once(project_, provider_, system, user, groups="", max_turns=8, tasks_db=None):
+        seen["system"] = system
+        seen["user"] = user
+        seen["groups"] = groups
+        return "Created task #5 and memory 'Acme'.", None, {}
+
+    monkeypatch.setattr(capture_router, "run_once", fake_run_once)
+    resp = client.post(
+        f"/api/projects/{project['id']}/capture",
+        json={"text": "Call Acme about renewal tomorrow.", "provider_id": provider["id"]},
+    )
+    assert resp.status_code == 200
+    assert "Acme" in resp.json()["report"]
+    assert "task_create" in seen["system"] and "remind_me" in seen["system"]
+    assert "tasks" in seen["groups"]
+
+    assert (
+        client.post(
+            f"/api/projects/{project['id']}/capture",
+            json={"text": "   ", "provider_id": provider["id"]},
+        ).status_code
+        == 400
+    )
+
+
+def test_run_once_registers_db_tools(client, monkeypatch):
+    import asyncio
+
+    from sqlmodel import Session as SqlSession
+
+    from home.agent import run as run_mod
+    from home.registry.db import engine
+    from home.registry.models import Project, Provider
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+    seen = {}
+
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+        seen["tools"] = [t.name for t in registry.all()]
+        yield {"type": "message", "content": "ok", "tool_calls": []}
+
+    monkeypatch.setattr(run_mod.agent_loop, "run_turn", fake_run_turn)
+    with SqlSession(engine()) as db:
+        report, error, tokens = asyncio.run(
+            run_mod.run_once(
+                db.get(Project, project["id"]),
+                db.get(Provider, provider["id"]),
+                "sys",
+                "user",
+                groups="tasks,reminders,watches,automations",
+                tasks_db=db,
+            )
+        )
+    assert error is None
+    for name in ("task_create", "remind_me", "watch_add", "schedule_create"):
+        assert name in seen["tools"]

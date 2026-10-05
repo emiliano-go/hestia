@@ -111,6 +111,7 @@ def make_tools(db: Session) -> list[Tool]:
                         "goal",
                         "docs",
                         "triage",
+                        "capture",
                         "memory-fix",
                     ],
                 },

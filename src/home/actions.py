@@ -69,6 +69,15 @@ ACTIONS: list[dict] = [
         "tools": "workspace,memory,repo,files",
     },
     {
+        "key": "capture",
+        "label": "Capture notes",
+        "description": (
+            "Turn pasted notes, an email, or a thread into tasks, reminders, "
+            "decisions, and client facts on the board and in memory."
+        ),
+        "tools": "tasks,memory,workspace,reminders,watches,automations",
+    },
+    {
         "key": "triage",
         "label": "Triage GitHub item",
         "description": (
