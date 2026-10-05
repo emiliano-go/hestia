@@ -14,11 +14,11 @@ from datetime import datetime, timedelta, timezone
 
 from sqlmodel import Session, select
 
-from home import actions, inbox, notify, overview, reminders, settings, taskboard, totem_store, usage, watchers
+from home import actions, events, inbox, notify, overview, reminders, settings, taskboard, totem_store, usage, watchers
 from home.agent.prompt import build_system_prompt
 from home.agent.run import run_once
 from home.registry.db import engine
-from home.registry.models import InboxItem, Project, Provider, Schedule, Task
+from home.registry.models import Event, InboxItem, Project, Provider, Schedule, Task
 from home.tools.registry import ProjectContext
 
 TICK_SECONDS = max(5, int(os.environ.get("HOME_SCHEDULER_TICK", "30")))
@@ -174,6 +174,10 @@ def as_dict(schedule: Schedule) -> dict:
         "instruction": schedule.instruction,
         "interval_minutes": schedule.interval_minutes,
         "enabled": schedule.enabled,
+        "trigger": schedule.trigger or "interval",
+        "event": schedule.event or "",
+        "event_filter": schedule.event_filter or "",
+        "cooldown_minutes": schedule.cooldown_minutes or 0,
         "last_run_at": overview._iso(schedule.last_run_at),
         "last_status": schedule.last_status,
         "last_report": schedule.last_report,
@@ -184,15 +188,24 @@ def as_dict(schedule: Schedule) -> dict:
 def due_schedules(db: Session, now: datetime | None = None) -> list[Schedule]:
     now = _naive(now or _now())
     due = []
-    for schedule in db.exec(select(Schedule).where(Schedule.enabled == True)).all():  # noqa: E712
+    for schedule in db.exec(
+        select(Schedule).where(
+            Schedule.enabled == True,  # noqa: E712
+            Schedule.trigger != "event",
+        )
+    ).all():
         last = _naive(schedule.last_run_at) or _naive(schedule.created_at) or now
         if now - last >= timedelta(minutes=max(1, schedule.interval_minutes)):
             due.append(schedule)
     return due
 
 
-async def run_schedule(schedule_id: int) -> dict | None:
-    """Run one schedule now and record the outcome. Returns its state or None."""
+async def run_schedule(schedule_id: int, event: dict | None = None) -> dict | None:
+    """Run one schedule now and record the outcome. Returns its state or None.
+
+    When ``event`` is given (an event-triggered run), the event kind, title, and
+    url are substituted into the instruction.
+    """
     with Session(engine()) as db:
         schedule = db.get(Schedule, schedule_id)
         if not schedule:
@@ -237,6 +250,19 @@ async def run_schedule(schedule_id: int) -> dict | None:
             instruction = schedule.instruction.replace(
                 "{date}", _now().date().isoformat()
             )
+            if event:
+                payload = event.get("payload") or {}
+                instruction = (
+                    instruction.replace("{event}", str(event.get("kind", "")))
+                    .replace("{event_title}", str(payload.get("title", "")))
+                    .replace("{event_url}", str(payload.get("url", "")))
+                )
+                if not instruction.strip():
+                    instruction = (
+                        f"React to this event: {event.get('kind')} "
+                        f"({payload.get('title', '')})"
+                    )
+                schedule.last_event_key = event.get("key", "")
             digest = totem_store.digest(project.local_path, task=instruction)
             system = build_system_prompt(
                 ProjectContext.from_project(project),
@@ -280,6 +306,26 @@ async def run_schedule(schedule_id: int) -> dict | None:
         return as_dict(schedule)
 
 
+def _in_cooldown(schedule: Schedule) -> bool:
+    if not schedule.cooldown_minutes or not schedule.last_run_at:
+        return False
+    last = _naive(schedule.last_run_at)
+    return (_naive(_now()) - last) < timedelta(minutes=schedule.cooldown_minutes)
+
+
+def _event_plan(db: Session) -> tuple[list[tuple[int, dict]], list[int]]:
+    """Match unhandled events to event-triggered schedules."""
+    plan: list[tuple[int, dict]] = []
+    handle_ids: list[int] = []
+    for event in events.unhandled(db):
+        data = events.as_dict(event)
+        for schedule in events.event_schedules(db, event.project_id):
+            if events.matches(schedule, event) and not _in_cooldown(schedule):
+                plan.append((schedule.id, data))
+        handle_ids.append(event.id)
+    return plan, handle_ids
+
+
 def _poll_inbox() -> None:
     """In its own thread and session, so notify.send never blocks the loop."""
     with Session(engine()) as db:
@@ -300,6 +346,18 @@ async def worker() -> None:
                 due_ids = [s.id for s in due_schedules(db)]
             for schedule_id in due_ids:
                 await run_schedule(schedule_id)
+
+            with Session(engine()) as db:
+                event_plan, handle_ids = _event_plan(db)
+            for schedule_id, event in event_plan:
+                await run_schedule(schedule_id, event=event)
+            if handle_ids:
+                with Session(engine()) as db:
+                    for event_id in handle_ids:
+                        row = db.get(Event, event_id)
+                        if row is not None:
+                            events.mark_handled(db, row)
+                    db.commit()
 
             inbox_clock += TICK_SECONDS
             if inbox_clock >= INBOX_POLL_SECONDS:

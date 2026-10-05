@@ -78,6 +78,18 @@ def _migrate() -> None:
         if message_columns and "ok" not in message_columns:
             conn.exec_driver_sql("ALTER TABLE message ADD COLUMN ok BOOLEAN")
 
+        schedule_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(schedule)")}
+        if schedule_columns and "trigger" not in schedule_columns:
+            conn.exec_driver_sql("ALTER TABLE schedule ADD COLUMN trigger TEXT DEFAULT 'interval'")
+        if schedule_columns and "event" not in schedule_columns:
+            conn.exec_driver_sql("ALTER TABLE schedule ADD COLUMN event TEXT DEFAULT ''")
+        if schedule_columns and "event_filter" not in schedule_columns:
+            conn.exec_driver_sql("ALTER TABLE schedule ADD COLUMN event_filter TEXT DEFAULT ''")
+        if schedule_columns and "cooldown_minutes" not in schedule_columns:
+            conn.exec_driver_sql("ALTER TABLE schedule ADD COLUMN cooldown_minutes INTEGER DEFAULT 0")
+        if schedule_columns and "last_event_key" not in schedule_columns:
+            conn.exec_driver_sql("ALTER TABLE schedule ADD COLUMN last_event_key TEXT DEFAULT ''")
+
 
 def session() -> Iterator[Session]:
     with Session(engine()) as s:

@@ -5280,6 +5280,15 @@ const SCHEDULE_INTERVALS = [
   { label: 'Weekly', minutes: 10080 },
 ]
 
+const SCHEDULE_EVENTS = [
+  ['ci_failure', 'CI failure'],
+  ['pr_opened', 'Pull request opened'],
+  ['issue_opened', 'Issue opened'],
+  ['watch_hit', 'Watch matched'],
+  ['task_review', 'Task entered review'],
+  ['task_done', 'Task completed'],
+]
+
 const SCHEDULE_PRESETS = [
   {
     label: 'Nightly repo digest',
@@ -5321,6 +5330,9 @@ function AutomationsView({ projectId }) {
     action: 'github-scan',
     interval_minutes: 1440,
     instruction: '',
+    trigger: 'interval',
+    event: 'ci_failure',
+    event_filter: '',
   })
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState(null)
@@ -5334,7 +5346,14 @@ function AutomationsView({ projectId }) {
     api
       .createSchedule(projectId, form)
       .then(() => {
-        setForm({ action: 'github-scan', interval_minutes: 1440, instruction: '' })
+        setForm({
+          action: 'github-scan',
+          interval_minutes: 1440,
+          instruction: '',
+          trigger: 'interval',
+          event: 'ci_failure',
+          event_filter: '',
+        })
         reload()
       })
       .catch((err) => setFormError(err.message || String(err)))
@@ -5392,7 +5411,11 @@ function AutomationsView({ projectId }) {
               <div className="sched-main">
                 <div className="sched-title">
                   <span className="badge">{s.action}</span>
-                  <span className="muted">every {intervalLabel(s.interval_minutes)}</span>
+                  <span className="muted">
+                    {s.trigger === 'event'
+                      ? `when ${(SCHEDULE_EVENTS.find((e) => e[0] === s.event) || [null, s.event])[1]}`
+                      : `every ${intervalLabel(s.interval_minutes)}`}
+                  </span>
                   {s.last_status && (
                     <span className={`badge ${s.last_status === 'ok' ? 'ok' : 'err'}`}>
                       {s.last_status}
@@ -5447,6 +5470,9 @@ function AutomationsView({ projectId }) {
                   action: p.action,
                   interval_minutes: p.interval_minutes,
                   instruction: p.instruction,
+                  trigger: 'interval',
+                  event: 'ci_failure',
+                  event_filter: '',
                 })
               }
             >
@@ -5469,6 +5495,18 @@ function AutomationsView({ projectId }) {
             </select>
           </label>
           <label className="field">
+            <span className="field-label">Trigger</span>
+            <select
+              value={form.trigger}
+              onChange={(e) => setForm({ ...form, trigger: e.target.value })}
+            >
+              <option value="interval">On a schedule</option>
+              <option value="event">When an event happens</option>
+            </select>
+          </label>
+        </div>
+        {form.trigger === 'interval' ? (
+          <label className="field">
             <span className="field-label">Interval</span>
             <select
               value={form.interval_minutes}
@@ -5481,7 +5519,31 @@ function AutomationsView({ projectId }) {
               ))}
             </select>
           </label>
-        </div>
+        ) : (
+          <div className="field-row">
+            <label className="field">
+              <span className="field-label">Event</span>
+              <select
+                value={form.event}
+                onChange={(e) => setForm({ ...form, event: e.target.value })}
+              >
+                {SCHEDULE_EVENTS.map(([key, label]) => (
+                  <option key={key} value={key}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span className="field-label">Filter (optional)</span>
+              <input
+                value={form.event_filter}
+                onChange={(e) => setForm({ ...form, event_filter: e.target.value })}
+                placeholder="Substring the title or URL must contain"
+              />
+            </label>
+          </div>
+        )}
         <label className="field">
           <span className="field-label">Instruction</span>
           <textarea

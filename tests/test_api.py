@@ -2404,3 +2404,114 @@ def test_schedule_agent_tools(client):
         assert db.exec(
             select(Schedule).where(Schedule.project_id == project["id"])
         ).all() == []
+
+
+def test_event_trigger_matching_and_run(client, monkeypatch):
+    import asyncio
+
+    from sqlmodel import Session as SqlSession, select
+
+    from home import events, scheduler
+    from home.registry.db import engine
+    from home.registry.models import Event, Project, Schedule
+
+    project = _mk_project(client)
+    pid = project["id"]
+    provider = _mk_provider(client)
+
+    with SqlSession(engine()) as db:
+        row = db.get(Project, pid)
+        row.default_provider_id = provider["id"]
+        db.add(row)
+        db.commit()
+        db.add(
+            Schedule(
+                project_id=pid,
+                action="chat",
+                instruction="Handle {event}: {event_title}",
+                trigger="event",
+                event="ci_failure",
+            )
+        )
+        db.add(
+            Schedule(
+                project_id=pid,
+                action="chat",
+                instruction="never",
+                trigger="event",
+                event="pr_opened",
+            )
+        )
+        db.commit()
+        events.emit(db, pid, "ci_failure", {"title": "CI broken", "url": "http://x"}, key="run:1")
+        events.emit(db, pid, "ci_failure", {"title": "CI broken", "url": "http://x"}, key="run:1")
+        db.commit()
+        assert len(db.exec(select(Event).where(Event.project_id == pid)).all()) == 1
+        plan, handle_ids = scheduler._event_plan(db)
+        assert len(plan) == 1
+        assert plan[0][1]["payload"]["title"] == "CI broken"
+        assert handle_ids
+
+    from home.agent import loop as agent_loop
+
+    seen = {}
+
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+        seen["instruction"] = messages[-1]["content"]
+        yield {"type": "message", "content": "handled", "tool_calls": []}
+
+    monkeypatch.setattr(agent_loop, "run_turn", fake_run_turn)
+
+    result = asyncio.run(scheduler.run_schedule(plan[0][0], event=plan[0][1]))
+    assert result["last_status"] == "ok", result.get("last_report")
+    assert "CI broken" in seen["instruction"]
+
+
+def test_task_transition_emits_event(client):
+    from sqlmodel import Session as SqlSession, select
+
+    from home.registry.db import engine
+    from home.registry.models import Event
+
+    project = _mk_project(client)
+    pid = project["id"]
+    task = client.post(f"/api/projects/{pid}/tasks", json={"title": "review me"}).json()
+    client.put(f"/api/tasks/{task['id']}", json={"status": "review"})
+    with SqlSession(engine()) as db:
+        rows = db.exec(
+            select(Event).where(Event.project_id == pid, Event.kind == "task_review")
+        ).all()
+        assert rows and rows[0].key == f"task:{task['id']}:review"
+
+
+def test_inbox_poll_emits_ci_event(client, monkeypatch):
+    from sqlmodel import Session as SqlSession, select
+
+    from home import overview
+    from home.registry.db import engine
+    from home.registry.models import Event
+
+    project = _mk_project(client)
+    runs = [{"id": 99, "name": "CI", "conclusion": "failure", "url": "u"}]
+    monkeypatch.setattr(
+        overview,
+        "github_list",
+        lambda p, kind, state="open", limit=30: {
+            "available": True,
+            "repo": "a/b",
+            "items": runs if kind == "runs" else [],
+        },
+    )
+    monkeypatch.setattr(overview, "repo_slug", lambda url: "a/b")
+
+    client.post("/api/inbox/poll")  # baseline
+    runs.append({"id": 100, "name": "CI", "conclusion": "failure", "url": "u2"})
+    client.post("/api/inbox/poll")
+
+    with SqlSession(engine()) as db:
+        rows = db.exec(
+            select(Event).where(
+                Event.project_id == project["id"], Event.kind == "ci_failure"
+            )
+        ).all()
+        assert any(e.key == "run:100" for e in rows)

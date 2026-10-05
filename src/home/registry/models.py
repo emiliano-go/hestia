@@ -237,11 +237,11 @@ class Usage(SQLModel, table=True):
 
 
 class Schedule(SQLModel, table=True):
-    """A recurring one-shot agent run for a project (nightly digest, review...).
+    """An automation: a recurring agent run, or a reaction to an event.
 
-    The background worker picks schedules whose interval has elapsed, runs the
-    assigned action's agent with ``instruction`` as the task, and records the
-    outcome here so the UI can show the last run.
+    ``trigger`` is "interval" (run every ``interval_minutes``) or "event" (run
+    when an Event of ``event`` kind arrives, optionally filtered by a substring
+    in ``event_filter``). The worker records the outcome here for the UI.
     """
 
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -250,10 +250,32 @@ class Schedule(SQLModel, table=True):
     instruction: str = ""
     interval_minutes: int = 1440
     enabled: bool = True
+    trigger: str = "interval"  # interval | event
+    event: str = ""  # event kind to match when trigger=event
+    event_filter: str = ""  # optional substring the event title/url must contain
+    cooldown_minutes: int = 0
+    last_event_key: str = ""
     last_run_at: Optional[datetime] = None
     last_status: Optional[str] = None  # ok | error
     last_report: Optional[str] = None
     created_at: datetime = Field(default_factory=_now)
+
+
+class Event(SQLModel, table=True):
+    """A sensed event that automations can react to (CI failure, watch hit...).
+
+    Emitted by the inbox poller, watchers, and task transitions. The worker
+    matches unhandled events against event-triggered schedules and runs them.
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id", index=True)
+    kind: str  # ci_failure | pr_opened | issue_opened | watch_hit | task_review | task_done
+    key: str = ""  # dedupe key within (project, kind)
+    payload: str = "{}"  # JSON: title, url, ...
+    status: str = "new"  # new | handled | ignored
+    created_at: datetime = Field(default_factory=_now)
+    handled_at: Optional[datetime] = None
 
 
 class BackgroundTask(SQLModel, table=True):

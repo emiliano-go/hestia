@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlmodel import Session, select
 
+from home import events
 from home.registry.models import Task, TaskComment
 
 STATUSES = ["backlog", "todo", "doing", "review", "done"]
@@ -213,6 +214,7 @@ def create(
 
 
 def update(db: Session, task: Task, fields: dict) -> Task:
+    old_status = task.status
     if "title" in fields:
         title = (fields["title"] or "").strip()
         if not title:
@@ -250,6 +252,14 @@ def update(db: Session, task: Task, fields: dict) -> Task:
         task.depends_on = json.dumps(deps)
     if "due_at" in fields:
         task.due_at = parse_due(fields["due_at"])
+    if task.status != old_status and task.status in ("review", "done"):
+        events.emit(
+            db,
+            task.project_id,
+            "task_review" if task.status == "review" else "task_done",
+            {"title": task.title},
+            key=f"task:{task.id}:{task.status}",
+        )
     task.updated_at = datetime.now(timezone.utc)
     db.add(task)
     db.commit()

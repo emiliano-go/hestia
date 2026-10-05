@@ -6,11 +6,12 @@ that the background worker runs on its interval.
 
 from sqlmodel import Session, select
 
-from home import actions, scheduler
+from home import actions, events, scheduler
 from home.registry.models import Schedule
 from home.tools.registry import ProjectContext, Tool, schema
 
 MIN_INTERVAL = 1
+TRIGGERS = ("interval", "event")
 
 
 def _validate_action(action: str) -> str:
@@ -30,6 +31,12 @@ def _validate_interval(value) -> int:
 def make_tools(db: Session) -> list[Tool]:
     def create_handler(ctx: ProjectContext, args: dict) -> dict:
         instruction = (args.get("instruction") or "").strip()
+        trigger = (args.get("trigger") or "interval").strip().lower()
+        if trigger not in TRIGGERS:
+            raise ValueError(f"trigger must be one of: {', '.join(TRIGGERS)}")
+        event = (args.get("event") or "").strip()
+        if trigger == "event" and event and event not in events.KINDS:
+            raise ValueError(f"event must be one of: {', '.join(events.KINDS)}")
         if not instruction:
             raise ValueError("instruction is required")
         schedule = Schedule(
@@ -38,6 +45,9 @@ def make_tools(db: Session) -> list[Tool]:
             instruction=instruction,
             interval_minutes=_validate_interval(args.get("interval_minutes", 1440)),
             enabled=True,
+            trigger=trigger,
+            event=event,
+            event_filter=(args.get("event_filter") or "").strip(),
         )
         db.add(schedule)
         db.commit()
@@ -79,6 +89,20 @@ def make_tools(db: Session) -> list[Tool]:
                     "interval_minutes": {
                         "type": "integer",
                         "description": "how often to run, in minutes (default 1440)",
+                    },
+                    "trigger": {
+                        "type": "string",
+                        "enum": list(TRIGGERS),
+                        "description": "interval (default) or event",
+                    },
+                    "event": {
+                        "type": "string",
+                        "enum": list(events.KINDS),
+                        "description": "event kind to react to when trigger=event",
+                    },
+                    "event_filter": {
+                        "type": "string",
+                        "description": "optional substring the event title or url must contain",
                     },
                 },
                 ["instruction"],

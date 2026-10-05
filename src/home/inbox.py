@@ -8,10 +8,12 @@ from __future__ import annotations
 
 from sqlmodel import Session, select
 
-from home import notify, overview
+from home import events, notify, overview
 from home.registry.models import InboxItem, Project
 
 _KINDS = ("pr", "issue", "run")
+
+_EVENT_KIND = {"run": "ci_failure", "pr": "pr_opened", "issue": "issue_opened"}
 
 
 def _has_items(db: Session, project_id: int) -> bool:
@@ -91,6 +93,13 @@ def poll_project(db: Session, project: Project) -> tuple[int, list[InboxItem]]:
         created += 1
         if not item.read:
             new_unread.append(item)
+            events.emit(
+                db,
+                project.id,
+                _EVENT_KIND.get(item.kind, item.kind),
+                {"title": item.title, "url": item.url, "text": item.subtitle},
+                key=item.external_id,
+            )
 
     for pr in prs.get("items", []):
         track(

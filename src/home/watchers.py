@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlmodel import Session, select
 
-from home import actions, notify, settings, totem_store, usage, webfetch
+from home import actions, events, notify, settings, totem_store, usage, webfetch
 from home.agent.prompt import build_system_prompt
 from home.agent.run import run_once
 from home.registry.models import Project, Provider, Watch
@@ -324,6 +324,15 @@ async def _check_condition(db: Session, watch: Watch) -> None:
         watch.status = "done"
 
 
+def _is_hit(watch: Watch) -> bool:
+    result = watch.last_result or ""
+    if watch.status == "done":
+        return True
+    if result == "changed":
+        return True
+    return result.endswith("new items") and not result.startswith("baseline")
+
+
 async def check(db: Session, watch: Watch) -> Watch:
     watch.last_checked_at = _utcnow()
     try:
@@ -335,6 +344,18 @@ async def check(db: Session, watch: Watch) -> Watch:
             await _check_condition(db, watch)
     except Exception as e:  # network, parse, provider; record and keep going
         watch.last_result = f"error: {str(e)[:200]}"
+    if watch.project_id and _is_hit(watch):
+        events.emit(
+            db,
+            watch.project_id,
+            "watch_hit",
+            {
+                "title": watch.condition or watch.url or f"watch {watch.id}",
+                "url": watch.url,
+                "text": watch.last_result or "",
+            },
+            key=f"watch:{watch.id}:{watch.last_checked_at.isoformat()}",
+        )
     db.add(watch)
     db.commit()
     db.refresh(watch)
