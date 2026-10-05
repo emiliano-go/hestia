@@ -10,7 +10,13 @@ def data_dir() -> Path:
 
 
 def github_token() -> str | None:
-    return os.environ.get("GITHUB_TOKEN") or None
+    """GITHUB_TOKEN env wins; otherwise the token stored from the UI."""
+    env = os.environ.get("GITHUB_TOKEN") or None
+    if env:
+        return env
+    from home import github_auth
+
+    return github_auth.load_token()
 
 
 def slug(name: str) -> str:

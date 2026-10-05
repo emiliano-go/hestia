@@ -7,6 +7,7 @@ so they cannot spawn further subagents.
 """
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 from sqlmodel import Session, select
 
@@ -53,7 +54,10 @@ def make_tools(db: Session) -> list[Tool]:
             },
             {"role": "user", "content": args["task"]},
         ]
-        return asyncio.run(_run_subagent(ctx, client, registry, messages, config.max_turns))
+        result = _run_subagent_in_thread(ctx, client, registry, messages, config.max_turns)
+        if "error" in result:
+            raise RuntimeError(result["error"])
+        return result
 
     def list_handler(ctx: ProjectContext, args: dict) -> list[dict]:
         configs = db.exec(select(AgentConfig)).all()
@@ -107,3 +111,16 @@ async def _run_subagent(ctx, client, registry, messages, max_turns) -> dict:
         if event["type"] == "error":
             return {"error": event["message"]}
     return {"summary": final}
+
+
+def _run_subagent_in_thread(ctx, client, registry, messages, max_turns) -> dict:
+    """Run the subagent loop off the main event loop.
+
+    Tool handlers are sync, so this is called from inside the parent's running
+    loop; asyncio.run needs its own thread. Subagent tools never touch the
+    request DB session, so crossing threads here is safe.
+    """
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(
+            asyncio.run, _run_subagent(ctx, client, registry, messages, max_turns)
+        ).result()

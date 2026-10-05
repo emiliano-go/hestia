@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api.js'
+import { loginWithPasskey, passkeysSupported, registerPasskey } from './auth.js'
 
 // ---------- helpers ----------
 
@@ -27,6 +28,55 @@ function truncate(str, n = 120) {
   if (!str) return ''
   str = String(str)
   return str.length > n ? str.slice(0, n) + '...' : str
+}
+
+const GLOBAL_VIEWS = ['home', 'help', 'search', 'agents', 'gallery', 'reminders', 'watches']
+const PROJECT_VIEWS = [
+  'welcome',
+  'chat',
+  'goals',
+  'tasks',
+  'roadmap',
+  'github',
+  'activity',
+  'automations',
+  'files',
+  'memory',
+  'about',
+]
+
+function parseHash(hash) {
+  const raw = (hash || '').replace(/^#\/?/, '')
+  if (!raw) return null
+  const [path, query] = raw.split('?')
+  const params = new URLSearchParams(query || '')
+  const parts = path.split('/').filter(Boolean)
+  if (parts[0] === 'p' && parts[1]) {
+    return {
+      projectId: Number(parts[1]),
+      view: { type: PROJECT_VIEWS.includes(parts[2]) ? parts[2] : 'welcome' },
+      session: params.get('session') ? Number(params.get('session')) : null,
+    }
+  }
+  if (parts[0] === 'g' && GLOBAL_VIEWS.includes(parts[1])) {
+    return { view: { type: parts[1] } }
+  }
+  if (parts[0] && GLOBAL_VIEWS.includes(parts[0])) {
+    return { view: { type: parts[0] } }
+  }
+  return null
+}
+
+function viewHash(projectId, view, chatSessionId) {
+  if (view.type === 'reminders' || view.type === 'watches') return `#/g/${view.type}`
+  if (['home', 'help', 'search', 'agents', 'gallery'].includes(view.type)) {
+    return `#/${view.type}`
+  }
+  if (projectId && PROJECT_VIEWS.includes(view.type)) {
+    const q = view.type === 'chat' && chatSessionId ? `?session=${chatSessionId}` : ''
+    return `#/p/${projectId}/${view.type}${q}`
+  }
+  return '#/home'
 }
 
 function useAsync(fn, deps) {
@@ -74,6 +124,7 @@ const ICON_PATHS = {
   check: 'M20 6 9 17l-5-5',
   clock: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 7v5l3 2',
   help: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01',
+  menu: 'M3 6h18M3 12h18M3 18h18',
   tasks: 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01',
   flag: 'M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7',
   chevronDown: 'M6 9l6 6 6-6',
@@ -188,6 +239,10 @@ function inlineMd(s) {
   return s
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(
+      /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noreferrer">$1</a>'
+    )
 }
 
 function mdToHtml(md) {
@@ -258,6 +313,13 @@ function fmtBytes(n) {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function fmtTokens(n) {
+  if (!n) return '0'
+  if (n < 1000) return String(n)
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`
+  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
 }
 
 // ---------- shared bits ----------
@@ -1261,6 +1323,298 @@ function GalleryView() {
 
 // ---------- theme panel ----------
 
+function AssistantPanel() {
+  const { data, loading } = useAsync(api.getSettings, [])
+  const [form, setForm] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    if (data) setForm(data)
+  }, [data])
+
+  if (loading || !form) return <p className="note">Loading...</p>
+
+  const field = (key, value) => {
+    setSaved(false)
+    setForm({ ...form, [key]: value })
+  }
+
+  const save = (e) => {
+    e.preventDefault()
+    setSaving(true)
+    setError(null)
+    api
+      .updateSettings(form)
+      .then((next) => {
+        setForm(next)
+        setSaved(true)
+      })
+      .catch((err) => setError(err.message || String(err)))
+      .finally(() => setSaving(false))
+  }
+
+  return (
+    <form className="agent-form" onSubmit={save}>
+      <div className="field-row">
+        <label className="field">
+          <span className="field-label">Your name</span>
+          <input
+            value={form.user_name || ''}
+            onChange={(e) => field('user_name', e.target.value)}
+            placeholder="How the agent should address you"
+          />
+        </label>
+        <label className="field">
+          <span className="field-label">Timezone</span>
+          <input
+            value={form.timezone || ''}
+            onChange={(e) => field('timezone', e.target.value)}
+            placeholder="Europe/Rome"
+          />
+          <span className="field-hint">IANA name; used for reminders and the briefing.</span>
+        </label>
+      </div>
+      <label className="field">
+        <span className="field-label">Standing instructions</span>
+        <textarea
+          rows={3}
+          value={form.instructions || ''}
+          onChange={(e) => field('instructions', e.target.value)}
+          placeholder="Always injected into the agent's system prompt, e.g. 'Be concise. Prefer tests first.'"
+        />
+      </label>
+      <div className="field-row">
+        <label className="field">
+          <span className="field-label">Daily briefing</span>
+          <select
+            value={form.briefing_enabled}
+            onChange={(e) => field('briefing_enabled', e.target.value)}
+          >
+            <option value="0">Off</option>
+            <option value="1">On</option>
+          </select>
+        </label>
+        <label className="field">
+          <span className="field-label">Briefing time</span>
+          <input
+            type="time"
+            value={form.briefing_time || '08:00'}
+            onChange={(e) => field('briefing_time', e.target.value)}
+          />
+        </label>
+      </div>
+      <label className="dep-item" style={{ flex: 'none' }}>
+        <input
+          type="checkbox"
+          checked={form.briefing_agent === '1'}
+          onChange={(e) => field('briefing_agent', e.target.checked ? '1' : '0')}
+        />
+        Let the agent add commentary to the briefing
+      </label>
+      <label className="dep-item" style={{ flex: 'none' }}>
+        <input
+          type="checkbox"
+          checked={form.web_fetch_enabled === '1'}
+          onChange={(e) => field('web_fetch_enabled', e.target.checked ? '1' : '0')}
+        />
+        Allow the agent to fetch web pages (watchers use this too)
+      </label>
+      <div className="row" style={{ marginBottom: 0 }}>
+        <button className="btn primary" disabled={saving}>
+          {saving ? (
+            <>
+              <Spinner size={14} /> Saving
+            </>
+          ) : (
+            'Save settings'
+          )}
+        </button>
+        {saved && <span className="note">Saved.</span>}
+      </div>
+      {error && <div className="error-text">{error}</div>}
+    </form>
+  )
+}
+
+function GithubPanel() {
+  const { data, loading, reload } = useAsync(api.githubStatus, [])
+  const { data: settings } = useAsync(api.getSettings, [])
+  const [token, setToken] = useState('')
+  const [clientId, setClientId] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const [device, setDevice] = useState(null)
+  const pollRef = useRef(null)
+
+  useEffect(() => {
+    if (settings) setClientId(settings.github_oauth_client_id || '')
+  }, [settings])
+
+  useEffect(() => () => clearInterval(pollRef.current), [])
+
+  if (loading) return <p className="note">Loading...</p>
+
+  const run = (fn) => {
+    setBusy(true)
+    setError(null)
+    fn()
+      .then(() => reload())
+      .catch((e) => setError(e.message || String(e)))
+      .finally(() => setBusy(false))
+  }
+
+  const connect = (e) => {
+    e.preventDefault()
+    if (!token.trim()) return
+    setBusy(true)
+    setError(null)
+    api
+      .githubConnect(token.trim())
+      .then(() => {
+        setToken('')
+        reload()
+      })
+      .catch((err) => setError(err.message || String(err)))
+      .finally(() => setBusy(false))
+  }
+
+  const startDevice = () => {
+    setBusy(true)
+    setError(null)
+    api
+      .githubDeviceStart()
+      .then((d) => {
+        setDevice(d)
+        clearInterval(pollRef.current)
+        pollRef.current = setInterval(
+          () => {
+            api
+              .githubDevicePoll(d.device_code)
+              .then((r) => {
+                if (r.status === 'connected') {
+                  clearInterval(pollRef.current)
+                  setDevice(null)
+                  reload()
+                }
+              })
+              .catch((err) => {
+                clearInterval(pollRef.current)
+                setDevice(null)
+                setError(err.message || String(err))
+              })
+          },
+          Math.max(5, d.interval || 5) * 1000
+        )
+      })
+      .catch((err) => setError(err.message || String(err)))
+      .finally(() => setBusy(false))
+  }
+
+  const saveClientId = () => {
+    setError(null)
+    api
+      .updateSettings({ github_oauth_client_id: clientId.trim() })
+      .then(() => reload())
+      .catch((err) => setError(err.message || String(err)))
+  }
+
+  const account = data || {}
+
+  return (
+    <div className="agent-form">
+      {account.connected ? (
+        <div className="github-account">
+          {account.avatar_url && <img src={account.avatar_url} alt="" className="github-avatar" />}
+          <div className="github-account-main">
+            <div className="github-login">{account.login || 'connected'}</div>
+            <div className="note">
+              {account.source === 'env' ? 'Token from GITHUB_TOKEN (env)' : 'Token stored in Home'}
+              {account.scopes?.length ? `, scopes: ${account.scopes.join(', ')}` : ''}
+            </div>
+          </div>
+          <button
+            className="btn danger"
+            disabled={account.source === 'env'}
+            title={account.source === 'env' ? 'Unset GITHUB_TOKEN to disconnect' : 'Disconnect'}
+            onClick={() => run(api.githubDisconnect)}
+          >
+            Disconnect
+          </button>
+        </div>
+      ) : (
+        <p className="note">
+          No GitHub account connected. Public repositories work without one; connect for private
+          repos, higher rate limits, and PR/issue writes.
+        </p>
+      )}
+      {account.error && <p className="error-text">{account.error}</p>}
+      {error && <p className="error-text">{error}</p>}
+
+      <form className="row" onSubmit={connect}>
+        <input
+          type="password"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          placeholder="Personal access token (repo scope)"
+        />
+        <button className="btn primary" disabled={busy || !token.trim()}>
+          {busy ? <Spinner size={13} /> : 'Connect'}
+        </button>
+      </form>
+
+      <div className="row">
+        <button
+          className="btn"
+          disabled={busy || !account.gh_cli}
+          title={account.gh_cli ? 'Reuse the token from gh auth' : 'gh CLI not installed'}
+          onClick={() => run(api.githubImportGh)}
+        >
+          <Icon name="git" size={13} /> Import from gh CLI
+        </button>
+      </div>
+
+      <div className="field">
+        <span className="field-label">Sign in with GitHub (device flow)</span>
+        {device ? (
+          <div className="device-flow">
+            <div>
+              Enter this code on GitHub: <code className="device-code">{device.user_code}</code>
+            </div>
+            <a href={device.verification_uri} target="_blank" rel="noreferrer">
+              {device.verification_uri}
+            </a>
+            <div className="note">Waiting for approval...</div>
+          </div>
+        ) : (
+          <div className="row" style={{ marginBottom: 0 }}>
+            <input
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+              placeholder="OAuth app client id"
+            />
+            <button type="button" className="btn" onClick={saveClientId} disabled={!clientId.trim()}>
+              Save
+            </button>
+            <button
+              type="button"
+              className="btn"
+              disabled={busy || !clientId.trim()}
+              onClick={startDevice}
+            >
+              Sign in
+            </button>
+          </div>
+        )}
+        <span className="field-hint">
+          Create an OAuth app (device flow enabled) and paste its client id; no secret needed.
+        </span>
+      </div>
+    </div>
+  )
+}
+
 function ThemePanel() {
   const [theme, setTheme] = useState(() => ({ ...DEFAULT_THEME, ...loadStoredTheme() }))
 
@@ -1320,6 +1674,11 @@ function MemoryView({ projectId, providerId }) {
       .catch((err) => setError(err.message || String(err)))
       .finally(() => setSearching(false))
   }
+
+  useEffect(() => {
+    search()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId])
 
   const runFix = (e) => {
     e?.preventDefault()
@@ -1410,10 +1769,27 @@ function AboutView({ projectId, onDeleted }) {
     () => api.getProject(projectId),
     [projectId]
   )
+  const usageReq = useAsync(() => api.projectUsage(projectId), [projectId])
+  const usage = usageReq.data
+  const notifyReq = useAsync(api.notifyStatus, [])
   const [pulling, setPulling] = useState(false)
   const [pullOutput, setPullOutput] = useState(null)
   const [actionError, setActionError] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmWrites, setConfirmWrites] = useState(false)
+  const [budget, setBudget] = useState('')
+  const [enforce, setEnforce] = useState(false)
+  const [savingBudget, setSavingBudget] = useState(false)
+  const [testingNotify, setTestingNotify] = useState(false)
+  const [notifyResult, setNotifyResult] = useState(null)
+  const [notifyError, setNotifyError] = useState(null)
+
+  useEffect(() => {
+    if (project) {
+      setBudget(project.token_budget ?? '')
+      setEnforce(!!project.budget_enforced)
+    }
+  }, [project])
 
   if (loading) return <p className="note">Loading...</p>
   if (error) return <p className="error-text">{error}</p>
@@ -1433,6 +1809,44 @@ function AboutView({ projectId, onDeleted }) {
       })
       .catch((e) => setActionError(e.message || String(e)))
       .finally(() => setPulling(false))
+  }
+
+  const setWrites = (enabled) => {
+    setActionError(null)
+    api
+      .setGitWrites(project.id, enabled)
+      .then(() => {
+        setConfirmWrites(false)
+        reload()
+      })
+      .catch((e) => setActionError(e.message || String(e)))
+  }
+
+  const saveBudget = () => {
+    setSavingBudget(true)
+    setActionError(null)
+    api
+      .updateProject(project.id, {
+        token_budget: budget === '' ? 0 : Number(budget),
+        budget_enforced: enforce,
+      })
+      .then(() => {
+        reload()
+        usageReq.reload()
+      })
+      .catch((e) => setActionError(e.message || String(e)))
+      .finally(() => setSavingBudget(false))
+  }
+
+  const testNotify = () => {
+    setTestingNotify(true)
+    setNotifyError(null)
+    setNotifyResult(null)
+    api
+      .notifyTest()
+      .then(setNotifyResult)
+      .catch((e) => setNotifyError(e.message || String(e)))
+      .finally(() => setTestingNotify(false))
   }
 
   return (
@@ -1484,6 +1898,157 @@ function AboutView({ projectId, onDeleted }) {
       {actionError && <p className="error-text">{actionError}</p>}
       {pullOutput !== null && <pre>{pullOutput || '(no output)'}</pre>}
       <h3 className="faint" style={{ fontSize: 13, fontWeight: 600 }}>
+        Token usage
+      </h3>
+      {usage && usage.total.runs > 0 ? (
+        <>
+          <p className="note">
+            {fmtTokens(usage.total.tokens)} tokens across {usage.total.runs} agent runs ·{' '}
+            {fmtTokens(usage.total.prompt_tokens)} prompt / {fmtTokens(usage.total.completion_tokens)}{' '}
+            completion
+          </p>
+          <div className="usage-list">
+            {usage.by_action.map((a) => (
+              <div key={a.action} className="usage-row">
+                <span className="usage-name">{a.action}</span>
+                <span className="muted">{a.runs} runs</span>
+                <span>{fmtTokens(a.tokens)}</span>
+              </div>
+            ))}
+            {usage.by_session.map((s) => (
+              <div key={`session-${s.session_id}`} className="usage-row">
+                <span className="usage-name">
+                  <Icon name="chat" size={13} /> {s.title}
+                </span>
+                <span className="muted">{s.runs} runs</span>
+                <span>{fmtTokens(s.tokens)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <p className="note">No usage recorded yet.</p>
+      )}
+      <h3 className="faint" style={{ fontSize: 13, fontWeight: 600 }}>
+        Monthly budget
+      </h3>
+      <p className="note">
+        {usage && usage.month
+          ? `${fmtTokens(usage.month.tokens)} tokens used this month.`
+          : 'No usage this month.'}{' '}
+        Leave the budget empty for unlimited.
+      </p>
+      <div className="row">
+        <input
+          type="number"
+          min="0"
+          style={{ maxWidth: 160 }}
+          value={budget}
+          onChange={(e) => setBudget(e.target.value)}
+          placeholder="Unlimited"
+        />
+        <label className="dep-item" style={{ flex: 'none' }}>
+          <input
+            type="checkbox"
+            checked={enforce}
+            onChange={(e) => setEnforce(e.target.checked)}
+          />
+          Skip scheduled runs when the budget is spent
+        </label>
+        <button className="btn" onClick={saveBudget} disabled={savingBudget}>
+          {savingBudget ? <Spinner size={13} /> : 'Save budget'}
+        </button>
+      </div>
+      <h3 className="faint" style={{ fontSize: 13, fontWeight: 600 }}>
+        Git writes
+      </h3>
+      {project.allow_git_writes ? (
+        <>
+          <p className="note warn-text">
+            <Icon name="alert" size={13} /> Enabled: the agent can write files into the clone,
+            create branches, commit, push, and open pull requests.
+          </p>
+          <label className="dep-item" style={{ flex: 'none' }}>
+            <input
+              type="checkbox"
+              checked={!!project.require_write_approval}
+              onChange={(e) =>
+                api
+                  .updateProject(project.id, { require_write_approval: e.target.checked })
+                  .then(reload)
+                  .catch((err) => setActionError(err.message))
+              }
+            />
+            Require your approval before push or PR
+          </label>
+          <div className="row">
+            <button className="btn danger" onClick={() => setWrites(false)}>
+              Disable git writes
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="note">
+            Disabled: project code is read-only. Enable to let the agent make code changes on a
+            branch, push, and open pull requests.
+          </p>
+          <div className="row">
+            {confirmWrites ? (
+              <>
+                <span className="muted">Let the agent modify the clone?</span>
+                <button className="btn danger" onClick={() => setWrites(true)}>
+                  Confirm enable
+                </button>
+                <button className="btn" onClick={() => setConfirmWrites(false)}>
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button className="btn" onClick={() => setConfirmWrites(true)}>
+                <Icon name="alert" size={14} /> Enable git writes…
+              </button>
+            )}
+          </div>
+        </>
+      )}
+      <h3 className="faint" style={{ fontSize: 13, fontWeight: 600 }}>
+        Notifications
+      </h3>
+      {notifyReq.data && notifyReq.data.configured.length > 0 ? (
+        <>
+          <p className="note">
+            Channels: {notifyReq.data.configured.join(', ')}. The agent can push with the{' '}
+            <code>notify</code> tool; new inbox items and scheduled runs notify automatically.
+          </p>
+          <div className="row">
+            <button className="btn" onClick={testNotify} disabled={testingNotify}>
+              {testingNotify ? (
+                <>
+                  <Spinner size={13} /> Sending
+                </>
+              ) : (
+                <>
+                  <Icon name="sparkles" size={13} /> Send test notification
+                </>
+              )}
+            </button>
+          </div>
+        </>
+      ) : (
+        <p className="note">
+          No channel configured. Set <code>NTFY_TOPIC</code> (optionally <code>NTFY_URL</code>,{' '}
+          <code>NTFY_TOKEN</code>), or <code>TELEGRAM_BOT_TOKEN</code> +{' '}
+          <code>TELEGRAM_CHAT_ID</code>, then restart Home.
+        </p>
+      )}
+      {notifyResult && (
+        <p className="note">
+          Sent via {Object.entries(notifyResult).map(([k, v]) => `${k} (${v.ok ? 'ok' : 'failed'})`).join(', ')}.
+        </p>
+      )}
+      {notifyError && <p className="error-text">{notifyError}</p>}
+      <h3 className="faint" style={{ fontSize: 13, fontWeight: 600 }}>
         AGENTS.md
       </h3>
       <pre>{project.agents_md || '(empty)'}</pre>
@@ -1513,7 +2078,193 @@ function SectionEmpty({ icon, title, hint, action }) {
   )
 }
 
-function HomeView({ onOpenProject, onOpenSession, onOpenFile, onNewProject, onNavigate }) {
+function LoginView({ status, onAuthed }) {
+  const [setupToken, setSetupToken] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const supported = passkeysSupported()
+
+  const run = (fn) => {
+    setBusy(true)
+    setError(null)
+    fn()
+      .then(onAuthed)
+      .catch((e) => setError(e.message || String(e)))
+      .finally(() => setBusy(false))
+  }
+
+  return (
+    <div className="login">
+      <div className="login-card">
+        <div className="login-logo">
+          <Icon name="home" size={22} />
+        </div>
+        <h1>Home</h1>
+        <p className="note">Sign in with a passkey to continue.</p>
+        {!supported && (
+          <p className="error-text">This browser does not support passkeys (WebAuthn).</p>
+        )}
+        {error && <p className="error-text">{error}</p>}
+        {status.has_passkeys && (
+          <button
+            className="btn primary"
+            disabled={busy || !supported}
+            onClick={() => run(loginWithPasskey)}
+          >
+            {busy ? <Spinner size={13} /> : <Icon name="check" size={14} />} Sign in with passkey
+          </button>
+        )}
+        <div className="login-setup">
+          <div className="field-label">
+            {status.has_passkeys ? 'Add another passkey (recovery)' : 'Register a passkey'}
+          </div>
+          <div className="row" style={{ marginBottom: 0 }}>
+            <input
+              type="password"
+              value={setupToken}
+              onChange={(e) => setSetupToken(e.target.value)}
+              placeholder="Setup token"
+            />
+            <button
+              className="btn"
+              disabled={busy || !supported || !setupToken}
+              onClick={() => run(() => registerPasskey(setupToken))}
+            >
+              {status.has_passkeys ? 'Add passkey' : 'Register'}
+            </button>
+          </div>
+          <div className="field-hint">
+            The setup token is the <code>HOME_SETUP_TOKEN</code> environment variable.
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function InboxCard({ onOpenProject, onStartChat }) {
+  const { data, loading, reload } = useAsync(api.listInbox, [])
+  const [polling, setPolling] = useState(false)
+  const [busy, setBusy] = useState(null)
+  const [report, setReport] = useState(null)
+  const [actionError, setActionError] = useState(null)
+  const items = (data && data.items) || []
+  const unread = (data && data.unread) || 0
+
+  if (loading || items.length === 0) return null
+
+  const poll = () => {
+    setPolling(true)
+    api
+      .pollInbox()
+      .then(reload)
+      .catch(() => {})
+      .finally(() => setPolling(false))
+  }
+
+  const open = (item) => {
+    if (!item.read) api.markInboxRead(item.id).then(reload).catch(() => {})
+    if (item.url) window.open(item.url, '_blank', 'noreferrer')
+    else onOpenProject(item.project_id)
+  }
+
+  const triage = (item) => {
+    const [kind, number] = (item.external_id || '').split(':')
+    if (!number) return
+    setBusy(item.id)
+    setActionError(null)
+    api
+      .triage(item.project_id, { kind: kind === 'pr' ? 'pr' : 'issue', number: Number(number) })
+      .then((r) => setReport({ ...r, item }))
+      .catch((e) => setActionError(e.message || String(e)))
+      .finally(() => setBusy(null))
+  }
+
+  const diagnose = (item) => {
+    if (!item.read) api.markInboxRead(item.id).then(reload).catch(() => {})
+    onStartChat(
+      item.project_id,
+      `Investigate this CI failure from the inbox and propose a fix.\n\nRun: ${item.title}\nURL: ${item.url || '(none)'}\n\nUse gh_ci_runs to fetch the run and its failed jobs, find the likely cause, and write findings to the workspace with workspace_write.`
+    )
+  }
+
+  return (
+    <section className="inbox-card">
+      <div className="inbox-head">
+        <h2>
+          <Icon name="alert" size={15} /> Inbox
+          {unread > 0 && <span className="badge accent">{unread} new</span>}
+        </h2>
+        <div className="row" style={{ marginBottom: 0 }}>
+          <button className="btn" onClick={poll} disabled={polling}>
+            {polling ? <Spinner size={13} /> : <Icon name="refresh" size={13} />} Check now
+          </button>
+          {unread > 0 && (
+            <button className="btn" onClick={() => api.markAllInboxRead().then(reload).catch(() => {})}>
+              <Icon name="check" size={13} /> Mark all read
+            </button>
+          )}
+        </div>
+      </div>
+      {actionError && <p className="error-text">{actionError}</p>}
+      <div className="home-list">
+        {items.slice(0, 6).map((item) => (
+          <div key={item.id} className="inbox-item">
+            <button
+              className={`home-row inbox-main ${item.read ? '' : 'unread'}`}
+              onClick={() => open(item)}
+            >
+              <span className="home-row-icon">
+                <Icon name={item.kind === 'run' ? 'play' : item.kind === 'issue' ? 'chat' : 'git'} size={15} />
+              </span>
+              <span className="home-row-main">
+                <span className="home-row-title">{item.title}</span>
+                <span className="home-row-sub">
+                  {item.project} · {item.subtitle}
+                </span>
+              </span>
+              <span className="home-row-time">{relDate(item.created_at)}</span>
+            </button>
+            <div className="inbox-actions">
+              {item.kind === 'run' ? (
+                <button className="btn" onClick={() => diagnose(item)}>
+                  <Icon name="sparkles" size={13} /> Diagnose
+                </button>
+              ) : (
+                <button className="btn" disabled={busy === item.id} onClick={() => triage(item)}>
+                  {busy === item.id ? (
+                    <>
+                      <Spinner size={13} /> Triaging
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="tasks" size={13} /> Triage
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      {report && (
+        <Modal title={`Triage · ${report.item.title}`} onClose={() => setReport(null)}>
+          <div
+            className="reader-body prose"
+            dangerouslySetInnerHTML={{ __html: mdToHtml(report.report || '') }}
+          />
+          {report.path && (
+            <p className="note">
+              Plan: <code>{report.path}</code>
+            </p>
+          )}
+        </Modal>
+      )}
+    </section>
+  )
+}
+
+function HomeView({ onOpenProject, onOpenSession, onOpenFile, onNewProject, onNavigate, onStartChat }) {
   const { data, error, loading } = useAsync(api.activity, [])
   const counts = (data && data.counts) || { projects: 0, sessions: 0, files: 0 }
   const projects = (data && data.projects) || []
@@ -1533,6 +2284,10 @@ function HomeView({ onOpenProject, onOpenSession, onOpenFile, onNewProject, onNa
       </header>
 
       {error && <p className="error-text">{error}</p>}
+
+      <InboxCard onOpenProject={onOpenProject} onStartChat={onStartChat} />
+
+      <UpcomingReminders onNavigate={onNavigate} />
 
       {!loading && counts.projects === 0 && (
         <div className="banner">
@@ -1716,11 +2471,17 @@ function HelpView() {
         <a href="#projects">Projects</a>
         <a href="#insight">Project insight</a>
         <a href="#tasks">Task board</a>
+        <a href="#goals">Goals &amp; planning</a>
+        <a href="#gitwrites">Git writes</a>
+        <a href="#ghauth">GitHub account</a>
         <a href="#providers">Providers</a>
         <a href="#agents">Agents &amp; actions</a>
         <a href="#chat">Chat &amp; tools</a>
         <a href="#memory">Memory</a>
         <a href="#files">Files &amp; gallery</a>
+        <a href="#automation">Search, inbox &amp; automations</a>
+        <a href="#assistant">Reminders, watches &amp; briefing</a>
+        <a href="#auth">Passkeys &amp; access</a>
         <a href="#settings">Settings &amp; theme</a>
         <a href="#tips">Tips &amp; troubleshooting</a>
       </nav>
@@ -1764,9 +2525,9 @@ function HelpView() {
 
       <Doc id="projects" title="Projects">
         <p>
-          A project is a Git repository plus a workspace. Home never modifies your code: the agent
-          can read files and git history, and write files to a separate workspace, but not change
-          the repository.
+          A project is a Git repository plus a workspace. Home never modifies your code unless
+          you explicitly enable <em>Git writes</em> for the project: the agent can read files and
+          git history, and write files to a separate workspace, but not change the repository.
         </p>
         <ul>
           <li>
@@ -1805,11 +2566,27 @@ function HelpView() {
           </li>
           <li>
             <strong>GitHub</strong>: browse pull requests, issues, and CI runs with filters, open
-            them on GitHub, or hit <em>Summarize</em> to hand one to the agent in a new chat.
+            them on GitHub, hit <em>Summarize</em> to hand one to the agent, <em>Triage</em> to
+            turn it into a plan plus tasks, or <em>Review</em> to run the code-reviewer and write a
+            review to the workspace.
+          </li>
+          <li>
+            <strong>Inbox</strong>: new open PRs/issues and failing CI runs appear on the Home
+            dashboard. PR/issue items can be triaged in place; CI failures open a diagnose chat.
+          </li>
+          <li>
+            <strong>Token budget</strong>: set a monthly budget in About; the Overview shows usage
+            and warns past 80%, and scheduled runs pause when the budget is spent (if enforcement
+            is on).
           </li>
           <li>
             <strong>Activity</strong>: a chronological timeline of conversations, memory writes,
             generated files, commits, and GitHub events for the project.
+          </li>
+          <li>
+            <strong>Token usage</strong>: the Overview board shows total tokens consumed by the
+            agent; the <em>About</em> tab breaks it down by action and conversation. Tokens are
+            read from provider responses, so endpoints that omit usage report nothing.
           </li>
         </ul>
       </Doc>
@@ -1828,7 +2605,24 @@ function HelpView() {
           </li>
           <li>
             <strong>Click a card</strong> to edit its title, description, column, priority, and
-            milestone, or delete it.
+            milestone, or delete it. Cards can <strong>depend on other tasks</strong> (a blocked
+            badge appears until every dependency is done), carry <strong>acceptance criteria</strong>{' '}
+            (moving to done asks for review confirmation), and hold{' '}
+            <strong>comments</strong> that carry context into the next session.
+          </li>
+          <li>
+            <strong>Implement with agent</strong> in the task editor opens a chat seeded with the
+            task's brief, acceptance criteria, dependencies, and comments, and moves the card to
+            in-progress.
+          </li>
+          <li>
+            <strong>Push to GitHub</strong> creates an issue for a task when git writes are on; the
+            card then shows its issue number and re-syncs never duplicate it.
+          </li>
+          <li>
+            <strong>Suggest next work</strong> runs the agent over the board and memory and
+            proposes 2 to 5 backlog tasks tagged <em>suggested</em>; keep the useful ones and
+            delete the rest.
           </li>
           <li>
             <strong>Milestones</strong> (the <em>Roadmap</em> tab) group tasks into a goal with a
@@ -1844,6 +2638,85 @@ function HelpView() {
             <strong>Triage.</strong> On the <em>GitHub</em> tab, hit <em>Triage</em> on an issue or
             PR. The agent writes a plan to the workspace and creates tasks for it, tracked under a
             parent task.
+          </li>
+        </ul>
+      </Doc>
+
+      <Doc id="goals" title="Goals &amp; planning">
+        <p>
+          The <strong>Goals</strong> tab turns an intent into an executable board. A goal owns a
+          discussion thread, a spec in the workspace, and (once planned) a milestone.
+        </p>
+        <ul>
+          <li>
+            <strong>Create a goal</strong> with a title, description, and success criteria.
+          </li>
+          <li>
+            <strong>Discuss</strong> opens a chat in goal mode: the agent interviews you and keeps
+            the draft spec updated at <code>goals/&lt;slug&gt;/spec.md</code>.
+          </li>
+          <li>
+            <strong>Generate board</strong> runs the planner: it writes spec + plan, creates the
+            milestone, and adds 3–8 tasks with priorities, acceptance criteria, and dependency
+            order.
+          </li>
+          <li>
+            <strong>Converge</strong> re-reads the spec and appends tasks the board is still
+            missing. It never edits code or existing tasks.
+          </li>
+          <li>
+            Goal cards show status and milestone progress; the spec opens in the file reader and
+            the board jumps to the Tasks tab.
+          </li>
+        </ul>
+      </Doc>
+
+      <Doc id="gitwrites" title="Git writes">
+        <p>
+          By default the agent is strictly read-only: it can inspect the clone and GitHub but
+          never change your code. <strong>Git writes</strong> is a per-project, explicit opt-in,
+          toggled from the <em>About</em> tab (with a confirmation step). A red{' '}
+          <em>writes on</em> badge shows in the project header while it is enabled.
+        </p>
+        <ul>
+          <li>
+            When enabled the agent gains <code>write_file</code> (sandboxed to the clone, never{' '}
+            <code>.git</code> or <code>.totem</code>), <code>git_create_branch</code>,{' '}
+            <code>git_commit</code>, <code>git_push</code>, and <code>gh_open_pr</code>.
+          </li>
+          <li>
+            The system prompt switches to a write policy: prefer a new branch, focused commits,
+            never force-push, and report the branch and PR created.
+          </li>
+          <li>
+            Pushing to GitHub needs <code>GITHUB_TOKEN</code> with write scope; without it the
+            agent can still branch and commit locally. Subagents and scheduled jobs stay
+            read-only. With <em>Require your approval before push or PR</em> enabled (About),
+            the agent must call <code>ask_approval</code> and get an approve answer before
+            pushing or opening a PR.
+          </li>
+        </ul>
+      </Doc>
+
+      <Doc id="ghauth" title="GitHub account">
+        <p>
+          Public repositories work without an account. Connecting GitHub enables private
+          repositories, higher rate limits, and issue and pull request writes.
+        </p>
+        <ul>
+          <li>
+            <strong>Settings, GitHub</strong>: paste a personal access token (repo scope),
+            import the token from the <code>gh</code> CLI (<code>gh auth login</code> first),
+            or use device sign-in with your own OAuth app client id.
+          </li>
+          <li>
+            <code>GITHUB_TOKEN</code> in the environment takes precedence over the stored
+            token; disconnect is disabled while it is set.
+          </li>
+          <li>
+            The token is stored at <code>&lt;DATA_DIR&gt;/github_token</code> with 0600
+            permissions, and is used for clones, pulls, GitHub reads, PRs, issues, and
+            reviews.
           </li>
         </ul>
       </Doc>
@@ -1941,6 +2814,13 @@ function HelpView() {
           configured for an action and continues with the summary. Subagents cannot delegate
           further.
         </p>
+        <p>
+          The agent can also <strong>ask you a question</strong> with <code>ask_user</code> when a
+          decision blocks the work. The turn ends, a notification is pushed (when configured), and
+          the question appears as a card in the chat with any suggested choices. It is stored on
+          the session, so it survives reloads; your next message answers it and the agent
+          continues. <em>Skip</em> dismisses it without an answer.
+        </p>
       </Doc>
 
       <Doc id="memory" title="Memory">
@@ -1979,6 +2859,99 @@ function HelpView() {
         </ul>
       </Doc>
 
+      <Doc id="automation" title="Search, inbox &amp; automations">
+        <ul>
+          <li>
+            <strong>Search</strong> (Global section): search Totem memory, workspace file names and
+            contents, and conversation titles across every project. Results jump straight to the
+            memory browser, the file reader, or the conversation.
+          </li>
+          <li>
+            <strong>Inbox</strong> (Home dashboard): new open pull requests and issues and failing
+            CI runs appear here as they are discovered. The first poll of a project is a silent
+            baseline; after that, new items arrive unread. <em>Check now</em> polls immediately,
+            <em>Mark all read</em> clears the badge.
+          </li>
+          <li>
+            <strong>Notifications</strong>: configure ntfy (<code>NTFY_TOPIC</code>, optional{' '}
+            <code>NTFY_URL</code>/<code>NTFY_TOKEN</code>) or Telegram (
+            <code>TELEGRAM_BOT_TOKEN</code> + <code>TELEGRAM_CHAT_ID</code>). The agent can push
+            with the <code>notify</code> tool, new inbox items and scheduled run results push
+            automatically, and a budget skip alerts you. Test from the <em>About</em> tab.
+          </li>
+          <li>
+            <strong>Generated docs</strong> (Overview tab): one click writes an{' '}
+            <code>ARCHITECTURE.md</code>, <code>ONBOARDING.md</code>, or an ADR from the project’s
+            Totem memory and repository into the workspace.
+          </li>
+          <li>
+            <strong>Automations</strong> (project tab): recurring agent runs. Pick an action
+            (GitHub scan, code review, memory curation, docs, …), an interval, and an instruction;
+            the background worker runs it and records the last report. Presets cover the nightly
+            repo digest, daily PR review, and weekly memory curation. <em>Run now</em> executes one
+            immediately. <code>{'{date}'}</code> in the instruction expands to the run date.
+          </li>
+        </ul>
+      </Doc>
+
+      <Doc id="assistant" title="Reminders, watches &amp; briefing">
+        <ul>
+          <li>
+            <strong>Reminders</strong> (Global section): one-shot, daily, or weekly nudges
+            that fire a push notification. Add them in the view, or ask the agent
+            ("remind me tomorrow at 9"). Snooze 10 minutes or 1 day, mark done, delete.
+            Overdue items show in red and on the Home dashboard.
+          </li>
+          <li>
+            <strong>Watches</strong> (Global section): monitor without noise. A
+            <em>page</em> watch notifies when the page text changes, or when a phrase
+            appears (then it completes). A <em>feed</em> watch notifies only on new
+            RSS/Atom items. A <em>condition</em> watch runs a small agent check each
+            interval and notifies when the condition is met. Pause, run now, and read
+            the last result from the view; the agent can manage them with
+            <code>watch_add</code>.
+          </li>
+          <li>
+            <strong>Daily briefing</strong>: enable it under Settings, Assistant and pick
+            a local time. Home sends one deterministic digest (due reminders, ready
+            tasks, unread inbox); optionally the agent adds commentary and writes
+            <code>briefings/&lt;date&gt;.md</code>.
+          </li>
+          <li>
+            <strong>Standing preferences</strong> (Settings, Assistant): your name,
+            timezone, and instructions are injected into every system prompt. The clock
+            in that context is what lets the agent resolve "tomorrow at 9".
+          </li>
+        </ul>
+      </Doc>
+
+      <Doc id="auth" title="Passkeys &amp; access">
+        <p>
+          Authentication is opt-in. With no <code>HOME_SETUP_TOKEN</code> set, Home behaves as
+          before: anyone who can reach the port can use it. Set the variable to gate every API
+          call behind a WebAuthn passkey.
+        </p>
+        <ul>
+          <li>
+            <strong>First passkey</strong>: open Home, enter the setup token on the login screen,
+            and register a passkey (Touch ID, Windows Hello, security key, or a phone).
+          </li>
+          <li>
+            <strong>Recovery</strong>: if you lose the device, register another passkey from the
+            same screen with the setup token. Keep that token somewhere safe.
+          </li>
+          <li>
+            <strong>Behind a proxy</strong>: set <code>HOME_RP_ID</code> to the domain (e.g.{' '}
+            <code>home.example.com</code>) and <code>HOME_ORIGIN</code> to the full origin (e.g.{' '}
+            <code>https://home.example.com</code>); set <code>HOME_COOKIE_SECURE=1</code> if TLS
+            terminates upstream.
+          </li>
+          <li>
+            <strong>Log out</strong> from the sidebar. Sessions last 30 days.
+          </li>
+        </ul>
+      </Doc>
+
       <Doc id="settings" title="Settings &amp; theme">
         <p>
           Open <em>Settings</em> from the gear icon in the top bar.
@@ -1986,6 +2959,10 @@ function HelpView() {
         <ul>
           <li>
             <strong>Providers</strong>: add, test, and delete model endpoints.
+          </li>
+          <li>
+            <strong>Assistant</strong>: name, timezone, standing instructions, daily
+            briefing, and the web fetch toggle.
           </li>
           <li>
             <strong>Theme</strong>: tweak every colour. Changes are saved in your browser and
@@ -1997,19 +2974,20 @@ function HelpView() {
       <Doc id="tips" title="Tips &amp; troubleshooting">
         <ul>
           <li>
-            <strong>“No provider configured”</strong> — add one in Settings and make sure the named
+            <strong>“No provider configured”</strong>: add one in Settings and make sure the named
             environment variable is set where Home runs.
           </li>
           <li>
-            <strong>Test fails</strong> — check the base URL (include the <code>/v1</code>) and that
+            <strong>Test fails</strong>: check the base URL (include the <code>/v1</code>) and that
             the model id is valid for that endpoint.
           </li>
           <li>
-            <strong>Agent ignores your request</strong> — project code is read-only by design. Ask
-            it to explain a change instead, or have it write a plan to the workspace.
+            <strong>Agent ignores your request</strong>: project code is read-only by default.
+            Ask it to explain a change instead, have it write a plan to the workspace, or enable
+            <em>Git writes</em> in About to let it branch and commit.
           </li>
           <li>
-            <strong>Pick a role model</strong> — advanced mode lets a cheap model explore and a
+            <strong>Pick a role model</strong>: advanced mode lets a cheap model explore and a
             stronger one reason, which saves cost on large repositories.
           </li>
         </ul>
@@ -2049,12 +3027,78 @@ const CHANGE_FIELDS = [
   { key: 'failed_runs', label: 'failed runs', icon: 'alert' },
 ]
 
+function DocsSection({ projectId }) {
+  const [kind, setKind] = useState('architecture')
+  const [topic, setTopic] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState(null)
+
+  const generate = () => {
+    setBusy(true)
+    setError(null)
+    setResult(null)
+    api
+      .generateDoc(projectId, { kind, topic: kind === 'adr' ? topic : undefined })
+      .then(setResult)
+      .catch((e) => setError(e.message || String(e)))
+      .finally(() => setBusy(false))
+  }
+
+  return (
+    <div className="docs-card">
+      <div className="docs-head">
+        <Icon name="files" size={15} />
+        <span>Generated docs</span>
+        <span className="muted">from Totem memory</span>
+      </div>
+      <div className="row" style={{ marginBottom: 0 }}>
+        <select value={kind} onChange={(e) => setKind(e.target.value)}>
+          <option value="architecture">Architecture · ARCHITECTURE.md</option>
+          <option value="onboarding">Onboarding · ONBOARDING.md</option>
+          <option value="adr">ADR · adr/&lt;topic&gt;.md</option>
+        </select>
+        {kind === 'adr' && (
+          <input
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+            placeholder="Decision topic"
+          />
+        )}
+        <button
+          className="btn"
+          onClick={generate}
+          disabled={busy || (kind === 'adr' && !topic.trim())}
+        >
+          {busy ? (
+            <>
+              <Spinner size={13} /> Generating
+            </>
+          ) : (
+            <>
+              <Icon name="sparkles" size={13} /> Generate
+            </>
+          )}
+        </button>
+      </div>
+      {error && <p className="error-text">{error}</p>}
+      {result && (
+        <p className="note">
+          Wrote <code>{result.path}</code>. {result.report}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function ProjectOverviewView({ project, since, onStart, onNavigate }) {
   const ready = since !== undefined
   const { data, error, loading } = useAsync(
     () => (ready ? api.projectStatus(project.id, since || undefined) : Promise.resolve(null)),
     [project.id, since]
   )
+  const usageReq = useAsync(() => api.projectUsage(project.id), [project.id])
+  const usage = usageReq.data
   const firstVisit = since === null
   const git = data?.git
   const github = data?.github
@@ -2089,6 +3133,26 @@ function ProjectOverviewView({ project, since, onStart, onNavigate }) {
       {!firstVisit && changes && changes.total === 0 && (
         <div className="digest caught-up">
           <Icon name="check" size={15} /> You are all caught up since your last visit.
+        </div>
+      )}
+
+      {usage?.budget?.budget && (
+        <div className={`digest ${usage.budget.percent >= 80 ? 'budget-alert' : ''}`}>
+          <div className="digest-head">
+            <Icon name="alert" size={16} />
+            <span>Token budget</span>
+          </div>
+          <div className="digest-chips">
+            <span className="digest-chip">
+              {fmtTokens(usage.month.tokens)} / {fmtTokens(usage.budget.budget)} this month (
+              {usage.budget.percent}%)
+            </span>
+            {usage.budget.enforced && (
+              <span className="digest-chip">
+                scheduled runs {usage.budget.over ? 'paused' : 'allowed'}
+              </span>
+            )}
+          </div>
         </div>
       )}
 
@@ -2142,8 +3206,14 @@ function ProjectOverviewView({ project, since, onStart, onNavigate }) {
           <Stat
             icon="tasks"
             label="Open tasks"
-            value={tasks ? tasks.open : '—'}
+            value={tasks ? tasks.open : '-'}
             hint={tasks && tasks.total ? `${tasks.total} total` : 'board is empty'}
+          />
+          <Stat
+            icon="sparkles"
+            label="Tokens used"
+            value={usage ? fmtTokens(usage.total.tokens) : '-'}
+            hint={usage && usage.total.runs ? `${usage.total.runs} agent runs` : 'no usage yet'}
           />
           {github?.available ? (
             <>
@@ -2178,6 +3248,8 @@ function ProjectOverviewView({ project, since, onStart, onNavigate }) {
         </div>
       )}
 
+      <DocsSection projectId={project.id} />
+
       <div className="overview-prompt">
         <Composer
           busy={false}
@@ -2204,6 +3276,8 @@ function GithubView({ projectId, onSummarize, onOpenTasks }) {
   const [state, setState] = useState('open')
   const [triaging, setTriaging] = useState(null)
   const [triageReport, setTriageReport] = useState(null)
+  const [reviewing, setReviewing] = useState(null)
+  const [reviewReport, setReviewReport] = useState(null)
   const { data, error, loading, reload } = useAsync(
     () => api.projectGithub(projectId, kind, kind === 'runs' ? 'open' : state),
     [projectId, kind, state]
@@ -2223,6 +3297,15 @@ function GithubView({ projectId, onSummarize, onOpenTasks }) {
       .then((r) => setTriageReport({ ...r, item: it }))
       .catch((e) => setTriageReport({ error: e.message || String(e), item: it }))
       .finally(() => setTriaging(null))
+  }
+
+  const runReview = (it) => {
+    setReviewing(it.number)
+    api
+      .reviewItem(projectId, { kind: kind === 'prs' ? 'pr' : 'issue', number: it.number })
+      .then((r) => setReviewReport({ ...r, item: it }))
+      .catch((e) => setReviewReport({ error: e.message || String(e), item: it }))
+      .finally(() => setReviewing(null))
   }
 
   return (
@@ -2316,6 +3399,24 @@ function GithubView({ projectId, onSummarize, onOpenTasks }) {
                 )}
               </button>
             )}
+            {kind !== 'runs' && (
+              <button
+                className="btn"
+                title="Review with the code-reviewer agent"
+                disabled={reviewing === it.number}
+                onClick={() => runReview(it)}
+              >
+                {reviewing === it.number ? (
+                  <>
+                    <Spinner size={13} /> Reviewing
+                  </>
+                ) : (
+                  <>
+                    <Icon name="check" size={13} /> Review
+                  </>
+                )}
+              </button>
+            )}
             {onSummarize && kind !== 'runs' && (
               <button
                 className="btn"
@@ -2337,6 +3438,23 @@ function GithubView({ projectId, onSummarize, onOpenTasks }) {
           </div>
         ))}
       </div>
+
+      {reviewReport && (
+        <Modal title={`Review · ${reviewReport.item.title}`} onClose={() => setReviewReport(null)}>
+          {reviewReport.error && <p className="error-text">{reviewReport.error}</p>}
+          {reviewReport.report && (
+            <div
+              className="reader-body prose"
+              dangerouslySetInnerHTML={{ __html: mdToHtml(reviewReport.report) }}
+            />
+          )}
+          {reviewReport.path && (
+            <p className="note">
+              Review: <code>{reviewReport.path}</code>
+            </p>
+          )}
+        </Modal>
+      )}
 
       {triageReport && (
         <Modal title={`Triage · ${triageReport.item.title}`} onClose={() => setTriageReport(null)}>
@@ -2476,17 +3594,82 @@ const TASK_COLUMNS = [
 
 const PRIORITY_LABEL = { low: 'Low', medium: 'Medium', high: 'High' }
 
-function TaskEditor({ task, projectId, onClose, onSaved }) {
+function TaskEditor({ task, projectId, onClose, onSaved, onImplement, gitWrites }) {
   const isNew = !task.id
   const [title, setTitle] = useState(task.title || '')
   const [description, setDescription] = useState(task.description || '')
   const [status, setStatus] = useState(task.status || 'backlog')
   const [priority, setPriority] = useState(task.priority || 'medium')
   const [milestoneId, setMilestoneId] = useState(task.milestone_id || '')
+  const [dependsOn, setDependsOn] = useState(task.depends_on || [])
+  const [acceptance, setAcceptance] = useState(task.acceptance || '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const [commentBody, setCommentBody] = useState('')
+  const [posting, setPosting] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [issueNumber, setIssueNumber] = useState(task.github_issue || null)
   const milestonesReq = useAsync(() => api.listMilestones(projectId), [projectId])
   const milestones = milestonesReq.data || []
+  const tasksReq = useAsync(() => api.listTasks(projectId), [projectId])
+  const otherTasks = (tasksReq.data || []).filter((t) => t.id !== task.id)
+  const commentsReq = useAsync(
+    () => (task.id ? api.listComments(task.id) : Promise.resolve([])),
+    [task.id]
+  )
+  const comments = commentsReq.data || []
+
+  const toggleDep = (id) => {
+    setDependsOn((prev) =>
+      prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id]
+    )
+  }
+
+  const postComment = (e) => {
+    e.preventDefault()
+    if (!commentBody.trim()) return
+    setPosting(true)
+    api
+      .addComment(task.id, { body: commentBody.trim() })
+      .then(() => {
+        setCommentBody('')
+        commentsReq.reload()
+      })
+      .catch((err) => setError(err.message || String(err)))
+      .finally(() => setPosting(false))
+  }
+
+  const implement = () => {
+    const brief = [
+      `Implement this task from the project board.`,
+      ``,
+      `## Task #${task.id}: ${task.title}`,
+      description || '(no description)',
+      ``,
+      `Acceptance criteria: ${acceptance || '(none)'}`,
+      ...(task.blocked_by?.length ? [`Blocked by: task ${task.blocked_by.join(', ')}`] : []),
+      ...(comments.length
+        ? [``, `Comments:`, ...comments.map((c) => `- ${c.author}: ${c.body}`)]
+        : []),
+      ``,
+      `When you are done, leave a comment with task_comment and move the task to review with task_update.`,
+    ].join('\n')
+    api.updateTask(task.id, { status: 'doing' }).catch(() => {})
+    onImplement(brief)
+  }
+
+  const syncIssue = () => {
+    setSyncing(true)
+    setError(null)
+    api
+      .syncIssues(projectId, { task_ids: [task.id] })
+      .then((r) => {
+        const created = (r.created || [])[0]
+        if (created) setIssueNumber(created.issue)
+      })
+      .catch((err) => setError(err.message || String(err)))
+      .finally(() => setSyncing(false))
+  }
 
   const save = (e) => {
     e.preventDefault()
@@ -2496,9 +3679,21 @@ function TaskEditor({ task, projectId, onClose, onSaved }) {
     const body = {
       title: title.trim(),
       description,
+      acceptance,
       status,
       priority,
       milestone_id: milestoneId ? parseInt(milestoneId, 10) : 0,
+      depends_on: dependsOn,
+    }
+    if (!isNew && status === 'done' && task.status !== 'done' && acceptance.trim()) {
+      const ok = window.confirm(
+        `Acceptance criteria:\n${acceptance}\n\nConfirm the review and mark this task done?`
+      )
+      if (!ok) {
+        setSaving(false)
+        return
+      }
+      body.reviewed = true
     }
     const req = isNew
       ? api.createTask(projectId, body)
@@ -2528,7 +3723,16 @@ function TaskEditor({ task, projectId, onClose, onSaved }) {
             rows={4}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Optional detail, acceptance criteria, links..."
+            placeholder="Optional detail, links..."
+          />
+        </label>
+        <label className="field">
+          <span className="field-label">Acceptance criteria</span>
+          <textarea
+            rows={2}
+            value={acceptance}
+            onChange={(e) => setAcceptance(e.target.value)}
+            placeholder="How do we verify this is done? (gates the Done column)"
           />
         </label>
         <div className="field-row">
@@ -2564,6 +3768,57 @@ function TaskEditor({ task, projectId, onClose, onSaved }) {
             ))}
           </select>
         </label>
+        {otherTasks.length > 0 && (
+          <div className="field">
+            <span className="field-label">Blocked by</span>
+            <div className="dep-list">
+              {otherTasks.map((t) => (
+                <label key={t.id} className="dep-item">
+                  <input
+                    type="checkbox"
+                    checked={dependsOn.includes(t.id)}
+                    onChange={() => toggleDep(t.id)}
+                  />
+                  <span className="dep-title">{t.title}</span>
+                  <span className={`badge ${t.status === 'done' ? 'ok' : ''}`}>{t.status}</span>
+                </label>
+              ))}
+            </div>
+            <span className="field-hint">
+              This task is blocked until every selected task is done.
+            </span>
+          </div>
+        )}
+        {!isNew && (
+          <div className="field">
+            <span className="field-label">Comments</span>
+            <div className="comment-list">
+              {comments.length === 0 && <div className="field-hint">No comments yet.</div>}
+              {comments.map((c) => (
+                <div key={c.id} className="comment-row">
+                  <span className="comment-author">{c.author}</span>
+                  <span className="comment-body">{c.body}</span>
+                  <span className="comment-time">{relDate(c.created_at)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="row" style={{ marginBottom: 0 }}>
+              <input
+                value={commentBody}
+                onChange={(e) => setCommentBody(e.target.value)}
+                placeholder="Leave a note for the next session..."
+              />
+              <button
+                type="button"
+                className="btn"
+                disabled={posting || !commentBody.trim()}
+                onClick={postComment}
+              >
+                {posting ? <Spinner size={13} /> : 'Comment'}
+              </button>
+            </div>
+          </div>
+        )}
         <div className="row" style={{ marginBottom: 0 }}>
           <button className="btn primary" disabled={saving || !title.trim()}>
             {saving ? (
@@ -2576,6 +3831,25 @@ function TaskEditor({ task, projectId, onClose, onSaved }) {
               'Save changes'
             )}
           </button>
+          {!isNew && onImplement && (
+            <button type="button" className="btn" onClick={implement}>
+              <Icon name="sparkles" size={14} /> Implement with agent
+            </button>
+          )}
+          {!isNew && gitWrites && !issueNumber && (
+            <button type="button" className="btn" disabled={syncing} onClick={syncIssue}>
+              {syncing ? (
+                <>
+                  <Spinner size={13} /> Pushing
+                </>
+              ) : (
+                <>
+                  <Icon name="git" size={14} /> Push to GitHub
+                </>
+              )}
+            </button>
+          )}
+          {issueNumber && <span className="badge">issue #{issueNumber}</span>}
           {!isNew && (
             <button type="button" className="btn danger" onClick={remove}>
               Delete
@@ -2588,11 +3862,28 @@ function TaskEditor({ task, projectId, onClose, onSaved }) {
   )
 }
 
-function TasksView({ projectId }) {
+function TasksView({ projectId, onImplement, gitWrites }) {
   const { data, error, loading, reload } = useAsync(() => api.listTasks(projectId), [projectId])
   const [tasks, setTasks] = useState([])
   const [dragId, setDragId] = useState(null)
   const [editor, setEditor] = useState(null)
+  const [suggesting, setSuggesting] = useState(false)
+  const [suggestReport, setSuggestReport] = useState(null)
+  const [suggestError, setSuggestError] = useState(null)
+
+  const suggest = () => {
+    setSuggesting(true)
+    setSuggestError(null)
+    setSuggestReport(null)
+    api
+      .suggestTasks(projectId)
+      .then((r) => {
+        setSuggestReport(r)
+        reload()
+      })
+      .catch((e) => setSuggestError(e.message || String(e)))
+      .finally(() => setSuggesting(false))
+  }
 
   useEffect(() => {
     if (data) setTasks(data)
@@ -2644,10 +3935,24 @@ function TasksView({ projectId }) {
     <div className="tasks">
       <div className="page-head">
         <h2>Tasks</h2>
-        <button className="btn primary" onClick={() => setEditor({ status: 'backlog' })}>
-          <Icon name="plus" size={14} /> New task
-        </button>
+        <div className="row" style={{ marginBottom: 0 }}>
+          <button className="btn" disabled={suggesting} onClick={suggest}>
+            {suggesting ? (
+              <>
+                <Spinner size={13} /> Thinking
+              </>
+            ) : (
+              <>
+                <Icon name="sparkles" size={14} /> Suggest next work
+              </>
+            )}
+          </button>
+          <button className="btn primary" onClick={() => setEditor({ status: 'backlog' })}>
+            <Icon name="plus" size={14} /> New task
+          </button>
+        </div>
       </div>
+      {suggestError && <p className="error-text">{suggestError}</p>}
       {error && <p className="error-text">{error}</p>}
       {loading ? (
         <div className="kanban">
@@ -2683,6 +3988,13 @@ function TasksView({ projectId }) {
                     onClick={() => setEditor(t)}
                   >
                     <div className="kanban-card-title">{t.title}</div>
+                    {t.blocked_by?.length > 0 && (
+                      <div className="kanban-card-blocked">
+                        <span className="badge err" title={`Blocked by task ${t.blocked_by.join(', ')}`}>
+                          blocked
+                        </span>
+                      </div>
+                    )}
                     {t.description && (
                       <div className="kanban-card-desc">{truncate(t.description, 120)}</div>
                     )}
@@ -2690,6 +4002,7 @@ function TasksView({ projectId }) {
                       <span className={`priority ${t.priority}`}>
                         {PRIORITY_LABEL[t.priority]}
                       </span>
+                      {t.source === 'suggested' && <span className="badge accent">suggested</span>}
                       <span className="kanban-card-time">{relDate(t.updated_at)}</span>
                     </div>
                   </div>
@@ -2709,12 +4022,26 @@ function TasksView({ projectId }) {
         <TaskEditor
           projectId={projectId}
           task={editor}
+          onImplement={onImplement}
+          gitWrites={gitWrites}
           onClose={() => setEditor(null)}
           onSaved={() => {
             setEditor(null)
             reload()
           }}
         />
+      )}
+
+      {suggestReport && (
+        <Modal title="Suggested next work" onClose={() => setSuggestReport(null)}>
+          <div
+            className="reader-body prose"
+            dangerouslySetInnerHTML={{ __html: mdToHtml(suggestReport.report || '') }}
+          />
+          <p className="note">
+            {suggestReport.task_ids?.length || 0} tasks added to backlog, tagged suggested.
+          </p>
+        </Modal>
       )}
     </div>
   )
@@ -2732,7 +4059,8 @@ function ProgressBar({ percent }) {
 
 function fmtDay(value) {
   if (!value) return null
-  const d = new Date(value)
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value)
+  const d = dateOnly ? new Date(`${value}T00:00:00`) : new Date(value)
   return isNaN(d) ? value : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
@@ -3043,12 +4371,1020 @@ function RoadmapView({ projectId, onOpenTasks }) {
 
 // ---------- chat ----------
 
-function ChatView({ projectId, sessionId, agentId, providerId, onSessionCreated, initialMessage }) {
+// ---------- search ----------
+
+function SearchView({ onOpenMemory, onOpenSession, onOpenFile }) {
+  const [q, setQ] = useState('')
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  const submit = (e) => {
+    e.preventDefault()
+    const query = q.trim()
+    if (!query) return
+    setLoading(true)
+    setError(null)
+    api
+      .globalSearch(query)
+      .then(setData)
+      .catch((err) => setError(err.message || String(err)))
+      .finally(() => setLoading(false))
+  }
+
+  const total = data ? data.memories.length + data.files.length + data.sessions.length : 0
+
+  return (
+    <div className="center-col wide">
+      <div className="page-head">
+        <h2>Search</h2>
+      </div>
+      <form className="search-bar" onSubmit={submit}>
+        <Icon name="search" size={16} />
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search memory, workspace files, and conversations across all projects"
+          autoFocus
+        />
+        <button className="btn primary" disabled={!q.trim() || loading}>
+          {loading ? <Spinner size={13} /> : 'Search'}
+        </button>
+      </form>
+      {error && <p className="error-text">{error}</p>}
+      {!data && !loading && (
+        <SectionEmpty
+          icon="search"
+          title="Search everything"
+          hint="Memory, workspace files, and conversations across all projects."
+        />
+      )}
+      {data && !loading && total === 0 && (
+        <SectionEmpty icon="search" title="No results" hint={`Nothing matches "${data.query}".`} />
+      )}
+
+      {data && data.memories.length > 0 && (
+        <>
+          <h3 className="result-heading">Memory · {data.memories.length}</h3>
+          <div className="home-list">
+            {data.memories.map((m) => (
+              <button key={m.id} className="home-row" onClick={() => onOpenMemory(m.project_id)}>
+                <span className="home-row-icon">
+                  <Icon name="memory" size={15} />
+                </span>
+                <span className="home-row-main">
+                  <span className="home-row-title">{m.title}</span>
+                  <span className="home-row-sub">
+                    {m.project} · {m.type} · {truncate(m.statement, 90)}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {data && data.files.length > 0 && (
+        <>
+          <h3 className="result-heading">Workspace files · {data.files.length}</h3>
+          <div className="home-list">
+            {data.files.map((f) => (
+              <button
+                key={`${f.project_id}:${f.path}`}
+                className="home-row"
+                onClick={() => onOpenFile(f)}
+              >
+                <span className="home-row-icon">
+                  <Icon name="files" size={15} />
+                </span>
+                <span className="home-row-main">
+                  <span className="home-row-title">{f.path}</span>
+                  <span className="home-row-sub">
+                    {f.project}
+                    {f.snippet ? ` · ${truncate(f.snippet, 90)}` : ''}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {data && data.sessions.length > 0 && (
+        <>
+          <h3 className="result-heading">Conversations · {data.sessions.length}</h3>
+          <div className="home-list">
+            {data.sessions.map((s) => (
+              <button
+                key={s.id}
+                className="home-row"
+                onClick={() => onOpenSession(s.project_id, s.id)}
+              >
+                <span className="home-row-icon">
+                  <Icon name="chat" size={15} />
+                </span>
+                <span className="home-row-main">
+                  <span className="home-row-title">{s.title}</span>
+                  <span className="home-row-sub">{s.project}</span>
+                </span>
+                <span className="home-row-time">{relDate(s.updated_at)}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ---------- reminders ----------
+
+function reminderDue(value) {
+  const d = new Date(value)
+  return isNaN(d) ? null : d
+}
+
+function RemindersView({ projects }) {
+  const { data, error, loading, reload } = useAsync(() => api.listReminders(false), [])
+  const reminders = data || []
+  const [text, setText] = useState('')
+  const [due, setDue] = useState('')
+  const [recurrence, setRecurrence] = useState('none')
+  const [projectId, setProjectId] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState(null)
+
+  const add = (e) => {
+    e.preventDefault()
+    if (!text.trim() || !due) return
+    setSaving(true)
+    setFormError(null)
+    api
+      .createReminder({
+        text: text.trim(),
+        due_at: new Date(due).toISOString(),
+        recurrence,
+        project_id: projectId ? Number(projectId) : null,
+      })
+      .then(() => {
+        setText('')
+        setDue('')
+        setRecurrence('none')
+        reload()
+      })
+      .catch((err) => setFormError(err.message || String(err)))
+      .finally(() => setSaving(false))
+  }
+
+  const act = (fn) => {
+    setFormError(null)
+    fn().then(reload).catch((err) => setFormError(err.message || String(err)))
+  }
+
+  const now = Date.now()
+
+  return (
+    <div className="center-col wide">
+      <div className="page-head">
+        <h2>Reminders</h2>
+        <span className="muted">notifications fire when due</span>
+      </div>
+      {error && <p className="error-text">{error}</p>}
+      {formError && <p className="error-text">{formError}</p>}
+
+      {loading ? (
+        <div className="home-list">
+          {[0, 1].map((i) => (
+            <Skeleton key={i} className="row-skeleton" />
+          ))}
+        </div>
+      ) : reminders.length === 0 ? (
+        <SectionEmpty
+          icon="clock"
+          title="No reminders"
+          hint="Ask the agent to remind you, or add one below."
+        />
+      ) : (
+        <div className="home-list">
+          {reminders.map((r) => {
+            const d = reminderDue(r.due_at)
+            const overdue = d && d.getTime() < now
+            return (
+              <div key={r.id} className="reminder-row">
+                <span className={`home-row-icon ${overdue ? 'overdue' : ''}`}>
+                  <Icon name="clock" size={15} />
+                </span>
+                <span className="home-row-main">
+                  <span className="home-row-title">{r.text}</span>
+                  <span className="home-row-sub">
+                    {d ? d.toLocaleString() : r.due_at}
+                    {r.recurrence !== 'none' ? `, repeats ${r.recurrence}` : ''}
+                    {r.project_id ? `, project #${r.project_id}` : ''}
+                  </span>
+                </span>
+                <button className="btn" onClick={() => act(() => api.updateReminder(r.id, { snooze_minutes: 10 }))}>
+                  +10m
+                </button>
+                <button className="btn" onClick={() => act(() => api.updateReminder(r.id, { snooze_minutes: 1440 }))}>
+                  +1d
+                </button>
+                <button className="btn" onClick={() => act(() => api.updateReminder(r.id, { status: 'done' }))}>
+                  <Icon name="check" size={13} />
+                </button>
+                <button className="btn danger" onClick={() => act(() => api.deleteReminder(r.id))}>
+                  <Icon name="x" size={13} />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <form className="docs-card" onSubmit={add}>
+        <div className="docs-head">
+          <Icon name="plus" size={15} />
+          <span>New reminder</span>
+        </div>
+        <div className="field-row">
+          <label className="field">
+            <span className="field-label">What</span>
+            <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Review the PR" />
+          </label>
+          <label className="field">
+            <span className="field-label">When</span>
+            <input type="datetime-local" value={due} onChange={(e) => setDue(e.target.value)} />
+          </label>
+        </div>
+        <div className="field-row">
+          <label className="field">
+            <span className="field-label">Repeat</span>
+            <select value={recurrence} onChange={(e) => setRecurrence(e.target.value)}>
+              <option value="none">Once</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+            </select>
+          </label>
+          <label className="field">
+            <span className="field-label">Project</span>
+            <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+              <option value="">None</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="row" style={{ marginBottom: 0 }}>
+          <button className="btn primary" disabled={saving || !text.trim() || !due}>
+            {saving ? <Spinner size={13} /> : 'Add reminder'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function UpcomingReminders({ onNavigate }) {
+  const { data } = useAsync(() => api.listReminders(false), [])
+  const reminders = (data || []).slice(0, 3)
+  if (reminders.length === 0) return null
+  return (
+    <section className="home-section">
+      <div className="home-section-head">
+        <h2>Upcoming reminders</h2>
+        <button className="link-btn" onClick={() => onNavigate({ type: 'reminders' })}>
+          <Icon name="clock" size={13} /> All reminders
+        </button>
+      </div>
+      <div className="home-list">
+        {reminders.map((r) => (
+          <div key={r.id} className="home-row">
+            <span className="home-row-icon">
+              <Icon name="clock" size={15} />
+            </span>
+            <span className="home-row-main">
+              <span className="home-row-title">{r.text}</span>
+              <span className="home-row-sub">{reminderDue(r.due_at)?.toLocaleString() || r.due_at}</span>
+            </span>
+            <span className="home-row-time">{relDate(r.due_at)}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+// ---------- watches ----------
+
+const WATCH_KIND_LABEL = { page: 'Page', feed: 'Feed', condition: 'Condition' }
+
+function WatchesView({ projects }) {
+  const { data, error, loading, reload } = useAsync(api.listWatches, [])
+  const watches = data || []
+  const [kind, setKind] = useState('page')
+  const [url, setUrl] = useState('')
+  const [condition, setCondition] = useState('')
+  const [notifyOn, setNotifyOn] = useState('change')
+  const [interval, setIntervalMinutes] = useState(60)
+  const [projectId, setProjectId] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState(null)
+  const [checking, setChecking] = useState(null)
+
+  const add = (e) => {
+    e.preventDefault()
+    setSaving(true)
+    setFormError(null)
+    api
+      .createWatch({
+        kind,
+        url: kind === 'condition' && !url.trim() ? null : url.trim() || null,
+        condition: condition.trim(),
+        notify_on: notifyOn,
+        interval_minutes: Number(interval),
+        project_id: projectId ? Number(projectId) : null,
+      })
+      .then(() => {
+        setUrl('')
+        setCondition('')
+        reload()
+      })
+      .catch((err) => setFormError(err.message || String(err)))
+      .finally(() => setSaving(false))
+  }
+
+  const act = (fn) => {
+    setFormError(null)
+    fn().then(reload).catch((err) => setFormError(err.message || String(err)))
+  }
+
+  const runNow = (watch) => {
+    setChecking(watch.id)
+    setFormError(null)
+    api
+      .checkWatch(watch.id)
+      .then(reload)
+      .catch((err) => setFormError(err.message || String(err)))
+      .finally(() => setChecking(null))
+  }
+
+  return (
+    <div className="center-col wide">
+      <div className="page-head">
+        <h2>Watches</h2>
+        <span className="muted">notify only when something happens</span>
+      </div>
+      {error && <p className="error-text">{error}</p>}
+      {formError && <p className="error-text">{formError}</p>}
+
+      {loading ? (
+        <div className="home-list">
+          {[0, 1].map((i) => (
+            <Skeleton key={i} className="row-skeleton" />
+          ))}
+        </div>
+      ) : watches.length === 0 ? (
+        <SectionEmpty
+          icon="refresh"
+          title="No watches"
+          hint="Watch a page, an RSS feed, or a condition. Ask the agent, or add one below."
+        />
+      ) : (
+        <div className="home-list">
+          {watches.map((w) => (
+            <div key={w.id} className="watch-row">
+              <span className={`badge ${w.status === 'active' ? 'accent' : w.status === 'done' ? 'ok' : ''}`}>
+                {WATCH_KIND_LABEL[w.kind] || w.kind}
+              </span>
+              <span className="home-row-main">
+                <span className="home-row-title">{w.condition || w.url}</span>
+                <span className="home-row-sub">
+                  {w.condition && w.url ? `${w.url}, ` : ''}every {intervalLabel(w.interval_minutes)},{' '}
+                  {w.status}
+                  {w.last_checked_at ? `, checked ${relDate(w.last_checked_at)}` : ''}
+                </span>
+                {w.last_result && <span className="home-row-sub">{truncate(w.last_result, 140)}</span>}
+              </span>
+              <button className="btn" title="Check now" disabled={checking === w.id} onClick={() => runNow(w)}>
+                {checking === w.id ? <Spinner size={13} /> : <Icon name="refresh" size={13} />}
+              </button>
+              <button
+                className="btn"
+                title={w.status === 'active' ? 'Pause' : 'Resume'}
+                onClick={() =>
+                  act(() =>
+                    api.updateWatch(w.id, { status: w.status === 'active' ? 'paused' : 'active' })
+                  )
+                }
+              >
+                {w.status === 'active' ? 'Pause' : 'Resume'}
+              </button>
+              <button className="btn danger" title="Delete" onClick={() => act(() => api.deleteWatch(w.id))}>
+                <Icon name="x" size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <form className="docs-card" onSubmit={add}>
+        <div className="docs-head">
+          <Icon name="plus" size={15} />
+          <span>New watch</span>
+        </div>
+        <div className="field-row">
+          <label className="field">
+            <span className="field-label">Kind</span>
+            <select value={kind} onChange={(e) => setKind(e.target.value)}>
+              <option value="page">Page changed</option>
+              <option value="feed">Feed: new items</option>
+              <option value="condition">Condition check (agent)</option>
+            </select>
+          </label>
+          <label className="field">
+            <span className="field-label">Every</span>
+            <select value={interval} onChange={(e) => setIntervalMinutes(e.target.value)}>
+              <option value={30}>30 minutes</option>
+              <option value={60}>1 hour</option>
+              <option value={360}>6 hours</option>
+              <option value={1440}>1 day</option>
+            </select>
+          </label>
+        </div>
+        <label className="field">
+          <span className="field-label">URL</span>
+          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://..." />
+        </label>
+        <div className="field-row">
+          <label className="field">
+            <span className="field-label">Condition or phrase</span>
+            <input
+              value={condition}
+              onChange={(e) => setCondition(e.target.value)}
+              placeholder={kind === 'condition' ? 'Is the v2 release published?' : 'In stock'}
+            />
+          </label>
+          {kind === 'page' && (
+            <label className="field">
+              <span className="field-label">Notify on</span>
+              <select value={notifyOn} onChange={(e) => setNotifyOn(e.target.value)}>
+                <option value="change">Any change</option>
+                <option value="appear">Phrase appears</option>
+              </select>
+            </label>
+          )}
+          <label className="field">
+            <span className="field-label">Project</span>
+            <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+              <option value="">None</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="row" style={{ marginBottom: 0 }}>
+          <button
+            className="btn primary"
+            disabled={saving || (kind !== 'condition' && !url.trim()) || (kind === 'condition' && !condition.trim())}
+          >
+            {saving ? <Spinner size={13} /> : 'Add watch'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+// ---------- automations ----------
+
+const SCHEDULE_ACTIONS = [
+  'github-scan',
+  'code-reviewer',
+  'memory-keeper',
+  'docs',
+  'explore',
+  'writer',
+  'chat',
+]
+
+const SCHEDULE_INTERVALS = [
+  { label: 'Every 6 hours', minutes: 360 },
+  { label: 'Daily', minutes: 1440 },
+  { label: 'Weekly', minutes: 10080 },
+]
+
+const SCHEDULE_PRESETS = [
+  {
+    label: 'Nightly repo digest',
+    action: 'github-scan',
+    interval_minutes: 1440,
+    instruction:
+      'Summarize what changed in this repository in the last 24 hours: commits, open pull requests, issues, and CI failures. Write the digest to the workspace at digests/{date}.md with workspace_write, then report the path and highlights.',
+  },
+  {
+    label: 'Daily PR review',
+    action: 'code-reviewer',
+    interval_minutes: 1440,
+    instruction:
+      'Review the open pull requests on GitHub. For each, summarize the change and flag risks ordered by severity. Write the review to the workspace at reviews/{date}.md with workspace_write, then report.',
+  },
+  {
+    label: 'Weekly memory curation',
+    action: 'memory-keeper',
+    interval_minutes: 10080,
+    instruction:
+      'Review Totem project memory: find stale or wrong entries, duplicates, and missing decisions worth recording. Fix what is clearly wrong and create what is missing, then report every change.',
+  },
+]
+
+function intervalLabel(minutes) {
+  if (minutes % 10080 === 0) return `${minutes / 10080}w`
+  if (minutes % 1440 === 0) return `${minutes / 1440}d`
+  if (minutes % 60 === 0) return `${minutes / 60}h`
+  return `${minutes}m`
+}
+
+function AutomationsView({ projectId }) {
+  const { data, error, loading, reload } = useAsync(
+    () => api.listSchedules(projectId),
+    [projectId]
+  )
+  const schedules = data || []
+  const [form, setForm] = useState({
+    action: 'github-scan',
+    interval_minutes: 1440,
+    instruction: '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState(null)
+  const [running, setRunning] = useState(null)
+  const [actionError, setActionError] = useState(null)
+
+  const add = (e) => {
+    e.preventDefault()
+    setSaving(true)
+    setFormError(null)
+    api
+      .createSchedule(projectId, form)
+      .then(() => {
+        setForm({ action: 'github-scan', interval_minutes: 1440, instruction: '' })
+        reload()
+      })
+      .catch((err) => setFormError(err.message || String(err)))
+      .finally(() => setSaving(false))
+  }
+
+  const act = (fn) => {
+    setActionError(null)
+    fn().then(reload).catch((err) => setActionError(err.message || String(err)))
+  }
+
+  const runNow = (schedule) => {
+    setRunning(schedule.id)
+    setActionError(null)
+    api
+      .runSchedule(schedule.id)
+      .then(reload)
+      .catch((err) => setActionError(err.message || String(err)))
+      .finally(() => setRunning(null))
+  }
+
+  return (
+    <div className="center-col wide">
+      <div className="page-head">
+        <h2>Automations</h2>
+        <span className="muted">scheduled agent runs, checked every few minutes</span>
+      </div>
+
+      {error && <p className="error-text">{error}</p>}
+      {actionError && <p className="error-text">{actionError}</p>}
+
+      {loading ? (
+        <div className="home-list">
+          {[0, 1].map((i) => (
+            <Skeleton key={i} className="row-skeleton" />
+          ))}
+        </div>
+      ) : schedules.length === 0 ? (
+        <SectionEmpty
+          icon="clock"
+          title="No automations yet"
+          hint="Add a recurring agent run below, or start from a preset."
+        />
+      ) : (
+        <div className="sched-list">
+          {schedules.map((s) => (
+            <div key={s.id} className={`sched-row ${s.enabled ? '' : 'off'}`}>
+              <label className="sched-toggle" title={s.enabled ? 'Disable' : 'Enable'}>
+                <input
+                  type="checkbox"
+                  checked={s.enabled}
+                  onChange={() => act(() => api.updateSchedule(s.id, { enabled: !s.enabled }))}
+                />
+              </label>
+              <div className="sched-main">
+                <div className="sched-title">
+                  <span className="badge">{s.action}</span>
+                  <span className="muted">every {intervalLabel(s.interval_minutes)}</span>
+                  {s.last_status && (
+                    <span className={`badge ${s.last_status === 'ok' ? 'ok' : 'err'}`}>
+                      {s.last_status}
+                    </span>
+                  )}
+                  {s.last_run_at && <span className="muted">last {relDate(s.last_run_at)}</span>}
+                </div>
+                <div className="sched-instruction">{s.instruction || '(no instruction)'}</div>
+                {s.last_report && (
+                  <details className="sched-report">
+                    <summary>Last report</summary>
+                    <pre>{s.last_report}</pre>
+                  </details>
+                )}
+              </div>
+              <button className="btn" disabled={running === s.id} onClick={() => runNow(s)}>
+                {running === s.id ? (
+                  <>
+                    <Spinner size={13} /> Running
+                  </>
+                ) : (
+                  <>
+                    <Icon name="play" size={13} /> Run now
+                  </>
+                )}
+              </button>
+              <button
+                className="btn danger"
+                title="Delete"
+                onClick={() => act(() => api.deleteSchedule(s.id))}
+              >
+                <Icon name="x" size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <form className="docs-card" onSubmit={add}>
+        <div className="docs-head">
+          <Icon name="plus" size={15} />
+          <span>New automation</span>
+        </div>
+        <div className="row">
+          {SCHEDULE_PRESETS.map((p) => (
+            <button
+              key={p.label}
+              type="button"
+              className="btn"
+              onClick={() =>
+                setForm({
+                  action: p.action,
+                  interval_minutes: p.interval_minutes,
+                  instruction: p.instruction,
+                })
+              }
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <div className="field-row">
+          <label className="field">
+            <span className="field-label">Action</span>
+            <select
+              value={form.action}
+              onChange={(e) => setForm({ ...form, action: e.target.value })}
+            >
+              {SCHEDULE_ACTIONS.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span className="field-label">Interval</span>
+            <select
+              value={form.interval_minutes}
+              onChange={(e) => setForm({ ...form, interval_minutes: Number(e.target.value) })}
+            >
+              {SCHEDULE_INTERVALS.map((i) => (
+                <option key={i.minutes} value={i.minutes}>
+                  {i.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <label className="field">
+          <span className="field-label">Instruction</span>
+          <textarea
+            rows={3}
+            value={form.instruction}
+            onChange={(e) => setForm({ ...form, instruction: e.target.value })}
+            placeholder="What should the agent do on each run? Use {date} for today's date."
+          />
+        </label>
+        <div className="row" style={{ marginBottom: 0 }}>
+          <button className="btn primary" disabled={saving || !form.instruction.trim()}>
+            {saving ? (
+              <>
+                <Spinner size={13} /> Saving
+              </>
+            ) : (
+              <>
+                <Icon name="plus" size={13} /> Add automation
+              </>
+            )}
+          </button>
+        </div>
+        {formError && <p className="error-text">{formError}</p>}
+      </form>
+    </div>
+  )
+}
+
+// ---------- goals ----------
+
+const GOAL_STATUS_LABEL = {
+  drafting: 'Drafting',
+  active: 'Active',
+  done: 'Done',
+  dropped: 'Dropped',
+}
+
+function GoalEditor({ goal, projectId, onClose, onSaved }) {
+  const isNew = !goal.id
+  const [title, setTitle] = useState(goal.title || '')
+  const [description, setDescription] = useState(goal.description || '')
+  const [criteria, setCriteria] = useState(goal.success_criteria || '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+
+  const save = (e) => {
+    e.preventDefault()
+    if (!title.trim()) return
+    setSaving(true)
+    setError(null)
+    const body = {
+      title: title.trim(),
+      description,
+      success_criteria: criteria,
+    }
+    const req = isNew ? api.createGoal(projectId, body) : api.updateGoal(goal.id, body)
+    req
+      .then(onSaved)
+      .catch((err) => setError(err.message || String(err)))
+      .finally(() => setSaving(false))
+  }
+
+  return (
+    <Modal title={isNew ? 'New goal' : 'Edit goal'} onClose={onClose}>
+      <form className="agent-form" onSubmit={save}>
+        <label className="field">
+          <span className="field-label">Title</span>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} autoFocus required />
+        </label>
+        <label className="field">
+          <span className="field-label">Description</span>
+          <textarea
+            rows={3}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="What outcome do you want?"
+          />
+        </label>
+        <label className="field">
+          <span className="field-label">Success criteria</span>
+          <textarea
+            rows={2}
+            value={criteria}
+            onChange={(e) => setCriteria(e.target.value)}
+            placeholder="How will you know it is done?"
+          />
+        </label>
+        <div className="row" style={{ marginBottom: 0 }}>
+          <button className="btn primary" disabled={saving || !title.trim()}>
+            {saving ? (
+              <>
+                <Spinner size={14} /> Saving
+              </>
+            ) : isNew ? (
+              'Create goal'
+            ) : (
+              'Save changes'
+            )}
+          </button>
+        </div>
+        {error && <div className="error-text">{error}</div>}
+      </form>
+    </Modal>
+  )
+}
+
+function GoalsView({ projectId, onDiscuss, onOpenTasks, onOpenFile }) {
+  const { data, error, loading, reload } = useAsync(() => api.listGoals(projectId), [projectId])
+  const goals = data || []
+  const [editor, setEditor] = useState(null)
+  const [busy, setBusy] = useState(null)
+  const [actionError, setActionError] = useState(null)
+  const [report, setReport] = useState(null)
+
+  const act = (goal, kind) => {
+    setBusy(goal.id)
+    setActionError(null)
+    const call = kind === 'plan' ? api.planGoal : api.convergeGoal
+    call(goal.id)
+      .then((r) => {
+        setReport({ ...r, goal, kind })
+        reload()
+      })
+      .catch((e) => setActionError(e.message || String(e)))
+      .finally(() => setBusy(null))
+  }
+
+  const discuss = (goal) => {
+    setActionError(null)
+    api
+      .discussGoal(goal.id)
+      .then((r) => onDiscuss(r.session_id, r.seed))
+      .catch((e) => setActionError(e.message || String(e)))
+  }
+
+  const setStatus = (goal, status) => {
+    setActionError(null)
+    api.updateGoal(goal.id, { status }).then(reload).catch((e) => setActionError(e.message))
+  }
+
+  const remove = (goal) => {
+    if (!window.confirm(`Delete goal "${goal.title}"? Tasks and milestone stay on the board.`)) return
+    api.deleteGoal(goal.id).then(reload).catch((e) => setActionError(e.message))
+  }
+
+  return (
+    <div className="center-col wide">
+      <div className="page-head">
+        <h2>Goals</h2>
+        <button className="btn primary" onClick={() => setEditor({})}>
+          <Icon name="plus" size={14} /> New goal
+        </button>
+      </div>
+      <p className="note">
+        Discuss a goal with the agent, keep a spec in the workspace, then generate a milestone
+        and an ordered task board from it.
+      </p>
+
+      {error && <p className="error-text">{error}</p>}
+      {actionError && <p className="error-text">{actionError}</p>}
+      {loading ? (
+        <div className="home-list">
+          {[0, 1].map((i) => (
+            <Skeleton key={i} className="row-skeleton" />
+          ))}
+        </div>
+      ) : goals.length === 0 ? (
+        <SectionEmpty
+          icon="sparkles"
+          title="No goals yet"
+          hint="Create one, discuss it with the agent, then generate the board."
+        />
+      ) : (
+        <div className="goal-list">
+          {goals.map((goal) => (
+            <div key={goal.id} className="goal-card">
+              <div className="goal-head">
+                <span className="goal-title">{goal.title}</span>
+                <select
+                  className="goal-status"
+                  value={goal.status}
+                  onChange={(e) => setStatus(goal, e.target.value)}
+                >
+                  {Object.entries(GOAL_STATUS_LABEL).map(([k, v]) => (
+                    <option key={k} value={k}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {goal.description && <div className="goal-desc">{goal.description}</div>}
+              {goal.success_criteria && (
+                <div className="goal-criteria">
+                  <strong>Success:</strong> {goal.success_criteria}
+                </div>
+              )}
+              {goal.progress && goal.progress.total > 0 && (
+                <div className="goal-progress">
+                  <ProgressBar percent={goal.progress.percent} />
+                  <span className="muted">
+                    {goal.progress.done}/{goal.progress.total} tasks
+                  </span>
+                </div>
+              )}
+              <div className="row goal-actions">
+                <button className="btn" onClick={() => discuss(goal)}>
+                  <Icon name="chat" size={13} /> Discuss
+                </button>
+                <button
+                  className="btn primary"
+                  disabled={busy === goal.id}
+                  onClick={() => act(goal, 'plan')}
+                >
+                  {busy === goal.id ? (
+                    <>
+                      <Spinner size={13} /> Working
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="tasks" size={13} /> Generate board
+                    </>
+                  )}
+                </button>
+                <button className="btn" disabled={busy === goal.id} onClick={() => act(goal, 'converge')}>
+                  <Icon name="check" size={13} /> Converge
+                </button>
+                {goal.spec_path && (
+                  <button
+                    className="btn"
+                    onClick={() => onOpenFile({ project_id: projectId, path: goal.spec_path })}
+                  >
+                    <Icon name="files" size={13} /> Spec
+                  </button>
+                )}
+                {goal.milestone_id && (
+                  <button className="btn" onClick={onOpenTasks}>
+                    <Icon name="flag" size={13} /> Board
+                  </button>
+                )}
+                <button className="btn" onClick={() => setEditor(goal)}>
+                  Edit
+                </button>
+                <button className="btn danger" onClick={() => remove(goal)}>
+                  <Icon name="x" size={13} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {editor && (
+        <GoalEditor
+          projectId={projectId}
+          goal={editor}
+          onClose={() => setEditor(null)}
+          onSaved={() => {
+            setEditor(null)
+            reload()
+          }}
+        />
+      )}
+
+      {report && (
+        <Modal title={report.kind === 'plan' ? 'Board generated' : 'Converge report'} onClose={() => setReport(null)}>
+          <div
+            className="reader-body prose"
+            dangerouslySetInnerHTML={{ __html: mdToHtml(report.report || '') }}
+          />
+          {report.spec_path && (
+            <p className="note">
+              Spec: <code>{report.spec_path}</code>
+              {report.plan_path && (
+                <>
+                  {' '}· Plan: <code>{report.plan_path}</code>
+                </>
+              )}
+            </p>
+          )}
+          <div className="row" style={{ marginTop: 14, marginBottom: 0 }}>
+            <button
+              className="btn"
+              onClick={() => {
+                setReport(null)
+                if (onOpenTasks) onOpenTasks()
+              }}
+            >
+              <Icon name="tasks" size={14} /> View board
+            </button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  )
+}
+
+function ChatView({ projectId, sessionId, agentId, providerId, onSessionCreated, initialMessage, action }) {
   const sessionsReq = useAsync(() => api.listSessions(projectId), [projectId])
   const [messages, setMessages] = useState([])
   const [liveEvents, setLiveEvents] = useState([])
   const [pending, setPending] = useState(null) // 'working' | 'streaming' | null
   const [error, setError] = useState(null)
+  const [questions, setQuestions] = useState([])
+  const [answers, setAnswers] = useState({})
+  const [streamingText, setStreamingText] = useState('')
   const sessionRef = useRef(sessionId)
   const busyRef = useRef(false)
   const initialSentRef = useRef(false)
@@ -3062,17 +5398,21 @@ function ChatView({ projectId, sessionId, agentId, providerId, onSessionCreated,
     setMessages([])
     setLiveEvents([])
     setError(null)
+    setQuestions([])
+    setAnswers({})
+    setStreamingText('')
     if (sessionId) {
       api
         .listMessages(sessionId)
         .then(setMessages)
         .catch((e) => setError(e.message || String(e)))
+      api.listQuestions(sessionId).then(setQuestions).catch(() => {})
     }
   }, [sessionId])
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages, liveEvents, pending])
+  }, [messages, liveEvents, pending, streamingText])
 
   const send = useCallback(
     (text) => {
@@ -3088,24 +5428,35 @@ function ChatView({ projectId, sessionId, agentId, providerId, onSessionCreated,
           {
             message: text,
             session_id: sessionRef.current || undefined,
+            action: action || undefined,
             ...(agentId ? { agent_id: agentId } : { provider_id: providerId || undefined }),
           },
           {
             onEvent: (evt) => {
               if (evt.event === 'session') {
                 sessionRef.current = evt.session_id
+                setStreamingText('')
                 onSessionCreated(evt.session_id)
               } else if (evt.event === 'message') {
                 setPending(null)
-                setMessages((prev) => [
-                  ...prev,
-                  { id: `a-${Date.now()}`, role: 'assistant', content: evt.content },
-                ])
+                setStreamingText('')
+                if (evt.content && evt.content.trim()) {
+                  setMessages((prev) => [
+                    ...prev,
+                    { id: `a-${Date.now()}`, role: 'assistant', content: evt.content },
+                  ])
+                }
               } else if (evt.event === 'error') {
                 setPending(null)
+                setStreamingText('')
                 setError(evt.message || 'Chat error')
+              } else if (evt.event === 'question') {
+                setPending(null)
+                setStreamingText('')
+                setQuestions((prev) => [...prev, { ...evt, status: 'open' }])
               } else if (evt.event === 'token') {
                 setPending('streaming')
+                setStreamingText((prev) => prev + (evt.text || ''))
               } else {
                 setPending('streaming')
                 setLiveEvents((prev) => [...prev, evt])
@@ -3113,7 +5464,15 @@ function ChatView({ projectId, sessionId, agentId, providerId, onSessionCreated,
             },
           }
         )
-        .catch((err) => setError(err.message || String(err)))
+        .catch((err) => {
+          setError(err.message || String(err))
+          const sid = sessionRef.current
+          if (sid) {
+            api.listMessages(sid).then(setMessages).catch(() => {})
+          } else {
+            setMessages((prev) => prev.filter((m) => !String(m.id).startsWith('u-')))
+          }
+        })
         .finally(() => {
           busyRef.current = false
           setPending(null)
@@ -3124,10 +5483,11 @@ function ChatView({ projectId, sessionId, agentId, providerId, onSessionCreated,
               .listMessages(sid)
               .then(setMessages)
               .catch(() => {})
+            api.listQuestions(sid).then(setQuestions).catch(() => {})
           }
         })
     },
-    [projectId, agentId, providerId, onSessionCreated] // eslint-disable-line react-hooks/exhaustive-deps
+    [projectId, agentId, providerId, onSessionCreated, action] // eslint-disable-line react-hooks/exhaustive-deps
   )
 
   useEffect(() => {
@@ -3137,8 +5497,30 @@ function ChatView({ projectId, sessionId, agentId, providerId, onSessionCreated,
     }
   }, [initialMessage, send])
 
+  const answerQuestion = (question, text) => {
+    const value = (text || '').trim()
+    if (!value) return
+    setQuestions((prev) =>
+      prev.map((q) => (q.id === question.id ? { ...q, status: 'answered', answer: value } : q))
+    )
+    send(value)
+  }
+
+  const skipQuestion = (question) => {
+    api
+      .dismissQuestion(question.id)
+      .then(() => setQuestions((prev) => prev.filter((q) => q.id !== question.id)))
+      .catch((e) => setError(e.message || String(e)))
+  }
+
   return (
     <div className="chat">
+      {action === 'goal' && (
+        <div className="chat-banner">
+          <Icon name="sparkles" size={14} /> Goal discussion: refine the outcome, then press
+          "Generate board" on the Goals tab.
+        </div>
+      )}
       <div className="chat-scroll">
         <div className="chat-inner">
           {messages.map((m) =>
@@ -3163,6 +5545,17 @@ function ChatView({ projectId, sessionId, agentId, providerId, onSessionCreated,
               <ToolRun name={r.name} args={r.args} result={r.result} />
             </div>
           ))}
+          {streamingText && (
+            <div className="msg assistant">
+              <div className="avatar">
+                <Icon name="sparkles" size={15} />
+              </div>
+              <div
+                className="msg-md prose"
+                dangerouslySetInnerHTML={{ __html: mdToHtml(streamingText) }}
+              />
+            </div>
+          )}
           {pending && (
             <div className="working">
               <span className="pulse" />
@@ -3174,6 +5567,49 @@ function ChatView({ projectId, sessionId, agentId, providerId, onSessionCreated,
               </span>
             </div>
           )}
+          {questions
+            .filter((q) => q.status === 'open')
+            .map((q) => (
+              <div key={q.id} className="question-card">
+                <div className="question-head">
+                  <Icon name={q.kind === 'approval' ? 'alert' : 'help'} size={14} />
+                  {q.kind === 'approval' ? 'Approval needed' : 'The agent needs input'}
+                </div>
+                <div className="question-text">{q.question}</div>
+                {q.options?.length > 0 && (
+                  <div className="question-options">
+                    {q.options.map((o) => (
+                      <button key={o} className="btn" onClick={() => answerQuestion(q, o)}>
+                        {o}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="row" style={{ marginBottom: 0 }}>
+                  <input
+                    value={answers[q.id] || ''}
+                    onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        answerQuestion(q, answers[q.id])
+                      }
+                    }}
+                    placeholder="Type your answer..."
+                  />
+                  <button
+                    className="btn primary"
+                    disabled={!(answers[q.id] || '').trim()}
+                    onClick={() => answerQuestion(q, answers[q.id])}
+                  >
+                    Answer
+                  </button>
+                  <button className="btn" onClick={() => skipQuestion(q)}>
+                    Skip
+                  </button>
+                </div>
+              </div>
+            ))}
           <div ref={scrollRef} />
         </div>
       </div>
@@ -3206,9 +5642,42 @@ export default function App() {
   const [settingsTab, setSettingsTab] = useState('providers')
   const [landingFile, setLandingFile] = useState(null)
   const [prevOpenedAt, setPrevOpenedAt] = useState(undefined)
+  const [authState, setAuthState] = useState(null)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  useEffect(() => {
+    api
+      .authStatus()
+      .then(setAuthState)
+      .catch(() => setAuthState({ enabled: false, authenticated: true, has_passkeys: false }))
+  }, [])
 
   useEffect(() => {
     applyTheme(loadStoredTheme())
+  }, [])
+
+  useEffect(() => {
+    const applyHash = () => {
+      const parsed = parseHash(window.location.hash)
+      if (!parsed) return
+      if (parsed.projectId) {
+        setProjectId(parsed.projectId)
+        api
+          .openProject(parsed.projectId)
+          .then((p) => setPrevOpenedAt(p.previous_opened_at || null))
+          .catch(() => setPrevOpenedAt(null))
+      }
+      if (parsed.view) {
+        setView(parsed.view)
+        if (parsed.view.type === 'chat' && !parsed.session) {
+          setChatSessionId(null)
+        }
+      }
+      if (parsed.session) setChatSessionId(parsed.session)
+    }
+    applyHash()
+    window.addEventListener('hashchange', applyHash)
+    return () => window.removeEventListener('hashchange', applyHash)
   }, [])
 
   const effectiveProjectId = projectId && projects.some((p) => p.id === projectId)
@@ -3220,6 +5689,13 @@ export default function App() {
       setProjectId(effectiveProjectId)
     }
   }, [effectiveProjectId, projectId])
+
+  useEffect(() => {
+    const hash = viewHash(effectiveProjectId, view, chatSessionId)
+    if (window.location.hash !== hash) {
+      window.history.replaceState(null, '', hash)
+    }
+  }, [view, effectiveProjectId, chatSessionId])
 
   const sessionsReq = useAsync(
     () => (effectiveProjectId ? api.listSessions(effectiveProjectId) : Promise.resolve([])),
@@ -3253,6 +5729,14 @@ export default function App() {
     setInitialMessage(null)
   }
 
+  const openProjectView = (pid, type) => {
+    setProjectId(pid)
+    api.openProject(pid).catch(() => {})
+    setView({ type })
+    setChatSessionId(null)
+    setInitialMessage(null)
+  }
+
   const startNewChat = () => {
     setView({ type: 'chat' })
     setChatSessionId(null)
@@ -3267,9 +5751,26 @@ export default function App() {
     setChatKey((k) => k + 1)
   }
 
+  const openGoalDiscussion = (sessionId, seed) => {
+    setView({ type: 'chat', action: 'goal' })
+    setChatSessionId(sessionId)
+    setInitialMessage(seed)
+    setChatKey((k) => k + 1)
+  }
+
+  const startProjectChat = (pid, text) => {
+    setProjectId(pid)
+    api.openProject(pid).catch(() => {})
+    setView({ type: 'chat' })
+    setChatSessionId(null)
+    setInitialMessage(text)
+    setChatKey((k) => k + 1)
+  }
+
   const onSessionCreated = useCallback(
     (sid) => {
       setChatSessionId(sid)
+      setInitialMessage(null)
       sessionsReq.reload()
     },
     [sessionsReq]
@@ -3281,18 +5782,34 @@ export default function App() {
   const inProjectView = [
     'welcome',
     'chat',
+    'goals',
     'tasks',
     'roadmap',
     'github',
     'activity',
+    'automations',
     'files',
     'memory',
     'about',
   ].includes(view.type)
 
+  if (authState === null) {
+    return (
+      <div className="login">
+        <Spinner size={20} />
+      </div>
+    )
+  }
+  if (authState.enabled && !authState.authenticated) {
+    return <LoginView status={authState} onAuthed={() => window.location.reload()} />
+  }
+
   return (
     <div className="app">
-      <aside className="sidebar">
+      <aside
+        className={`sidebar ${sidebarOpen ? 'open' : ''}`}
+        onClick={() => setSidebarOpen(false)}
+      >
         <button className="sidebar-brand" onClick={() => setView({ type: 'home' })}>
           <span className="logo">
             <Icon name="home" size={15} />
@@ -3351,7 +5868,9 @@ export default function App() {
                 <Icon name="plus" size={16} className="si-icon" />
                 New chat
               </button>
-              {sessions.map((s) => (
+              {[...sessions]
+                .sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0))
+                .map((s) => (
                 <button
                   key={s.id}
                   className={`sidebar-item ${
@@ -3379,6 +5898,13 @@ export default function App() {
               >
                 <Icon name="home" size={16} className="si-icon" />
                 Overview
+              </button>
+              <button
+                className={`sidebar-item ${view.type === 'goals' ? 'active' : ''}`}
+                onClick={() => setView({ type: 'goals' })}
+              >
+                <Icon name="sparkles" size={16} className="si-icon" />
+                Goals
               </button>
               <button
                 className={`sidebar-item ${view.type === 'tasks' ? 'active' : ''}`}
@@ -3409,6 +5935,13 @@ export default function App() {
                 Activity
               </button>
               <button
+                className={`sidebar-item ${view.type === 'automations' ? 'active' : ''}`}
+                onClick={() => setView({ type: 'automations' })}
+              >
+                <Icon name="refresh" size={16} className="si-icon" />
+                Automations
+              </button>
+              <button
                 className={`sidebar-item ${view.type === 'files' ? 'active' : ''}`}
                 onClick={() => setView({ type: 'files' })}
               >
@@ -3437,6 +5970,27 @@ export default function App() {
               <span>Global</span>
             </div>
             <button
+              className={`sidebar-item ${view.type === 'search' ? 'active' : ''}`}
+              onClick={() => setView({ type: 'search' })}
+            >
+              <Icon name="search" size={16} className="si-icon" />
+              Search
+            </button>
+            <button
+              className={`sidebar-item ${view.type === 'reminders' ? 'active' : ''}`}
+              onClick={() => setView({ type: 'reminders' })}
+            >
+              <Icon name="clock" size={16} className="si-icon" />
+              Reminders
+            </button>
+            <button
+              className={`sidebar-item ${view.type === 'watches' ? 'active' : ''}`}
+              onClick={() => setView({ type: 'watches' })}
+            >
+              <Icon name="refresh" size={16} className="si-icon" />
+              Watches
+            </button>
+            <button
               className={`sidebar-item ${view.type === 'agents' ? 'active' : ''}`}
               onClick={() => setView({ type: 'agents' })}
             >
@@ -3458,18 +6012,43 @@ export default function App() {
               Help
             </button>
           </div>
+
+          {authState?.enabled && (
+            <div className="sidebar-section">
+              <button
+                className="sidebar-item"
+                onClick={() => api.authLogout().then(() => window.location.reload())}
+              >
+                <Icon name="x" size={16} className="si-icon" />
+                Log out
+              </button>
+            </div>
+          )}
         </div>
       </aside>
+
+      <button
+        className="mobile-nav-btn"
+        title="Menu"
+        onClick={() => setSidebarOpen((open) => !open)}
+      >
+        <Icon name="menu" size={18} />
+      </button>
+      {sidebarOpen && (
+        <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />
+      )}
 
       <div className="main">
         {project &&
           [
             'welcome',
             'chat',
+            'goals',
             'tasks',
             'roadmap',
             'github',
             'activity',
+            'automations',
             'files',
             'memory',
             'about',
@@ -3481,6 +6060,11 @@ export default function App() {
                 <Icon name="git" size={12} />
                 {project.repo_url}
               </span>
+              {project.allow_git_writes && (
+                <span className="badge err" title="Agent may modify the clone">
+                  writes on
+                </span>
+              )}
             </div>
             <div className="topbar-right">
               <select value={agentId} onChange={(e) => setAgentId(e.target.value)}>
@@ -3520,9 +6104,19 @@ export default function App() {
               onOpenProject={(id) => selectProject(id)}
               onOpenSession={openSessionFromLanding}
               onOpenFile={(f) => setLandingFile(f)}
+              onStartChat={startProjectChat}
             />
           )}
           {view.type === 'help' && <HelpView />}
+          {view.type === 'search' && (
+            <SearchView
+              onOpenMemory={(pid) => openProjectView(pid, 'memory')}
+              onOpenSession={openSessionFromLanding}
+              onOpenFile={(f) => setLandingFile(f)}
+            />
+          )}
+          {view.type === 'reminders' && <RemindersView projects={projects} />}
+          {view.type === 'watches' && <WatchesView projects={projects} />}
           {!project && !projectsReq.loading && view.type !== 'home' && view.type !== 'help' && (
             <div className="empty">
               No projects yet. Click + next to Projects to add one.
@@ -3545,9 +6139,24 @@ export default function App() {
               providerId={providerId}
               onSessionCreated={onSessionCreated}
               initialMessage={initialMessage}
+              action={view.action}
             />
           )}
-          {project && view.type === 'tasks' && <TasksView projectId={project.id} />}
+          {project && view.type === 'goals' && (
+            <GoalsView
+              projectId={project.id}
+              onDiscuss={openGoalDiscussion}
+              onOpenTasks={() => setView({ type: 'tasks' })}
+              onOpenFile={(f) => setLandingFile(f)}
+            />
+          )}
+          {project && view.type === 'tasks' && (
+            <TasksView
+              projectId={project.id}
+              onImplement={startChatWith}
+              gitWrites={project.allow_git_writes}
+            />
+          )}
           {project && view.type === 'roadmap' && (
             <RoadmapView
               projectId={project.id}
@@ -3569,6 +6178,9 @@ export default function App() {
                 setLandingFile({ project_id: project.id, path: item.path })
               }
             />
+          )}
+          {project && view.type === 'automations' && (
+            <AutomationsView projectId={project.id} />
           )}
           {project && view.type === 'files' && <FilesView projectId={project.id} />}
           {project && view.type === 'memory' && (
@@ -3624,13 +6236,28 @@ export default function App() {
               Providers
             </button>
             <button
+              className={settingsTab === 'assistant' ? 'active' : ''}
+              onClick={() => setSettingsTab('assistant')}
+            >
+              Assistant
+            </button>
+            <button
+              className={settingsTab === 'github' ? 'active' : ''}
+              onClick={() => setSettingsTab('github')}
+            >
+              GitHub
+            </button>
+            <button
               className={settingsTab === 'theme' ? 'active' : ''}
               onClick={() => setSettingsTab('theme')}
             >
               Theme
             </button>
           </div>
-          {settingsTab === 'providers' ? <ProvidersPanel /> : <ThemePanel />}
+          {settingsTab === 'providers' && <ProvidersPanel />}
+          {settingsTab === 'assistant' && <AssistantPanel />}
+          {settingsTab === 'github' && <GithubPanel />}
+          {settingsTab === 'theme' && <ThemePanel />}
         </Modal>
       )}
     </div>

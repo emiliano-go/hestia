@@ -31,6 +31,20 @@ board accurate over burying plans in the transcript.
 """
 
 
+WRITE_POLICY = """\
+
+## Git writes (explicit opt-in)
+This project has git writes ENABLED. In addition to the read-only tools you
+may modify code:
+- write_file: create or overwrite files in the clone (never .git).
+- git_create_branch, git_commit, git_push, gh_open_pr.
+
+Only do this when the user asks for a code change. Prefer a new branch, keep
+commits focused, never force-push, and end by reporting the branch, commit,
+and pull request you created. When in doubt, explain the change instead.
+"""
+
+
 def _repo_map(local_path: Path, max_entries: int = 40) -> str:
     entries = []
     for p in sorted(local_path.iterdir(), key=lambda p: (p.is_file(), p.name)):
@@ -47,12 +61,15 @@ def build_system_prompt(
     agents_md: str | None,
     memory_context: str,
     user_task: str,
+    writes_enabled: bool = False,
+    extra_context: str = "",
 ) -> str:
+    policy = POLICY + (WRITE_POLICY if writes_enabled else "")
     sections = [
         f"You are the agent for the project '{ctx.name}' ({ctx.repo_url}).",
         "",
         "## Policy",
-        POLICY,
+        policy,
         "",
         "## Repository layout",
         f"Clone root: {ctx.local_path}",
@@ -64,5 +81,7 @@ def build_system_prompt(
         sections += ["", "## Project instructions (AGENTS.md)", agents_md]
     if memory_context:
         sections += ["", "## Project memory (Totem)", memory_context]
+    if extra_context:
+        sections += ["", "## Context", extra_context]
     sections += ["", f'## Current user request\n"{user_task}"']
     return "\n".join(sections)

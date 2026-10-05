@@ -5,9 +5,10 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
-from home import actions, totem_store
+from home import actions, questions, totem_store, usage
 from home.registry.db import session
-from home.registry.models import Message, Project, Provider, Session as ChatSession
+from home.registry.models import Message, Project, Provider, Question
+from home.registry.models import Session as ChatSession
 
 router = APIRouter(prefix="/api", tags=["sessions"])
 
@@ -39,6 +40,21 @@ def browse_memory(project_id: int, q: str | None = None, s: Session = Depends(se
     if q:
         return totem_store.search(path, q, limit=50)
     return totem_store.list_all(path, limit=100)
+
+
+@router.get("/sessions/{session_id}/questions")
+def list_questions(session_id: int, s: Session = Depends(session)):
+    if not s.get(ChatSession, session_id):
+        raise HTTPException(404, "session not found")
+    return [questions.as_dict(q) for q in questions.list_for_session(s, session_id)]
+
+
+@router.post("/questions/{question_id}/dismiss")
+def dismiss_question(question_id: int, s: Session = Depends(session)):
+    question = s.get(Question, question_id)
+    if not question:
+        raise HTTPException(404, "question not found")
+    return questions.as_dict(questions.dismiss(s, question))
 
 
 FIXER_PROMPT = """\
@@ -96,14 +112,19 @@ def fix_memory(project_id: int, body: dict, s: Session = Depends(session)):
 
     async def run():
         final = ""
+        tokens: dict = {}
         async for event in agent_loop.run_turn(ctx, client, registry, messages):
+            if event["type"] == "usage":
+                usage.merge(tokens, event.get("usage"))
+                continue
             if event["type"] == "message":
                 final = event.get("content", "")
             if event["type"] == "error":
-                return "", event["message"]
-        return final, None
+                return "", event["message"], tokens
+        return final, None, tokens
 
-    report, error = asyncio.run(run())
+    report, error, tokens = asyncio.run(run())
+    usage.record(s, project.id, action="memory-fix", model=provider.model, usage=tokens)
     if error:
         raise HTTPException(502, error)
     return {"report": report}

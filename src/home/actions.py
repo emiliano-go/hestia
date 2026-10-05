@@ -51,6 +51,24 @@ ACTIONS: list[dict] = [
         "tools": "repo,files,github",
     },
     {
+        "key": "goal",
+        "label": "Goal planning",
+        "description": (
+            "Discuss a goal, keep a living spec in the workspace, and plan it "
+            "into a milestone with dependency-aware tasks."
+        ),
+        "tools": "repo,files,github,memory,workspace,tasks,agents",
+    },
+    {
+        "key": "docs",
+        "label": "Generate documentation",
+        "description": (
+            "Write an architecture, onboarding, or ADR document into the project "
+            "workspace from Totem memory and the repository."
+        ),
+        "tools": "workspace,memory,repo,files",
+    },
+    {
         "key": "triage",
         "label": "Triage GitHub item",
         "description": (

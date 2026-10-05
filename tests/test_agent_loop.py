@@ -27,6 +27,8 @@ class FakeClient(OpenAIClient):
         text = reply.get("content", "")
         for word in text.split(" "):
             chunks.append({"choices": [{"delta": {"content": word + " "}}]})
+        if reply.get("usage"):
+            chunks.append({"choices": [], "usage": reply["usage"]})
         for chunk in chunks:
             yield chunk
 
@@ -55,3 +57,45 @@ async def test_tool_call_loop(repo):
     assert all(t["ok"] for t in tool_results)
     assert events[-1]["type"] == "message"
     assert "sqlite" in events[-1]["content"]
+    # tokens stream before the final message of each turn
+    token_events = [e for e in events if e["type"] == "token"]
+    assert token_events and "".join(t["text"] for t in token_events).strip().endswith("sqlite.")
+
+
+@pytest.mark.asyncio
+async def test_usage_event(repo):
+    client = FakeClient([
+        {"content": "hi", "usage": {"prompt_tokens": 7, "completion_tokens": 3}},
+    ])
+    registry = build_registry()
+    events = [e async for e in agent_loop.run_turn(repo, client, registry, [{"role": "user", "content": "hi"}])]
+
+    usage_events = [e for e in events if e["type"] == "usage"]
+    assert usage_events[0]["usage"]["prompt_tokens"] == 7
+    assert usage_events[0]["usage"]["completion_tokens"] == 3
+
+
+@pytest.mark.asyncio
+async def test_agent_pause_ends_turn(repo):
+    from home.tools.registry import Registry, Tool, schema
+
+    class PausingClient(FakeClient):
+        def __init__(self):
+            super().__init__([{"tool_calls": [{"id": "c1", "name": "ask", "arguments": "{}"}]}])
+
+    registry = Registry()
+
+    def ask(ctx, args):
+        raise agent_loop.AgentPause({"id": 7, "question": "Which DB?", "options": ["sqlite"]})
+
+    registry.register(Tool(name="ask", description="", parameters=schema({}, []), handler=ask))
+    events = [
+        e
+        async for e in agent_loop.run_turn(
+            repo, PausingClient(), registry, [{"role": "user", "content": "hi"}]
+        )
+    ]
+    assert events[-1]["type"] == "question"
+    assert events[-1]["id"] == 7 and events[-1]["question"] == "Which DB?"
+    # the turn ended: no follow-up model message after the pause
+    assert [e["type"] for e in events].count("message") == 1

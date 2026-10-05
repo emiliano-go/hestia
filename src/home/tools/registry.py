@@ -16,6 +16,7 @@ class ProjectContext:
     repo_url: str
     local_path: Path
     workspace_path: Path | None = None
+    session_id: int | None = None  # set for interactive chat turns
 
     @classmethod
     def from_project(cls, project) -> "ProjectContext":

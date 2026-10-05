@@ -86,12 +86,81 @@ query GitHub, and write workspace files (plans, specs), but they do not modify t
   sessions. Drag cards across columns (backlog/doing/review/done), and let the
   agent manage the board through the `task_list`, `task_create`, `task_update`,
   and `task_delete` tools.
+- **Goal mode**: a Goals tab per project. Discuss a goal with the agent (which
+  keeps a spec in the workspace), then "Generate board" turns it into a
+  milestone with dependency-ordered tasks. "Converge" appends work the spec
+  still requires. Goals link their discussion, spec, milestone, and progress.
+- **Dependencies and review gates**: tasks can depend on other tasks (blocked
+  until they are done), carry acceptance criteria, and cannot move to done
+  until the review is confirmed. Comments on a card carry context between
+  sessions, and "Implement with agent" seeds a chat from the task brief.
+- **Inbox actions**: triage a new PR/issue straight from the dashboard inbox,
+  or diagnose a CI failure in a seeded chat.
+- **PR review**: one click runs the `code-reviewer` agent over a PR or issue
+  and writes `reviews/<kind>-<n>.md` to the workspace.
+- **Token budgets**: set a monthly token budget per project; the Overview warns
+  at 80%, and scheduled runs can pause when it is spent.
+- **GitHub issue sync**: push board tasks to GitHub issues (requires git writes
+  and `GITHUB_TOKEN`); synced tasks link back and are never duplicated.
+- **Push notifications**: ntfy and/or Telegram. The agent gets a `notify` tool,
+  new inbox items and finished/failed scheduled runs push automatically, and a
+  budget skip alerts you. Configure with `NTFY_TOPIC` (plus optional
+  `NTFY_URL`/`NTFY_TOKEN`) or `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`; test
+  from About. Email is deliberately not implemented (SMTP setup for little gain
+  over the other two).
+- **GitHub account connection**: paste a token, import from the `gh` CLI
+  (`gh auth login`), or sign in with the OAuth device flow using your own
+  client id. Stored at `<DATA_DIR>/github_token` (0600); `GITHUB_TOKEN` env
+  takes precedence. Enables private clones, higher rate limits, and issue/PR
+  writes.
+- **Agent questions**: the agent can ask you a blocking question with `ask_user`
+  (optionally with choices). The question is stored on the chat session, pushes
+  a notification, and survives page reloads; your next message is the answer.
+- **Time aware assistant settings**: the system prompt carries the current time,
+  your timezone, name, and standing instructions (Settings, Assistant tab).
+- **Reminders**: ask the agent ("remind me tomorrow at 9") or add one in the
+  Reminders view. Fired as notifications; one-shot, daily, or weekly; snooze
+  and done in the UI.
+- **Daily briefing**: a deterministic digest (reminders, ready tasks, unread
+  inbox) sent at your chosen local time, with optional agent commentary.
+- **Watches**: page diff, RSS/Atom new items, and LLM condition checks ("tell
+  me when tickets go on sale"). Notifications only fire when something happens;
+  condition watches complete when met. The Watches view has pause, run now, and
+  the last result.
+- **Web fetch**: the agent can read static pages (SSRF guarded, no JavaScript
+  rendering), gated by a setting.
+- **Approval gates**: opt-in per project; `git_push` and `gh_open_pr` require an
+  approved request from chat when enabled.
+- **Suggested work**: "Suggest next work" on the board proposes 2 to 5 backlog
+  tasks tagged suggested, for you to keep or delete.
 - **Roadmap / milestones**: group tasks into goals with a target date and a
   progress bar, and link Totem memories (decisions, constraints) to the
   milestone's outcome. `milestone_list` / `milestone_create` / `milestone_update`
   let the agent manage them too.
 - **Triage**: turn a GitHub issue or PR into a written plan and a set of board
   tasks in one click, run by the configured `triage` action.
+- **Cross-project search**: one box searches Totem memory, workspace file names
+  and contents, and conversation titles across every project.
+- **Inbox**: a background poller watches open PRs/issues and failing CI runs
+  and surfaces new ones on the dashboard, with mark-read.
+- **Scheduled agents**: per-project automations (nightly repo digest, daily PR
+  review, weekly memory curation, or any action + instruction) run by a
+  background worker, with the last report shown on the Automations tab. Set
+  `HOME_DISABLE_SCHEDULER=1` to turn the worker off and
+  `HOME_INBOX_POLL_SECONDS` (default 600) to tune inbox polling.
+- **Generated docs**: write `ARCHITECTURE.md`, `ONBOARDING.md`, or an ADR into
+  the workspace from Totem memory in one click (`docs` action).
+- **Token usage**: every agent run (chat, docs, triage, memory fix, scheduled
+  jobs) records prompt/completion tokens; totals show on the Overview tab and a
+  per-action/per-session breakdown lives in About. No pricing tables.
+- **Passkey login (opt-in)**: set `HOME_SETUP_TOKEN` and Home gates every API
+  call behind a WebAuthn passkey. Register the first passkey from the login
+  screen with that token; the token also recovers access if a device is lost.
+  Set `HOME_RP_ID` and `HOME_ORIGIN` when serving behind a reverse proxy.
+- **Gated git writes (opt-in)**: a per-project switch in About gives the agent
+  `write_file`, `git_create_branch`, `git_commit`, `git_push`, and `gh_open_pr`.
+  Off by default, so code stays read-only; pushes use `GITHUB_TOKEN` on GitHub
+  remotes.
 - **Persistent workspace**: agent-generated files (plans, specs, research
   notes) go to a per-project workspace directory in the data volume,
   outside the repository, via the `workspace_write` / `workspace_read` /

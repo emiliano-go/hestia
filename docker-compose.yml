@@ -16,8 +16,18 @@ services:
       CUSTOM_API_KEY: ${CUSTOM_API_KEY:-}
       # Optional; raises GitHub REST rate limits and enables private repos:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      # Optional; set to enable passkey login (see README):
+      HOME_SETUP_TOKEN: ${HOME_SETUP_TOKEN:-}
+      HOME_RP_ID: ${HOME_RP_ID:-}
+      HOME_ORIGIN: ${HOME_ORIGIN:-}
+      # Optional; push notifications (ntfy and/or Telegram):
+      NTFY_URL: ${NTFY_URL:-}
+      NTFY_TOPIC: ${NTFY_TOPIC:-}
+      NTFY_TOKEN: ${NTFY_TOKEN:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/projects')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/auth/status')"]
       interval: 30s
       timeout: 5s
       retries: 3

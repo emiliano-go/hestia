@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
-from home import overview
+from home import overview, usage
 from home.registry.db import session
 from home.registry.models import Project, Task
 
@@ -41,6 +41,12 @@ def status(project_id: int, since: str | None = None, s: Session = Depends(sessi
         "changes": changes,
         "tasks": _task_counts(project_id, s),
     }
+
+
+@router.get("/{project_id}/usage")
+def project_usage(project_id: int, s: Session = Depends(session)):
+    _project_or_404(project_id, s)
+    return usage.summary(s, project_id)
 
 
 @router.get("/{project_id}/activity")

@@ -23,7 +23,7 @@ def client(tmp_path, monkeypatch):
     return TestClient(create_app())
 
 
-def _mk_project(client, name="demo", repo_url="https://github.com/a/b"):
+def _mk_project(client, name="demo", repo_url=None):
     import subprocess, tempfile
 
     src = tempfile.mkdtemp()
@@ -31,7 +31,7 @@ def _mk_project(client, name="demo", repo_url="https://github.com/a/b"):
     (Path(src) / "README.md").write_text("# demo\n")
     subprocess.run(["git", "add", "."], cwd=src, check=True)
     subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "i"], cwd=src, check=True)
-    resp = client.post("/api/projects", json={"name": name, "repo_url": src})
+    resp = client.post("/api/projects", json={"name": name, "repo_url": repo_url or src})
     assert resp.status_code == 201, resp.text
     return resp.json()
 
@@ -398,3 +398,1531 @@ def test_triage_creates_task_and_plan(client, monkeypatch):
     assert client.post(
         f"/api/projects/{project['id']}/triage", json={"kind": "issue"}
     ).status_code == 400
+
+
+def test_docs_generation(client, monkeypatch):
+    from home.agent import loop as agent_loop
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+    agent = client.post(
+        "/api/agents", json={"name": "writer", "provider_id": provider["id"]}
+    ).json()
+    client.put("/api/actions/docs", json={"agent_id": agent["id"]})
+
+    seen = {}
+
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+        seen["system"] = messages[0]["content"]
+        seen["tools"] = {t.name for t in registry.all()}
+        yield {"type": "message", "content": "Wrote ARCHITECTURE.md", "tool_calls": []}
+
+    monkeypatch.setattr(agent_loop, "run_turn", fake_run_turn)
+
+    resp = client.post(f"/api/projects/{project['id']}/docs", json={"kind": "architecture"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {
+        "report": "Wrote ARCHITECTURE.md",
+        "path": "ARCHITECTURE.md",
+        "kind": "architecture",
+    }
+    assert "ARCHITECTURE.md" in seen["system"]
+    assert {"workspace_write", "memory_search"} <= seen["tools"]
+
+    resp = client.post(
+        f"/api/projects/{project['id']}/docs",
+        json={"kind": "adr", "topic": "Use SQLite"},
+    )
+    assert resp.json()["path"] == "adr/use-sqlite.md"
+
+    assert client.post(
+        f"/api/projects/{project['id']}/docs", json={"kind": "adr"}
+    ).status_code == 400
+    assert client.post(
+        f"/api/projects/{project['id']}/docs", json={"kind": "nope"}
+    ).status_code == 400
+    assert client.post("/api/projects/999/docs", json={}).status_code == 404
+
+
+def test_global_search(client):
+    from sqlmodel import Session as SqlSession
+
+    from home.registry.db import engine
+    from home.registry.models import Session as ChatSession
+
+    alpha = _mk_project(client, name="alpha")
+    beta = _mk_project(client, name="beta")
+    (config.workspace_dir("alpha") / "notes.md").write_text(
+        "The quartz migration plan\n", encoding="utf-8"
+    )
+    totem_store.create(
+        Path(alpha["local_path"]),
+        type="decision",
+        title="Quartz choice",
+        statement="We chose quartz for the scheduler.",
+        tags=["t"],
+    )
+    with SqlSession(engine()) as db:
+        db.add(ChatSession(project_id=beta["id"], title="Quartz rollout chat"))
+        db.commit()
+
+    data = client.get("/api/search", params={"q": "quartz"}).json()
+    assert any(m["title"] == "Quartz choice" and m["project"] == "alpha" for m in data["memories"])
+    assert any(f["path"] == "notes.md" and f["project"] == "alpha" for f in data["files"])
+    assert any(s["title"] == "Quartz rollout chat" and s["project"] == "beta" for s in data["sessions"])
+
+    assert client.get("/api/search", params={"q": "zzznothing"}).json() == {
+        "query": "zzznothing",
+        "memories": [],
+        "files": [],
+        "sessions": [],
+    }
+
+
+def test_inbox_poll_and_read(client, monkeypatch):
+    from home import overview
+
+    project = _mk_project(client)
+    prs = [
+        {
+            "number": 1,
+            "title": "Add caching",
+            "user": "eve",
+            "url": "https://github.com/a/b/pull/1",
+        }
+    ]
+    runs = [
+        {
+            "id": 11,
+            "name": "CI",
+            "conclusion": "failure",
+            "url": "https://github.com/a/b/runs/11",
+        },
+        {"id": 12, "name": "CI", "conclusion": "success", "url": "x"},
+    ]
+
+    def fake_github_list(project_, kind, state="open", limit=30):
+        items = prs if kind == "prs" else runs if kind == "runs" else []
+        return {"available": True, "repo": "a/b", "items": items}
+
+    monkeypatch.setattr(overview, "github_list", fake_github_list)
+    monkeypatch.setattr(overview, "repo_slug", lambda url: "a/b")
+
+    # first poll is a baseline: items arrive already read
+    assert client.post("/api/inbox/poll").json()["added"] == 2
+    data = client.get("/api/inbox").json()
+    assert data["unread"] == 0
+    assert {i["kind"] for i in data["items"]} == {"pr", "run"}
+
+    # a new PR shows up unread
+    prs.append(
+        {"number": 2, "title": "Fix bug", "user": "bob", "url": "https://github.com/a/b/pull/2"}
+    )
+    assert client.post("/api/inbox/poll").json()["added"] == 1
+    data = client.get("/api/inbox", params={"unread": "true"}).json()
+    assert data["unread"] == 1
+    assert data["items"][0]["title"] == "#2 Fix bug"
+
+    assert client.post("/api/inbox/read-all").json() == {"ok": True}
+    assert client.get("/api/inbox").json()["unread"] == 0
+
+
+def test_auth_disabled_by_default(client):
+    data = client.get("/api/auth/status").json()
+    assert data["enabled"] is False
+    assert data["authenticated"] is True
+    assert client.get("/api/projects").status_code == 200
+
+
+def test_auth_gate_and_session(client, monkeypatch):
+    from home import auth
+
+    monkeypatch.setenv("HOME_SETUP_TOKEN", "s3cret")
+
+    assert client.get("/api/projects").status_code == 401
+    data = client.get("/api/auth/status").json()
+    assert data == {
+        "enabled": True,
+        "authenticated": False,
+        "has_passkeys": False,
+        "rp_id": "testserver",
+    }
+
+    assert client.post(
+        "/api/auth/register/begin", json={"setup_token": "nope"}
+    ).status_code == 403
+    begin = client.post(
+        "/api/auth/register/begin", json={"setup_token": "s3cret"}
+    ).json()
+    assert begin["options"]["publicKey"]["challenge"]
+    assert begin["ceremony"]
+
+    assert client.post("/api/auth/login/begin", json={}).status_code == 400
+
+    client.cookies.set(auth.SESSION_COOKIE, auth.make_session())
+    assert client.get("/api/projects").status_code == 200
+    assert client.get("/api/auth/status").json()["authenticated"] is True
+
+    client.cookies.set(auth.SESSION_COOKIE, "9999999999.deadbeef")
+    assert client.get("/api/projects").status_code == 401
+
+
+def test_git_writes_gated_and_sandboxed(client):
+    import subprocess
+
+    from home.tools import build_registry, gitwrites
+    from home.tools.registry import ProjectContext
+
+    project = _mk_project(client)
+    assert project["allow_git_writes"] is False
+    toggled = client.put(
+        f"/api/projects/{project['id']}/git-writes", json={"enabled": True}
+    ).json()
+    assert toggled["allow_git_writes"] is True
+
+    ctx = ProjectContext(
+        project_id=project["id"],
+        name=project["name"],
+        repo_url=project["repo_url"],
+        local_path=Path(project["local_path"]),
+    )
+    tools = {t.name: t for t in build_registry(writes=True).all()}
+
+    written = tools["write_file"].handler(
+        ctx, {"path": "src/new.py", "content": "print('hi')\n"}
+    )
+    assert written["path"] == "src/new.py"
+    assert (Path(project["local_path"]) / "src" / "new.py").exists()
+
+    with pytest.raises(PermissionError):
+        tools["write_file"].handler(ctx, {"path": "../escape.txt", "content": "x"})
+    with pytest.raises(PermissionError):
+        tools["write_file"].handler(ctx, {"path": ".git/config", "content": "x"})
+
+    assert tools["git_create_branch"].handler(ctx, {"name": "feature/test"})["branch"] == "feature/test"
+    with pytest.raises(ValueError):
+        tools["git_create_branch"].handler(ctx, {"name": "bad..name"})
+
+    commit = tools["git_commit"].handler(
+        ctx, {"message": "add new file", "paths": ["src/new.py"]}
+    )
+    assert commit["sha"] and commit["files"] == ["src/new.py"]
+    log = subprocess.run(
+        ["git", "log", "-1", "--format=%s"],
+        cwd=project["local_path"],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert log == "add new file"
+    with pytest.raises(ValueError):
+        tools["git_commit"].handler(ctx, {"message": "nothing", "paths": ["README.md"]})
+
+    # mutating tools exist only in the opted-in registry
+    assert "write_file" not in {t.name for t in build_registry().all()}
+    assert "write_file" in {t.name for t in build_registry(writes=True).all()}
+
+
+def test_git_push_to_remote(client):
+    import subprocess
+    import tempfile
+
+    from home.tools import build_registry
+    from home.tools.registry import ProjectContext
+
+    bare = tempfile.mkdtemp()
+    subprocess.run(["git", "init", "--bare", "-q"], cwd=bare, check=True)
+    project = _mk_project(client, name="pushy", repo_url=bare)
+    client.put(f"/api/projects/{project['id']}/git-writes", json={"enabled": True})
+
+    ctx = ProjectContext(
+        project_id=project["id"],
+        name=project["name"],
+        repo_url=project["repo_url"],
+        local_path=Path(project["local_path"]),
+    )
+    tools = {t.name: t for t in build_registry(writes=True).all()}
+    tools["write_file"].handler(ctx, {"path": "hello.txt", "content": "hi\n"})
+    tools["git_commit"].handler(ctx, {"message": "hello"})
+    pushed = tools["git_push"].handler(ctx, {})
+
+    branches = subprocess.run(
+        ["git", "branch"], cwd=bare, capture_output=True, text=True
+    ).stdout
+    assert pushed["branch"] in branches
+
+
+def test_open_pr_requires_token_and_payload(client, monkeypatch):
+    from home import config
+    from home.tools import build_registry, gitwrites
+    from home.tools.registry import ProjectContext
+
+    project = _mk_project(client, name="prtest")
+    ctx = ProjectContext(
+        project_id=project["id"],
+        name=project["name"],
+        repo_url="https://github.com/a/b",
+        local_path=Path(project["local_path"]),
+    )
+    tools = {t.name: t for t in build_registry(writes=True).all()}
+
+    monkeypatch.setattr(config, "github_token", lambda: None)
+    with pytest.raises(PermissionError):
+        tools["gh_open_pr"].handler(ctx, {"title": "x"})
+
+    monkeypatch.setattr(config, "github_token", lambda: "tok")
+    monkeypatch.setattr(gitwrites, "_default_branch", lambda slug: "main")
+    captured = {}
+
+    def fake_create_pr(slug, payload):
+        captured["slug"] = slug
+        captured["payload"] = payload
+        return {"number": 7, "html_url": "https://github.com/a/b/pull/7"}
+
+    monkeypatch.setattr(gitwrites, "_create_pr", fake_create_pr)
+    out = tools["gh_open_pr"].handler(ctx, {"title": "Add feature", "body": "b"})
+    assert out["number"] == 7 and out["base"] == "main"
+    assert captured["slug"] == "a/b"
+    assert captured["payload"]["title"] == "Add feature"
+
+
+def test_task_dependencies(client):
+    project = _mk_project(client)
+    pid = project["id"]
+    a = client.post(f"/api/projects/{pid}/tasks", json={"title": "a"}).json()
+    b = client.post(
+        f"/api/projects/{pid}/tasks", json={"title": "b", "depends_on": [a["id"]]}
+    ).json()
+    assert b["depends_on"] == [a["id"]]
+    assert b["blocked_by"] == [a["id"]]
+
+    ready = client.get(f"/api/projects/{pid}/tasks", params={"ready": "true"}).json()
+    assert {t["id"] for t in ready} == {a["id"]}
+
+    client.put(f"/api/tasks/{a['id']}", json={"status": "done"})
+    tasks = {t["id"]: t for t in client.get(f"/api/projects/{pid}/tasks").json()}
+    assert tasks[b["id"]]["blocked_by"] == []
+    ready = client.get(f"/api/projects/{pid}/tasks", params={"ready": "true"}).json()
+    assert {t["id"] for t in ready} == {b["id"]}
+
+    # self-dependency, unknown id, cross-project id, and cycles are rejected
+    assert client.post(
+        f"/api/projects/{pid}/tasks", json={"title": "x", "depends_on": [999]}
+    ).status_code == 400
+    assert client.put(f"/api/tasks/{a['id']}", json={"depends_on": [a["id"]]}).status_code == 400
+    assert client.put(f"/api/tasks/{a['id']}", json={"depends_on": [b["id"]]}).status_code == 400
+    other = _mk_project(client, name="other")
+    d = client.post(f"/api/projects/{other['id']}/tasks", json={"title": "d"}).json()
+    assert client.put(f"/api/tasks/{a['id']}", json={"depends_on": [d["id"]]}).status_code == 400
+
+    # deleting a task removes it from other tasks' dependencies
+    c = client.post(
+        f"/api/projects/{pid}/tasks", json={"title": "c", "depends_on": [b["id"]]}
+    ).json()
+    client.delete(f"/api/tasks/{b['id']}")
+    tasks = {t["id"]: t for t in client.get(f"/api/projects/{pid}/tasks").json()}
+    assert tasks[c["id"]]["depends_on"] == []
+    assert tasks[c["id"]]["blocked_by"] == []
+
+
+def test_goal_crud_and_discuss(client):
+    project = _mk_project(client)
+    pid = project["id"]
+    assert client.get(f"/api/projects/{pid}/goals").json() == []
+
+    goal = client.post(
+        f"/api/projects/{pid}/goals",
+        json={"title": "Ship v1", "description": "first release", "success_criteria": "tests pass"},
+    ).json()
+    assert goal["status"] == "drafting"
+    assert goal["progress"] is None
+
+    first = client.post(f"/api/goals/{goal['id']}/discuss").json()
+    assert first["session_id"] and first["seed"] and "Ship v1" in first["seed"]
+    assert first["spec_path"] == "goals/ship-v1/spec.md"
+    again = client.post(f"/api/goals/{goal['id']}/discuss").json()
+    assert again["session_id"] == first["session_id"] and again["seed"] is None
+
+    updated = client.put(f"/api/goals/{goal['id']}", json={"status": "active"}).json()
+    assert updated["status"] == "active"
+    assert client.post(f"/api/projects/{pid}/goals", json={"title": " "}).status_code == 400
+    assert client.put(f"/api/goals/{goal['id']}", json={"status": "nope"}).status_code == 400
+    assert client.get(f"/api/goals/999").status_code == 404
+
+    assert client.delete(f"/api/goals/{goal['id']}").status_code == 204
+    assert client.get(f"/api/projects/{pid}/goals").json() == []
+
+
+def test_goal_plan_and_converge(client, monkeypatch):
+    from home.agent import loop as agent_loop
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+    goal = client.post(
+        f"/api/projects/{project['id']}/goals",
+        json={"title": "Add search", "success_criteria": "users can search"},
+    ).json()
+
+    seen = {}
+
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+        seen["system"] = messages[0]["content"]
+        seen["tools"] = {t.name for t in registry.all()}
+        yield {"type": "message", "content": "Planned: 3 tasks.", "tool_calls": []}
+
+    monkeypatch.setattr(agent_loop, "run_turn", fake_run_turn)
+
+    resp = client.post(
+        f"/api/goals/{goal['id']}/plan", json={"provider_id": provider["id"]}
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["spec_path"] == "goals/add-search/spec.md"
+    assert body["plan_path"] == "goals/add-search/plan.md"
+    assert body["milestone_id"]
+    assert "Add search" in seen["system"]
+    assert "add-search/spec.md" in seen["system"]
+    assert "acceptance" in seen["system"]
+    assert {"task_create", "milestone_create"} <= seen["tools"]
+
+    refreshed = client.get(f"/api/goals/{goal['id']}").json()
+    assert refreshed["status"] == "active"
+    assert refreshed["milestone_id"] == body["milestone_id"]
+
+    resp = client.post(
+        f"/api/goals/{goal['id']}/converge", json={"provider_id": provider["id"]}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["report"] == "Planned: 3 tasks."
+
+    assert client.post("/api/goals/999/plan", json={}).status_code == 404
+
+
+def test_chat_goal_action(client, monkeypatch):
+    from home.routers import chat as chat_router
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+    seen = {}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def stream_chat(self, messages, tools=None):
+            seen["system"] = messages[0]["content"]
+            yield {"choices": [{"delta": {"content": "ok"}}]}
+
+    monkeypatch.setattr(chat_router, "OpenAIClient", FakeClient)
+    resp = client.post(
+        f"/api/projects/{project['id']}/chat",
+        json={"message": "hi", "provider_id": provider["id"], "action": "goal"},
+    )
+    assert resp.status_code == 200
+    assert "Goal mode" in seen["system"]
+
+
+def test_task_review_gate(client):
+    project = _mk_project(client)
+    pid = project["id"]
+    plain = client.post(f"/api/projects/{pid}/tasks", json={"title": "plain"}).json()
+    assert client.put(f"/api/tasks/{plain['id']}", json={"status": "done"}).status_code == 200
+
+    gated = client.post(
+        f"/api/projects/{pid}/tasks",
+        json={"title": "gated", "acceptance": "tests pass"},
+    ).json()
+    assert gated["acceptance"] == "tests pass"
+    resp = client.put(f"/api/tasks/{gated['id']}", json={"status": "done"})
+    assert resp.status_code == 400
+    assert "reviewed" in resp.json()["detail"]
+
+    moved = client.put(
+        f"/api/tasks/{gated['id']}", json={"status": "done", "reviewed": True}
+    ).json()
+    assert moved["status"] == "done"
+    # already done: editing without reviewed is fine
+    assert client.put(f"/api/tasks/{gated['id']}", json={"title": "gated v2"}).status_code == 200
+
+
+def test_task_comments(client):
+    project = _mk_project(client)
+    pid = project["id"]
+    task = client.post(f"/api/projects/{pid}/tasks", json={"title": "t"}).json()
+
+    assert client.get(f"/api/tasks/{task['id']}/comments").json() == []
+    created = client.post(
+        f"/api/tasks/{task['id']}/comments", json={"body": "started"}
+    ).json()
+    assert created["author"] == "you" and created["body"] == "started"
+    assert client.post(f"/api/tasks/{task['id']}/comments", json={"body": " "}).status_code == 400
+
+    items = client.get(f"/api/tasks/{task['id']}/comments").json()
+    assert [c["body"] for c in items] == ["started"]
+    assert client.get("/api/tasks/999/comments").status_code == 404
+
+
+def test_task_agent_get_and_comment(client):
+    from sqlmodel import Session as SqlSession
+
+    from home.registry.db import engine
+    from home.tools import tasks as task_tools
+    from home.tools.registry import ProjectContext
+
+    project = _mk_project(client)
+    ctx = ProjectContext(
+        project_id=project["id"],
+        name=project["name"],
+        repo_url=project["repo_url"],
+        local_path=Path(project["local_path"]),
+    )
+    with SqlSession(engine()) as db:
+        tools = {t.name: t for t in task_tools.make_tools(db)}
+        created = tools["task_create"].handler(
+            ctx, {"title": "with acceptance", "acceptance": "green CI"}
+        )
+        assert created["acceptance"] == "green CI"
+        tools["task_comment"].handler(ctx, {"id": created["id"], "body": "note"})
+        fetched = tools["task_get"].handler(ctx, {"id": created["id"]})
+        assert fetched["comments"][0]["author"] == "agent"
+        assert fetched["comments"][0]["body"] == "note"
+        with pytest.raises(ValueError):
+            tools["task_update"].handler(ctx, {"id": created["id"], "status": "done"})
+        moved = tools["task_update"].handler(
+            ctx, {"id": created["id"], "status": "done", "reviewed": True}
+        )
+        assert moved["status"] == "done"
+
+
+def test_issue_sync(client, monkeypatch):
+    from home import issuesync
+
+    project = _mk_project(client)
+    pid = project["id"]
+    client.post(
+        f"/api/projects/{pid}/tasks", json={"title": "ship", "acceptance": "green CI"}
+    )
+
+    # gated by git writes
+    assert client.post(f"/api/projects/{pid}/issues/sync", json={}).status_code == 403
+    client.put(f"/api/projects/{pid}/git-writes", json={"enabled": True})
+    # local repo has no GitHub slug
+    assert client.post(f"/api/projects/{pid}/issues/sync", json={}).status_code == 400
+
+    monkeypatch.setattr(issuesync.overview, "repo_slug", lambda url: "a/b")
+    captured = []
+
+    def fake_create(slug, payload):
+        captured.append((slug, payload))
+        return {"number": 42, "html_url": "https://github.com/a/b/issues/42"}
+
+    monkeypatch.setattr(issuesync, "_create_issue", fake_create)
+
+    resp = client.post(f"/api/projects/{pid}/issues/sync", json={}).json()
+    assert resp["created"][0]["issue"] == 42
+    assert captured[0][0] == "a/b"
+    assert "green CI" in captured[0][1]["body"]
+
+    # idempotent: already-synced tasks are skipped
+    resp = client.post(f"/api/projects/{pid}/issues/sync", json={}).json()
+    assert resp["created"] == [] and resp["skipped"] == 1
+    tasks = client.get(f"/api/projects/{pid}/tasks").json()
+    assert tasks[0]["github_issue"] == 42
+
+
+def test_github_review(client, monkeypatch):
+    from home import overview
+    from home.agent import loop as agent_loop
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+    monkeypatch.setattr(
+        overview,
+        "github_item",
+        lambda p, kind, number: {
+            "kind": "pr",
+            "number": number,
+            "title": "Add caching",
+            "body": "Cache the thing.",
+            "state": "open",
+            "user": "eve",
+            "url": "https://github.com/a/b/pull/5",
+            "branch": "cache",
+        },
+    )
+    seen = {}
+
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+        seen["system"] = messages[0]["content"]
+        seen["tools"] = {t.name for t in registry.all()}
+        yield {"type": "message", "content": "LGTM with nits.", "tool_calls": []}
+
+    monkeypatch.setattr(agent_loop, "run_turn", fake_run_turn)
+    resp = client.post(
+        f"/api/projects/{project['id']}/github/review",
+        json={"kind": "pr", "number": 5, "provider_id": provider["id"]},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"report": "LGTM with nits.", "path": "reviews/pr-5.md"}
+    assert "reviews/pr-5.md" in seen["system"]
+    assert "task_create" in seen["tools"]
+
+    assert client.post(
+        f"/api/projects/{project['id']}/github/review", json={"kind": "pr"}
+    ).status_code == 400
+
+
+def test_token_budget(client):
+    import asyncio
+
+    from sqlmodel import Session as SqlSession
+
+    from home import scheduler
+    from home.registry.db import engine
+    from home.registry.models import Usage
+
+    project = _mk_project(client)
+    pid = project["id"]
+    with SqlSession(engine()) as db:
+        db.add(Usage(project_id=pid, action="chat", prompt_tokens=600, completion_tokens=400))
+        db.commit()
+
+    data = client.get(f"/api/projects/{pid}/usage").json()
+    assert data["month"]["tokens"] == 1000
+    assert data["budget"] == {
+        "budget": None,
+        "enforced": False,
+        "used": 1000,
+        "percent": None,
+        "over": False,
+    }
+
+    updated = client.put(
+        f"/api/projects/{pid}", json={"token_budget": 800, "budget_enforced": True}
+    ).json()
+    assert updated["token_budget"] == 800 and updated["budget_enforced"] is True
+    assert client.put(f"/api/projects/{pid}", json={"token_budget": "abc"}).status_code == 400
+
+    data = client.get(f"/api/projects/{pid}/usage").json()
+    assert data["budget"]["over"] is True and data["budget"]["percent"] == 125
+
+    sched = client.post(
+        f"/api/projects/{pid}/schedules",
+        json={"action": "github-scan", "instruction": "digest"},
+    ).json()
+    result = asyncio.run(scheduler.run_schedule(sched["id"]))
+    assert result["last_status"] == "skipped: budget"
+
+
+def test_notify_status_and_test(client, monkeypatch):
+    from home import notify
+
+    class FakeResp:
+        status_code = 200
+        text = "ok"
+
+    calls = []
+    monkeypatch.setattr(
+        notify.httpx, "post", lambda url, **kw: calls.append((url, kw)) or FakeResp()
+    )
+
+    assert client.get("/api/notify/status").json() == {
+        "configured": [],
+        "channels": {"ntfy": False, "telegram": False},
+    }
+    assert client.post("/api/notify/test").status_code == 400
+
+    monkeypatch.setenv("NTFY_URL", "https://ntfy.example")
+    monkeypatch.setenv("NTFY_TOPIC", "home")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "42")
+
+    status = client.get("/api/notify/status").json()
+    assert set(status["configured"]) == {"ntfy", "telegram"}
+
+    result = client.post("/api/notify/test").json()
+    assert result["ntfy"]["ok"] and result["telegram"]["ok"]
+    urls = [c[0] for c in calls]
+    assert "https://ntfy.example/home" in urls
+    assert any("api.telegram.org/bottok/sendMessage" in u for u in urls)
+    assert calls[0][1]["headers"]["Title"] == "Home test notification"
+
+
+def test_notify_tool(client, monkeypatch):
+    from home import notify
+    from home.tools import build_registry
+    from home.tools.registry import ProjectContext
+
+    class FakeResp:
+        status_code = 200
+        text = "ok"
+
+    calls = []
+    monkeypatch.setattr(
+        notify.httpx, "post", lambda url, **kw: calls.append(url) or FakeResp()
+    )
+    monkeypatch.setenv("NTFY_TOPIC", "home")
+
+    ctx = ProjectContext(project_id=1, name="t", repo_url="", local_path=Path("."))
+    tool = build_registry().get("notify")
+    out = tool.handler(ctx, {"title": "Deploy done", "message": "shipped"})
+    assert out["ntfy"]["ok"]
+    assert calls == ["https://ntfy.sh/home"]
+
+
+def test_inbox_notifies_new_items(client, monkeypatch):
+    from home import notify, overview
+
+    _mk_project(client)
+    prs = [{"number": 1, "title": "one", "user": "eve", "url": "u1"}]
+
+    def fake_github_list(project_, kind, state="open", limit=30):
+        return {"available": True, "repo": "a/b", "items": prs if kind == "prs" else []}
+
+    monkeypatch.setattr(overview, "github_list", fake_github_list)
+    monkeypatch.setattr(overview, "repo_slug", lambda url: "a/b")
+    monkeypatch.setenv("NTFY_TOPIC", "home")
+
+    class FakeResp:
+        status_code = 200
+        text = "ok"
+
+    calls = []
+    monkeypatch.setattr(notify.httpx, "post", lambda url, **kw: calls.append(url) or FakeResp())
+
+    assert client.post("/api/inbox/poll").json()["added"] == 1
+    assert calls == []  # the first poll is a silent baseline
+
+    prs.append({"number": 2, "title": "two", "user": "bob", "url": "u2"})
+    assert client.post("/api/inbox/poll").json()["added"] == 1
+    assert calls == ["https://ntfy.sh/home"]
+
+
+def test_ask_user_tool(client, monkeypatch):
+    from sqlmodel import Session as SqlSession
+
+    from home import notify
+    from home import questions as questions_mod
+    from home.agent.loop import AgentPause
+    from home.registry.db import engine
+    from home.registry.models import Session as ChatSession
+    from home.tools import questions as question_tools
+    from home.tools.registry import ProjectContext
+
+    project = _mk_project(client)
+    monkeypatch.setenv("NTFY_TOPIC", "home")
+
+    class FakeResp:
+        status_code = 200
+        text = "ok"
+
+    calls = []
+    monkeypatch.setattr(notify.httpx, "post", lambda url, **kw: calls.append(url) or FakeResp())
+
+    with SqlSession(engine()) as db:
+        chat = ChatSession(project_id=project["id"], title="q")
+        db.add(chat)
+        db.commit()
+        db.refresh(chat)
+        ctx = ProjectContext(
+            project_id=project["id"],
+            name=project["name"],
+            repo_url=project["repo_url"],
+            local_path=Path(project["local_path"]),
+            session_id=chat.id,
+        )
+        tool = question_tools.make_tools(db)[0]
+        with pytest.raises(AgentPause) as exc:
+            tool.handler(ctx, {"question": "Which DB?", "options": ["sqlite", "postgres"]})
+        assert exc.value.payload["question"] == "Which DB?"
+        assert exc.value.payload["options"] == ["sqlite", "postgres"]
+        rows = questions_mod.list_for_session(db, chat.id)
+        assert len(rows) == 1 and rows[0].status == "open"
+
+        bare = ProjectContext(project_id=1, name="x", repo_url="", local_path=Path("."))
+        with pytest.raises(ValueError):
+            tool.handler(bare, {"question": "x"})
+
+    assert calls == ["https://ntfy.sh/home"]
+
+
+def test_chat_question_flow(client, monkeypatch):
+    from home.agent import loop as agent_loop
+    from home.agent.loop import AgentPause
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+    calls = {"n": 0}
+
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            try:
+                registry.get("ask_user").handler(
+                    ctx, {"question": "Which database?", "options": ["sqlite", "postgres"]}
+                )
+            except AgentPause as pause:
+                yield {"type": "question", **pause.payload}
+                return
+        yield {"type": "message", "content": "Understood.", "tool_calls": []}
+
+    monkeypatch.setattr(agent_loop, "run_turn", fake_run_turn)
+
+    resp = client.post(
+        f"/api/projects/{project['id']}/chat",
+        json={"message": "build it", "provider_id": provider["id"]},
+    )
+    assert resp.status_code == 200
+    assert '"event": "question"' in resp.text
+    assert "Which database?" in resp.text
+
+    sid = client.get(f"/api/projects/{project['id']}/sessions").json()[0]["id"]
+    qs = client.get(f"/api/sessions/{sid}/questions").json()
+    assert len(qs) == 1
+    assert qs[0]["status"] == "open"
+    assert qs[0]["options"] == ["sqlite", "postgres"]
+
+    # the question is persisted in the transcript, so it survives a reload
+    messages = client.get(f"/api/sessions/{sid}/messages").json()
+    assert any(
+        m["role"] == "assistant" and "Which database?" in m["content"] for m in messages
+    )
+
+    # answering with the next message marks it answered
+    resp = client.post(
+        f"/api/projects/{project['id']}/chat",
+        json={"message": "postgres", "session_id": sid, "provider_id": provider["id"]},
+    )
+    assert resp.status_code == 200
+    qs = client.get(f"/api/sessions/{sid}/questions").json()
+    assert qs[0]["status"] == "answered" and qs[0]["answer"] == "postgres"
+
+    # dismiss endpoint
+    assert client.post(f"/api/questions/{qs[0]['id']}/dismiss").json()["status"] == "dismissed"
+    assert client.post("/api/questions/999/dismiss").status_code == 404
+    assert client.get("/api/sessions/999/questions").status_code == 404
+
+
+def test_settings_roundtrip(client, monkeypatch):
+    from home import settings
+
+    data = client.get("/api/settings").json()
+    assert data["timezone"] == "UTC" and data["briefing_enabled"] == "0"
+
+    updated = client.put(
+        "/api/settings",
+        json={
+            "user_name": "Emi",
+            "timezone": "Europe/Rome",
+            "briefing_enabled": "1",
+            "briefing_time": "07:30",
+        },
+    ).json()
+    assert updated["user_name"] == "Emi"
+    assert updated["timezone"] == "Europe/Rome"
+
+    assert client.put("/api/settings", json={"timezone": "Not/AZone"}).status_code == 400
+    assert client.put("/api/settings", json={"briefing_time": "25:00"}).status_code == 400
+    assert client.put("/api/settings", json={"nope": "x"}).status_code == 400
+
+    monkeypatch.setenv("HOME_ORIGIN", "https://home.example")
+    assert settings.notification_url("/g/reminders") == "https://home.example/#/g/reminders"
+    monkeypatch.delenv("HOME_ORIGIN")
+    assert settings.notification_url("/g/reminders") is None
+
+
+def test_prompt_includes_context(client, monkeypatch):
+    from home.routers import chat as chat_router
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+    client.put(
+        "/api/settings",
+        json={"user_name": "Emi", "timezone": "Europe/Rome", "instructions": "Be terse."},
+    )
+    seen = {}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def stream_chat(self, messages, tools=None):
+            seen["system"] = messages[0]["content"]
+            yield {"choices": [{"delta": {"content": "ok"}}]}
+
+    monkeypatch.setattr(chat_router, "OpenAIClient", FakeClient)
+    resp = client.post(
+        f"/api/projects/{project['id']}/chat",
+        json={"message": "hi", "provider_id": provider["id"]},
+    )
+    assert resp.status_code == 200
+    assert "Current time:" in seen["system"]
+    assert "Emi" in seen["system"]
+    assert "Be terse." in seen["system"]
+
+
+def test_reminder_crud_and_fire(client, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    from sqlmodel import Session as SqlSession
+
+    from home import notify, reminders
+    from home.registry.db import engine
+
+    class FakeResp:
+        status_code = 200
+        text = "ok"
+
+    calls = []
+    monkeypatch.setattr(notify.httpx, "post", lambda url, **kw: calls.append(url) or FakeResp())
+    monkeypatch.setenv("NTFY_TOPIC", "home")
+
+    past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+
+    created = client.post(
+        "/api/reminders",
+        json={"text": "water plants", "due_at": past, "recurrence": "daily"},
+    ).json()
+    assert created["status"] == "pending" and created["recurrence"] == "daily"
+    assert client.post(
+        "/api/reminders", json={"text": "x", "due_at": "not-a-date"}
+    ).status_code == 400
+    assert client.post(
+        "/api/reminders", json={"text": "", "due_at": future}
+    ).status_code == 400
+
+    with SqlSession(engine()) as db:
+        assert reminders.fire_due(db) == 1
+    assert len(calls) == 1
+    items = client.get("/api/reminders").json()
+    assert len(items) == 1 and items[0]["status"] == "pending"
+
+    assert client.put(
+        f"/api/reminders/{created['id']}", json={"snooze_minutes": 10}
+    ).status_code == 200
+    assert client.put(
+        f"/api/reminders/{created['id']}", json={"status": "done"}
+    ).json()["status"] == "done"
+    assert client.get("/api/reminders").json() == []
+    assert len(client.get("/api/reminders", params={"include_done": "true"}).json()) == 1
+    assert client.delete(f"/api/reminders/{created['id']}").status_code == 204
+
+
+def test_remind_me_tool(client):
+    from sqlmodel import Session as SqlSession
+
+    from home.registry.db import engine
+    from home.tools import reminders as reminder_tools
+    from home.tools.registry import ProjectContext
+
+    project = _mk_project(client)
+    ctx = ProjectContext(
+        project_id=project["id"],
+        name=project["name"],
+        repo_url=project["repo_url"],
+        local_path=Path(project["local_path"]),
+    )
+    with SqlSession(engine()) as db:
+        tools = {t.name: t for t in reminder_tools.make_tools(db)}
+        created = tools["remind_me"].handler(
+            ctx, {"text": "call mom", "due_at": "2030-01-01T09:00:00+00:00"}
+        )
+        assert created["project_id"] == project["id"]
+        assert tools["reminder_list"].handler(ctx, {})[0]["text"] == "call mom"
+        tools["reminder_cancel"].handler(ctx, {"id": created["id"]})
+        assert tools["reminder_list"].handler(ctx, {}) == []
+
+
+def test_briefing_digest_and_once_per_day(client, monkeypatch):
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+
+    from sqlmodel import Session as SqlSession
+
+    from home import notify, scheduler
+    from home.registry.db import engine
+
+    project = _mk_project(client)
+    client.post(
+        f"/api/projects/{project['id']}/tasks", json={"title": "ship it", "status": "todo"}
+    )
+    past = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    client.post("/api/reminders", json={"text": "ping", "due_at": past})
+    client.put("/api/settings", json={"briefing_enabled": "1", "briefing_time": "00:00"})
+
+    class FakeResp:
+        status_code = 200
+        text = "ok"
+
+    messages = []
+    monkeypatch.setattr(
+        notify.httpx,
+        "post",
+        lambda url, **kw: messages.append(kw.get("content", b"").decode()) or FakeResp(),
+    )
+    monkeypatch.setenv("NTFY_TOPIC", "home")
+
+    with SqlSession(engine()) as db:
+        digest = scheduler._briefing_digest(db)
+        assert "ship it" in digest and "ping" in digest
+        asyncio.run(scheduler._maybe_send_briefing(db))
+        asyncio.run(scheduler._maybe_send_briefing(db))  # guarded to once per day
+
+    assert len(messages) == 1
+    assert "ship it" in messages[0]
+
+
+def test_web_fetch_ssrf_guard(client):
+    from home import webfetch
+
+    for blocked in (
+        "http://127.0.0.1:8000/",
+        "http://localhost:8080/",
+        "file:///etc/passwd",
+        "http://169.254.169.254/latest/meta-data/",
+    ):
+        with pytest.raises(webfetch.FetchError):
+            webfetch.fetch(blocked)
+
+
+def test_web_fetch_html_to_text(monkeypatch):
+    from home import webfetch
+
+    class FakeResponse:
+        status_code = 200
+        headers = {"content-type": "text/html; charset=utf-8"}
+        content = (
+            b"<html><head><style>x</style></head><body><h1>Hi</h1>"
+            b"<script>bad()</script><p>There</p></body></html>"
+        )
+        encoding = "utf-8"
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get(self, url, headers=None):
+            return FakeResponse()
+
+    monkeypatch.setattr(webfetch.httpx, "Client", FakeClient)
+    monkeypatch.setattr(webfetch, "_validate", lambda url: url)
+    out = webfetch.fetch("https://example.com")
+    assert "Hi" in out["text"] and "There" in out["text"]
+    assert "bad()" not in out["text"]
+    assert out["content_type"] == "text/html"
+
+
+def test_watch_page_change_and_appear(client, monkeypatch):
+    import asyncio
+
+    from sqlmodel import Session as SqlSession
+
+    from home import notify, watchers
+    from home.registry.db import engine
+
+    class FakeResp:
+        status_code = 200
+        text = "ok"
+
+    calls = []
+    monkeypatch.setattr(
+        notify.httpx, "post", lambda url, **kw: calls.append(kw.get("content", b"").decode()) or FakeResp()
+    )
+    monkeypatch.setenv("NTFY_TOPIC", "home")
+
+    page = {"text": "alpha beta"}
+    monkeypatch.setattr(
+        watchers.webfetch,
+        "fetch",
+        lambda url: {"text": page["text"], "content_type": "text/html", "url": url, "bytes": 10},
+    )
+
+    with SqlSession(engine()) as db:
+        watch = watchers.create(db, "page", url="https://example.com", interval_minutes=30)
+        asyncio.run(watchers.check(db, watch))  # baseline, silent
+        assert calls == []
+        page["text"] = "alpha beta gamma"
+        asyncio.run(watchers.check(db, watch))
+        assert len(calls) == 1
+        assert watch.last_result == "changed"
+
+        appear = watchers.create(
+            db,
+            "page",
+            url="https://example.com/tickets",
+            notify_on="appear",
+            condition="In stock",
+        )
+        page["text"] = "Sold out"
+        asyncio.run(watchers.check(db, appear))  # baseline
+        page["text"] = "Sold out still"
+        asyncio.run(watchers.check(db, appear))  # changed but no match
+        assert len(calls) == 1
+        page["text"] = "In stock now"
+        asyncio.run(watchers.check(db, appear))
+        assert len(calls) == 2
+        assert appear.status == "done"
+
+
+def test_watch_feed_new_items(client, monkeypatch):
+    import asyncio
+
+    from sqlmodel import Session as SqlSession
+
+    from home import notify, watchers
+    from home.registry.db import engine
+
+    class FakeResp:
+        status_code = 200
+        text = "ok"
+
+    calls = []
+    monkeypatch.setattr(
+        notify.httpx, "post", lambda url, **kw: calls.append(kw.get("content", b"").decode()) or FakeResp()
+    )
+    monkeypatch.setenv("NTFY_TOPIC", "home")
+
+    rss = (
+        "<rss><channel><item><title>One</title><guid>1</guid>"
+        "<link>https://x/1</link></item></channel></rss>"
+    )
+    state = {"xml": rss}
+    monkeypatch.setattr(
+        watchers.webfetch,
+        "fetch",
+        lambda url: {"text": state["xml"], "content_type": "application/rss+xml", "url": url, "bytes": 10},
+    )
+
+    with SqlSession(engine()) as db:
+        watch = watchers.create(db, "feed", url="https://x/feed")
+        asyncio.run(watchers.check(db, watch))  # baseline
+        assert calls == []
+        state["xml"] = rss.replace(
+            "</channel>",
+            "<item><title>Two</title><guid>2</guid><link>https://x/2</link></item></channel>",
+        )
+        asyncio.run(watchers.check(db, watch))
+        assert len(calls) == 1
+        assert "Two" in calls[0]
+
+
+def test_watch_condition(client, monkeypatch):
+    import asyncio
+
+    from sqlmodel import Session as SqlSession
+
+    from home import notify, watchers
+    from home.agent import loop as agent_loop
+    from home.registry.db import engine
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+    client.post("/api/agents", json={"name": "chat", "provider_id": provider["id"]})
+
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+        yield {"type": "message", "content": "MET\nThe v2 release is published.", "tool_calls": []}
+
+    monkeypatch.setattr(agent_loop, "run_turn", fake_run_turn)
+
+    class FakeResp:
+        status_code = 200
+        text = "ok"
+
+    calls = []
+    monkeypatch.setattr(notify.httpx, "post", lambda url, **kw: calls.append(url) or FakeResp())
+    monkeypatch.setenv("NTFY_TOPIC", "home")
+
+    with SqlSession(engine()) as db:
+        watch = watchers.create(
+            db, "condition", condition="Is v2 published?", url="https://example.com"
+        )
+        asyncio.run(watchers.check(db, watch))
+        assert watch.status == "done"
+    assert len(calls) == 1
+
+
+def test_watches_api(client):
+    assert client.get("/api/watches").json() == []
+    assert client.post("/api/watches", json={"kind": "page"}).status_code == 400
+    created = client.post(
+        "/api/watches",
+        json={"kind": "page", "url": "https://example.com", "interval_minutes": 5},
+    ).json()
+    assert created["interval_minutes"] == 30
+    assert client.put(
+        f"/api/watches/{created['id']}", json={"status": "paused"}
+    ).json()["status"] == "paused"
+    assert client.delete(f"/api/watches/{created['id']}").status_code == 204
+    assert client.put("/api/watches/999", json={"status": "paused"}).status_code == 404
+
+
+def test_ask_approval_and_write_gate(client, monkeypatch):
+    from sqlmodel import Session as SqlSession
+
+    from home import questions as questions_mod
+    from home.agent.loop import AgentPause
+    from home.registry.db import engine
+    from home.registry.models import Question
+    from home.registry.models import Session as ChatSession
+    from home.tools import gitwrites
+    from home.tools import questions as question_tools
+    from home.tools.registry import ProjectContext
+
+    project = _mk_project(client)
+    pid = project["id"]
+    client.put(f"/api/projects/{pid}/git-writes", json={"enabled": True})
+    updated = client.put(
+        f"/api/projects/{pid}", json={"require_write_approval": True}
+    ).json()
+    assert updated["require_write_approval"] is True
+
+    ctx = ProjectContext(
+        project_id=pid,
+        name=project["name"],
+        repo_url=project["repo_url"],
+        local_path=Path(project["local_path"]),
+    )
+    with SqlSession(engine()) as db:
+        chat = ChatSession(project_id=pid, title="approval")
+        db.add(chat)
+        db.commit()
+        db.refresh(chat)
+        ctx.session_id = chat.id
+        tools = {t.name: t for t in question_tools.make_tools(db)}
+        with pytest.raises(AgentPause) as exc:
+            tools["ask_approval"].handler(
+                ctx, {"action": "git_push", "summary": "Push the feature branch"}
+            )
+        assert exc.value.payload["kind"] == "approval"
+        assert exc.value.payload["options"] == ["approve", "deny"]
+
+        # hard gate: no approved request yet
+        with pytest.raises(PermissionError):
+            gitwrites._push(ctx, {}, db)
+
+        question = db.get(Question, exc.value.payload["id"])
+        questions_mod.answer(db, question, "approve")
+
+        monkeypatch.setattr(gitwrites, "_git", lambda *args, **kwargs: "pushed")
+        result = gitwrites._push(ctx, {}, db)
+        assert result["output"] == "pushed"
+
+
+def test_chat_approval_event(client, monkeypatch):
+    from home.agent import loop as agent_loop
+    from home.agent.loop import AgentPause
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+        try:
+            registry.get("ask_approval").handler(
+                ctx, {"action": "gh_open_pr", "summary": "Open the PR"}
+            )
+        except AgentPause as pause:
+            yield {"type": "question", **pause.payload}
+            return
+        yield {"type": "message", "content": "no approval", "tool_calls": []}
+
+    monkeypatch.setattr(agent_loop, "run_turn", fake_run_turn)
+    resp = client.post(
+        f"/api/projects/{project['id']}/chat",
+        json={"message": "ship it", "provider_id": provider["id"]},
+    )
+    assert resp.status_code == 200
+    assert '"kind": "approval"' in resp.text
+    sid = client.get(f"/api/projects/{project['id']}/sessions").json()[0]["id"]
+    questions = client.get(f"/api/sessions/{sid}/questions").json()
+    assert questions[0]["kind"] == "approval"
+    assert questions[0]["meta"] == {"action": "gh_open_pr"}
+
+
+def test_suggest_next_work(client, monkeypatch):
+    from home.agent import loop as agent_loop
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+        registry.get("task_create").handler(
+            ctx,
+            {
+                "title": "Add caching",
+                "acceptance": "cache hit rate over 50%",
+                "priority": "high",
+                "source": "suggested",
+            },
+        )
+        yield {"type": "message", "content": "Proposed 1 task.", "tool_calls": []}
+
+    monkeypatch.setattr(agent_loop, "run_turn", fake_run_turn)
+    resp = client.post(
+        f"/api/projects/{project['id']}/tasks/suggest",
+        json={"provider_id": provider["id"]},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["report"] == "Proposed 1 task."
+    assert len(body["task_ids"]) == 1
+    tasks = client.get(f"/api/projects/{project['id']}/tasks").json()
+    assert tasks[0]["source"] == "suggested"
+
+    assert client.post(f"/api/projects/{project['id']}/tasks/suggest", json={}).status_code == 400
+
+
+def test_github_token_storage_and_status(client, monkeypatch):
+    from home import github_auth
+
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    assert client.get("/api/github/status").json()["connected"] is False
+
+    class FakeResp:
+        status_code = 200
+        headers = {"x-oauth-scopes": "repo, read:org"}
+
+        def json(self):
+            return {"login": "octocat", "name": "Mona", "avatar_url": "https://a"}
+
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(github_auth.httpx, "get", lambda url, **kw: FakeResp())
+    resp = client.post("/api/github/token", json={"token": "ghp_x"}).json()
+    assert resp["connected"] is True and resp["login"] == "octocat"
+    assert github_auth.load_token() == "ghp_x"
+
+    status = client.get("/api/github/status").json()
+    assert status["source"] == "stored"
+    assert status["scopes"] == ["repo", "read:org"]
+
+    # env var takes precedence
+    monkeypatch.setenv("GITHUB_TOKEN", "env-token")
+    assert client.get("/api/github/status").json()["source"] == "env"
+
+    class BadResp(FakeResp):
+        status_code = 401
+
+    monkeypatch.setattr(github_auth.httpx, "get", lambda url, **kw: BadResp())
+    assert client.post("/api/github/token", json={"token": "bad"}).status_code == 400
+
+    monkeypatch.delenv("GITHUB_TOKEN")
+    client.delete("/api/github/token")
+    assert github_auth.load_token() is None
+
+
+def test_github_import_gh(client, monkeypatch):
+    from types import SimpleNamespace
+
+    from home import github_auth
+
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    class FakeResp:
+        status_code = 200
+        headers = {}
+
+        def json(self):
+            return {"login": "octocat", "name": None, "avatar_url": None}
+
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(github_auth.httpx, "get", lambda url, **kw: FakeResp())
+    monkeypatch.setattr(github_auth, "gh_cli_available", lambda: True)
+    monkeypatch.setattr(
+        github_auth.subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(returncode=0, stdout="ghp_gh\n"),
+    )
+    assert client.post("/api/github/import-gh").json()["login"] == "octocat"
+    assert github_auth.load_token() == "ghp_gh"
+
+    monkeypatch.setattr(
+        github_auth.subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(returncode=1, stdout=""),
+    )
+    assert client.post("/api/github/import-gh").status_code == 400
+
+
+def test_github_device_flow(client, monkeypatch):
+    from types import SimpleNamespace
+
+    from home import github_auth
+
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    class FakeResp:
+        status_code = 200
+        headers = {}
+
+        def json(self):
+            return {"login": "octocat", "name": None, "avatar_url": None}
+
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(github_auth.httpx, "get", lambda url, **kw: FakeResp())
+
+    # without a client id the flow is refused
+    assert client.post("/api/github/device/start").status_code == 400
+    client.put("/api/settings", json={"github_oauth_client_id": "cid"})
+
+    def fake_post(url, **kw):
+        if "device/code" in url:
+            return SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "device_code": "dc",
+                    "user_code": "ABCD-1234",
+                    "verification_uri": "https://github.com/login/device",
+                    "interval": 5,
+                    "expires_in": 900,
+                },
+                raise_for_status=lambda: None,
+            )
+        return SimpleNamespace(
+            status_code=200,
+            json=lambda: {"access_token": "ghp_dev"},
+            raise_for_status=lambda: None,
+        )
+
+    monkeypatch.setattr(github_auth.httpx, "post", fake_post)
+    start = client.post("/api/github/device/start").json()
+    assert start["user_code"] == "ABCD-1234"
+
+    monkeypatch.setattr(
+        github_auth.httpx,
+        "post",
+        lambda url, **kw: SimpleNamespace(
+            status_code=200,
+            json=lambda: {"error": "authorization_pending"},
+            raise_for_status=lambda: None,
+        ),
+    )
+    pending = client.post("/api/github/device/poll", json={"device_code": "dc"}).json()
+    assert pending["status"] == "authorization_pending"
+
+    monkeypatch.setattr(github_auth.httpx, "post", fake_post)
+    out = client.post("/api/github/device/poll", json={"device_code": "dc"}).json()
+    assert out["status"] == "connected"
+    assert github_auth.load_token() == "ghp_dev"
+
+
+def test_clone_auth_args(client, monkeypatch):
+    from home.routers import projects
+
+    monkeypatch.setattr(projects.config, "github_token", lambda: "tok")
+    assert projects._auth_args("https://github.com/a/b.git") == [
+        "-c",
+        "http.extraheader=Authorization: Bearer tok",
+    ]
+    assert projects._auth_args("/tmp/local/repo") == []
+
+    monkeypatch.setattr(projects.config, "github_token", lambda: None)
+    assert projects._auth_args("https://github.com/a/b.git") == []
+
+
+def test_chat_usage_tracking(client, monkeypatch):
+    from home.routers import chat as chat_router
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def stream_chat(self, messages, tools=None):
+            yield {"choices": [{"delta": {"content": "hello "}}]}
+            yield {"choices": [{"delta": {"content": "world"}}]}
+            yield {"choices": [], "usage": {"prompt_tokens": 11, "completion_tokens": 5}}
+
+    monkeypatch.setattr(chat_router, "OpenAIClient", FakeClient)
+
+    resp = client.post(
+        f"/api/projects/{project['id']}/chat",
+        json={"message": "hi", "provider_id": provider["id"]},
+    )
+    assert resp.status_code == 200, resp.text
+    assert "hello" in resp.text
+
+    data = client.get(f"/api/projects/{project['id']}/usage").json()
+    assert data["total"] == {
+        "prompt_tokens": 11,
+        "completion_tokens": 5,
+        "tokens": 16,
+        "runs": 1,
+    }
+    assert data["by_action"][0]["action"] == "chat"
+    assert data["by_session"][0]["tokens"] == 16
+    assert data["by_session"][0]["title"] == "hi"
+
+    assert client.get("/api/projects/999/usage").status_code == 404
+
+
+def test_schedules_crud_and_run(client, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    from sqlmodel import Session as SqlSession
+
+    from home import scheduler
+    from home.registry.db import engine
+    from home.registry.models import Schedule
+
+    project = _mk_project(client)
+    pid = project["id"]
+    provider = _mk_provider(client)
+    client.post("/api/agents", json={"name": "github-scan", "provider_id": provider["id"]})
+
+    assert client.get(f"/api/projects/{pid}/schedules").json() == []
+    assert client.post(
+        f"/api/projects/{pid}/schedules", json={"action": "nope"}
+    ).status_code == 400
+
+    sched = client.post(
+        f"/api/projects/{pid}/schedules",
+        json={"action": "github-scan", "instruction": "Summarize today ({date})", "interval_minutes": 5},
+    ).json()
+    assert sched["enabled"] is True and sched["last_run_at"] is None
+
+    updated = client.put(
+        f"/api/schedules/{sched['id']}", json={"enabled": False, "interval_minutes": 0}
+    ).json()
+    assert updated["enabled"] is False and updated["interval_minutes"] == 1
+
+    with SqlSession(engine()) as db:
+        # not due right after creation; due once the interval has passed
+        assert scheduler.due_schedules(db) == []
+        row = db.get(Schedule, sched["id"])
+        row.enabled = True
+        row.last_run_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+        db.add(row)
+        db.commit()
+        assert [s.id for s in scheduler.due_schedules(db)] == [sched["id"]]
+
+    from home.agent import loop as agent_loop
+
+    seen = {}
+
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+        seen["instruction"] = messages[-1]["content"]
+        yield {"type": "message", "content": "Digest written.", "tool_calls": []}
+
+    monkeypatch.setattr(agent_loop, "run_turn", fake_run_turn)
+
+    result = client.post(f"/api/schedules/{sched['id']}/run").json()
+    assert result["last_status"] == "ok"
+    assert result["last_report"] == "Digest written."
+    assert result["last_run_at"]
+    assert "{" not in seen["instruction"] and "(" in seen["instruction"]
+
+    assert client.delete(f"/api/schedules/{sched['id']}").status_code == 204
+    assert client.post(f"/api/schedules/{sched['id']}/run").status_code == 404

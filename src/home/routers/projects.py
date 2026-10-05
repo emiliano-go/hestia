@@ -18,10 +18,18 @@ def _clone_dir(name: str) -> Path:
     return config.data_dir() / "repos" / config.slug(name)
 
 
+def _auth_args(repo_url: str) -> list[str]:
+    """git -c flags for authenticated GitHub HTTPS remotes (token from env or UI)."""
+    token = config.github_token()
+    if token and "github.com" in (repo_url or ""):
+        return ["-c", f"http.extraheader=Authorization: Bearer {token}"]
+    return []
+
+
 def _clone(repo_url: str, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(
-        ["git", "clone", "--", repo_url, str(dest)],
+        ["git", *_auth_args(repo_url), "clone", "--", repo_url, str(dest)],
         capture_output=True,
         text=True,
         timeout=600,
@@ -95,13 +103,48 @@ def open_project(project_id: int, s: Session = Depends(session)):
     }
 
 
+@router.put("/{project_id}")
+def update_project(project_id: int, body: dict, s: Session = Depends(session)):
+    """Update budget settings (token_budget, budget_enforced)."""
+    project = s.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "project not found")
+    if "token_budget" in body:
+        value = body["token_budget"]
+        try:
+            project.token_budget = int(value) if value not in (None, "", 0) else None
+        except (TypeError, ValueError):
+            raise HTTPException(400, "token_budget must be a number")
+    if "budget_enforced" in body:
+        project.budget_enforced = bool(body["budget_enforced"])
+    if "require_write_approval" in body:
+        project.require_write_approval = bool(body["require_write_approval"])
+    s.add(project)
+    s.commit()
+    s.refresh(project)
+    return project
+
+
+@router.put("/{project_id}/git-writes")
+def set_git_writes(project_id: int, body: dict, s: Session = Depends(session)):
+    """Explicit opt-in for mutating git tools (branch/commit/push/PR)."""
+    project = s.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "project not found")
+    project.allow_git_writes = bool(body.get("enabled"))
+    s.add(project)
+    s.commit()
+    s.refresh(project)
+    return project
+
+
 @router.post("/{project_id}/pull")
 def pull_project(project_id: int, s: Session = Depends(session)):
     project = s.get(Project, project_id)
     if not project:
         raise HTTPException(404, "project not found")
     result = subprocess.run(
-        ["git", "pull", "--ff-only"],
+        ["git", *_auth_args(project.repo_url), "pull", "--ff-only"],
         cwd=project.local_path,
         capture_output=True,
         text=True,
