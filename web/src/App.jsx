@@ -52,9 +52,13 @@ function parseHash(hash) {
   const params = new URLSearchParams(query || '')
   const parts = path.split('/').filter(Boolean)
   if (parts[0] === 'p' && parts[1]) {
+    const action = params.get('action')
     return {
       projectId: Number(parts[1]),
-      view: { type: PROJECT_VIEWS.includes(parts[2]) ? parts[2] : 'welcome' },
+      view: {
+        type: PROJECT_VIEWS.includes(parts[2]) ? parts[2] : 'welcome',
+        ...(action ? { action } : {}),
+      },
       session: params.get('session') ? Number(params.get('session')) : null,
     }
   }
@@ -73,7 +77,10 @@ function viewHash(projectId, view, chatSessionId) {
     return `#/${view.type}`
   }
   if (projectId && PROJECT_VIEWS.includes(view.type)) {
-    const q = view.type === 'chat' && chatSessionId ? `?session=${chatSessionId}` : ''
+    const params = new URLSearchParams()
+    if (view.type === 'chat' && chatSessionId) params.set('session', chatSessionId)
+    if (view.action && view.action !== 'chat') params.set('action', view.action)
+    const q = params.toString() ? `?${params.toString()}` : ''
     return `#/p/${projectId}/${view.type}${q}`
   }
   return '#/home'
@@ -450,6 +457,52 @@ function pairToolRuns(events) {
     }
   }
   return runs
+}
+
+function parseToolArgs(value) {
+  try {
+    return typeof value === 'string' ? JSON.parse(value || '{}') : value || {}
+  } catch (e) {
+    return {}
+  }
+}
+
+function messageItems(rows) {
+  const items = []
+  let last = null
+  for (const m of rows) {
+    if (m.role === 'user') {
+      items.push({ kind: 'user', id: m.id, content: m.content })
+      last = null
+      continue
+    }
+    if (m.role === 'tool') {
+      if (last) {
+        const run = last.runs.find((r) => !r.result && r.name === m.name)
+        if (run) run.result = { ok: m.ok !== false, preview: m.content }
+      }
+      continue
+    }
+    let calls = []
+    try {
+      calls = m.tool_calls ? JSON.parse(m.tool_calls) : []
+    } catch (e) {
+      calls = []
+    }
+    const item = {
+      kind: 'assistant',
+      id: m.id,
+      content: m.content,
+      runs: calls.map((c) => ({
+        name: c.function?.name || c.name || 'tool',
+        args: parseToolArgs(c.function?.arguments ?? c.arguments),
+        result: null,
+      })),
+    }
+    items.push(item)
+    last = item
+  }
+  return items
 }
 
 function Modal({ title, onClose, children }) {
@@ -5481,7 +5534,10 @@ function ChatView({ projectId, sessionId, agentId, providerId, onSessionCreated,
           if (sid) {
             api
               .listMessages(sid)
-              .then(setMessages)
+              .then((rows) => {
+                setMessages(rows)
+                setLiveEvents([])
+              })
               .catch(() => {})
             api.listQuestions(sid).then(setQuestions).catch(() => {})
           }
@@ -5523,20 +5579,29 @@ function ChatView({ projectId, sessionId, agentId, providerId, onSessionCreated,
       )}
       <div className="chat-scroll">
         <div className="chat-inner">
-          {messages.map((m) =>
-            m.role === 'user' ? (
-              <div key={m.id} className="msg user">
-                <div className="bubble">{m.content}</div>
+          {messageItems(messages).map((item) =>
+            item.kind === 'user' ? (
+              <div key={`u-${item.id}`} className="msg user">
+                <div className="bubble">{item.content}</div>
               </div>
             ) : (
-              <div key={m.id} className="msg assistant">
-                <div className="avatar">
-                  <Icon name="sparkles" size={15} />
-                </div>
-                <div
-                  className="msg-md prose"
-                  dangerouslySetInnerHTML={{ __html: mdToHtml(m.content) }}
-                />
+              <div key={`a-${item.id}`}>
+                {item.content && (
+                  <div className="msg assistant">
+                    <div className="avatar">
+                      <Icon name="sparkles" size={15} />
+                    </div>
+                    <div
+                      className="msg-md prose"
+                      dangerouslySetInnerHTML={{ __html: mdToHtml(item.content) }}
+                    />
+                  </div>
+                )}
+                {item.runs.map((r, i) => (
+                  <div key={i} className="tool-run-wrap">
+                    <ToolRun name={r.name} args={r.args} result={r.result} />
+                  </div>
+                ))}
               </div>
             )
           )}
@@ -5716,7 +5781,11 @@ export default function App() {
   }
 
   const openChat = (sessionId) => {
-    setView({ type: 'chat' })
+    const session = sessions.find((s) => s.id === sessionId)
+    setView({
+      type: 'chat',
+      action: session?.action && session.action !== 'chat' ? session.action : undefined,
+    })
     setChatSessionId(sessionId)
     setInitialMessage(null)
   }
