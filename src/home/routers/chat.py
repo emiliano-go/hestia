@@ -44,6 +44,14 @@ the path from the first message updated with workspace_write. Do not build the
 board yourself; when the goal is clear, tell the user to press "Generate board"
 on the Goals tab."""
 
+_USER_NOTE = """\
+## About the owner
+The owner's name and standing preferences are in your context. When the owner
+tells you how to address them, call set_owner_name. When they state a durable
+rule or quirk about how to respond (tone, format, length, things to avoid),
+call remember_preference. Apply every standing preference without being
+reminded, and never re-ask for something already remembered."""
+
 _BACKGROUND_NOTE = """\
 ## Background tasks
 Long jobs can run in the background: call start_background_task (or
@@ -138,6 +146,7 @@ def chat(project_id: int, body: dict, s: Session = Depends(session)):
     if agent_config and agent_config.system_prompt:
         system += f"\n\n## Agent instructions\n{agent_config.system_prompt}"
     system += "\n\n" + _DELEGATION_NOTE
+    system += "\n\n" + _USER_NOTE
     system += "\n\n" + _BACKGROUND_NOTE
     if action_key == "goal":
         system += "\n\n" + _GOAL_NOTE

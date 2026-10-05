@@ -2675,3 +2675,51 @@ def test_task_pr_url_roundtrip(client):
         f"/api/tasks/{task['id']}", json={"pr_url": "https://github.com/a/b/pull/7"}
     ).json()
     assert updated["pr_url"] == "https://github.com/a/b/pull/7"
+
+
+def test_user_memory_tools(client):
+    from sqlmodel import Session as SqlSession
+
+    from home.registry.db import engine
+    from home.registry.models import Project
+    from home.tools import preferences as pref_tools
+    from home.tools.registry import ProjectContext
+
+    project = _mk_project(client)
+    with SqlSession(engine()) as db:
+        ctx = ProjectContext.from_project(db.get(Project, project["id"]))
+        tools = {t.name: t for t in pref_tools.make_tools(db)}
+        tools["set_owner_name"].handler(ctx, {"name": "Sam"})
+        tools["remember_preference"].handler(ctx, {"text": "Reply in short bullet points."})
+        listing = tools["list_preferences"].handler(ctx, {})
+        assert listing["user_name"] == "Sam"
+        assert listing["preferences"] == ["Reply in short bullet points."]
+        tools["forget_preference"].handler(ctx, {"index": 0})
+        assert tools["list_preferences"].handler(ctx, {})["preferences"] == []
+
+    assert client.get("/api/settings").json()["user_name"] == "Sam"
+
+
+def test_user_note_in_chat_prompt(client, monkeypatch):
+    from home.routers import chat as chat_router
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+    seen = {}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def stream_chat(self, messages, tools=None):
+            seen["system"] = messages[0]["content"]
+            yield {"choices": [{"delta": {"content": "ok"}}]}
+
+    monkeypatch.setattr(chat_router, "OpenAIClient", FakeClient)
+    client.post(
+        f"/api/projects/{project['id']}/chat",
+        json={"message": "call me Sam", "provider_id": provider["id"]},
+    )
+    assert "About the owner" in seen["system"]
+    assert "set_owner_name" in seen["system"]
+    assert "remember_preference" in seen["system"]
