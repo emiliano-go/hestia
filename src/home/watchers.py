@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlmodel import Session, select
 
-from home import actions, notify, settings, usage, webfetch
+from home import actions, notify, settings, totem_store, usage, webfetch
 from home.agent.prompt import build_system_prompt
 from home.agent.run import run_once
 from home.registry.models import Project, Provider, Watch
@@ -281,10 +281,13 @@ async def _check_condition(db: Session, watch: Watch) -> None:
     if provider is None:
         watch.last_result = "no provider configured; skipped"
         return
+    digest = totem_store.digest(
+        project.local_path, task=f"Check watch: {watch.condition}"
+    )
     system = build_system_prompt(
         ProjectContext.from_project(project),
         agents_md=project.agents_md,
-        memory_context="",
+        memory_context=digest.get("context", ""),
         user_task=f"Check watch: {watch.condition}",
         extra_context=settings.prompt_context(db),
     )

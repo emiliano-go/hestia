@@ -33,3 +33,21 @@ def update_settings(body: dict, s: Session = Depends(session)):
     if unknown:
         raise HTTPException(400, f"unknown setting: {', '.join(unknown)}")
     return settings.set_many(s, body)
+
+
+@router.get("/preferences")
+def list_preferences(s: Session = Depends(session)):
+    return {"preferences": settings.preferences(s)}
+
+
+@router.post("/preferences", status_code=201)
+def add_preference(body: dict, s: Session = Depends(session)):
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(400, "text is required")
+    return {"preferences": settings.add_preference(s, text)}
+
+
+@router.delete("/preferences/{index}")
+def remove_preference(index: int, s: Session = Depends(session)):
+    return {"preferences": settings.remove_preference(s, index)}

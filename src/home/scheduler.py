@@ -112,10 +112,13 @@ async def _maybe_send_briefing(db: Session) -> None:
             provider_id = (agent.provider_id if agent else None) or project.default_provider_id
             provider = db.get(Provider, provider_id) if provider_id else None
             if provider is not None:
+                digest = totem_store.digest(
+                    project.local_path, task="Write the briefing commentary"
+                )
                 system = build_system_prompt(
                     ProjectContext.from_project(project),
                     agents_md=project.agents_md,
-                    memory_context="",
+                    memory_context=digest.get("context", ""),
                     user_task="Write the briefing commentary",
                     extra_context=settings.prompt_context(db),
                 )

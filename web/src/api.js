@@ -134,6 +134,11 @@ export const api = {
   getSettings: () => request('/settings'),
   updateSettings: (body) =>
     request('/settings', { method: 'PUT', body: JSON.stringify(body) }),
+  listPreferences: () => request('/settings/preferences'),
+  addPreference: (text) =>
+    request('/settings/preferences', { method: 'POST', body: JSON.stringify({ text }) }),
+  removePreference: (index) =>
+    request(`/settings/preferences/${index}`, { method: 'DELETE' }),
 
   githubStatus: () => request('/github/status'),
   githubConnect: (token) =>

@@ -35,7 +35,9 @@ def register(registry: Registry) -> None:
             "Write a durable project memory. Types: decision, gotcha, observation, "
             "architecture, implementation, open_question, assumption, bug, contract, "
             "constraint, hypothesis, invariant, rejected_idea. Use for decisions made, "
-            "facts learned, and anything future sessions should know."
+            "facts learned, and anything future sessions should know. Tag a rule the "
+            "agent must always follow with 'preference'; tag facts about a client or "
+            "person with 'client' and 'client:<name>' so they stay in context."
         ),
         parameters=schema({
             "type": {"type": "string"},
@@ -45,6 +47,17 @@ def register(registry: Registry) -> None:
             "details": {"type": "string"},
             "confidence": {"type": "number"},
             "importance": {"type": "number"},
+            "metadata": {
+                "type": "object",
+                "description": (
+                    "type-specific fields required by some types: observation "
+                    "(observation), decision (rationale), invariant "
+                    "(verificationMethod), assumption (claimCategory, basis), "
+                    "open_question (question, impact, blocking), ambiguity "
+                    "(question, interpretations, impact), rejected_idea "
+                    "(proposal, reasonRejected), implementation (subject, kind, path)"
+                ),
+            },
         }, ["type", "title", "statement", "tags"]),
         handler=lambda ctx, a: totem_store.create(
             ctx.local_path,
@@ -55,6 +68,7 @@ def register(registry: Registry) -> None:
             details=a.get("details"),
             confidence=a.get("confidence", 1.0),
             importance=a.get("importance", 0.5),
+            metadata=a.get("metadata"),
         ),
         group="memory",
     ))

@@ -1478,10 +1478,41 @@ function AssistantPanel() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const [saved, setSaved] = useState(false)
+  const [prefs, setPrefs] = useState(null)
+  const [newPref, setNewPref] = useState('')
+  const [prefBusy, setPrefBusy] = useState(false)
 
   useEffect(() => {
     if (data) setForm(data)
   }, [data])
+
+  useEffect(() => {
+    api
+      .listPreferences()
+      .then((r) => setPrefs(r.preferences || []))
+      .catch(() => setPrefs([]))
+  }, [])
+
+  const addPref = () => {
+    const text = newPref.trim()
+    if (!text || prefBusy) return
+    setPrefBusy(true)
+    api
+      .addPreference(text)
+      .then((r) => {
+        setPrefs(r.preferences || [])
+        setNewPref('')
+      })
+      .catch((err) => setError(err.message || String(err)))
+      .finally(() => setPrefBusy(false))
+  }
+
+  const removePref = (index) => {
+    api
+      .removePreference(index)
+      .then((r) => setPrefs(r.preferences || []))
+      .catch((err) => setError(err.message || String(err)))
+  }
 
   if (loading || !form) return <p className="note">Loading...</p>
 
@@ -1534,6 +1565,49 @@ function AssistantPanel() {
           placeholder="Always injected into the agent's system prompt, e.g. 'Be concise. Prefer tests first.'"
         />
       </label>
+      <div className="field">
+        <span className="field-label">Standing preferences</span>
+        <span className="field-hint">
+          Always injected into every prompt. Add rules the agent must never forget.
+        </span>
+        <div className="pref-list">
+          {(prefs || []).map((p, i) => (
+            <div key={`${i}-${p}`} className="pref-item">
+              <span>{p}</span>
+              <button
+                type="button"
+                className="icon-btn"
+                title="Remove preference"
+                onClick={() => removePref(i)}
+              >
+                <Icon name="x" size={13} />
+              </button>
+            </div>
+          ))}
+          {prefs && prefs.length === 0 && <span className="note">No preferences yet.</span>}
+        </div>
+        <div className="row" style={{ marginBottom: 0 }}>
+          <input
+            value={newPref}
+            onChange={(e) => setNewPref(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                addPref()
+              }
+            }}
+            placeholder="e.g. Never use em dashes; use ; : , ( ) - instead"
+          />
+          <button
+            type="button"
+            className="btn"
+            disabled={!newPref.trim() || prefBusy}
+            onClick={addPref}
+          >
+            {prefBusy ? 'Adding' : 'Add'}
+          </button>
+        </div>
+      </div>
       <div className="field-row">
         <label className="field">
           <span className="field-label">Daily briefing</span>
@@ -5597,10 +5671,20 @@ function ChatView({ projectId, sessionId, agentId, providerId, onSessionCreated,
   const [questions, setQuestions] = useState([])
   const [answers, setAnswers] = useState({})
   const [streamingText, setStreamingText] = useState('')
+  const [rememberedId, setRememberedId] = useState(null)
   const sessionRef = useRef(sessionId)
   const busyRef = useRef(false)
   const initialSentRef = useRef(false)
   const scrollRef = useRef(null)
+
+  const remember = (text, id) => {
+    const trimmed = (text || '').trim()
+    if (!trimmed) return
+    api
+      .addPreference(trimmed)
+      .then(() => setRememberedId(id))
+      .catch((e) => setError(e.message || String(e)))
+  }
 
   useEffect(() => {
     sessionRef.current = sessionId
@@ -5750,10 +5834,20 @@ function ChatView({ projectId, sessionId, agentId, providerId, onSessionCreated,
                     <div className="avatar">
                       <Icon name="sparkles" size={15} />
                     </div>
-                    <div
-                      className="msg-md prose"
-                      dangerouslySetInnerHTML={{ __html: mdToHtml(item.content) }}
-                    />
+                    <div>
+                      <div
+                        className="msg-md prose"
+                        dangerouslySetInnerHTML={{ __html: mdToHtml(item.content) }}
+                      />
+                      <button
+                        type="button"
+                        className="msg-remember"
+                        onClick={() => remember(item.content, item.id)}
+                      >
+                        <Icon name="check" size={12} />
+                        {rememberedId === item.id ? 'Saved as preference' : 'Remember this'}
+                      </button>
+                    </div>
                   </div>
                 )}
                 {item.runs.map((r, i) => (

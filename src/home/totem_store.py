@@ -33,12 +33,39 @@ def totem(project_dir: Path) -> Iterator:
 def digest(project_dir: Path, task: str, tags: list[str] | None = None) -> dict:
     """Ranked memory context for a task; what bootstraps a sessionless agent."""
     with totem(project_dir) as conn:
-        return engineering_context(
+        result = engineering_context(
             conn,
             tags=tags or [],
             task=task,
             current_task=task,
         )
+    always = always_on(project_dir)
+    if always:
+        block = "\n".join(f"- {m['title']}: {m['statement']}" for m in always)
+        context = (result.get("context") or "").strip()
+        result["context"] = (
+            f"{context}\n\n## Standing preferences and client notes\n{block}"
+            if context
+            else f"## Standing preferences and client notes\n{block}"
+        )
+    return result
+
+
+def _tags_of(item: dict) -> list[str]:
+    tags = item.get("tags") or []
+    if isinstance(tags, str):
+        tags = [t.strip() for t in tags.replace(",", " ").split()]
+    return [str(t).lower() for t in tags]
+
+
+def always_on(project_dir: Path) -> list[dict]:
+    """Memories that must be in every prompt: preferences and client facts."""
+    out = []
+    for item in list_all(project_dir, limit=500):
+        tags = _tags_of(item)
+        if any(t == "preference" or t == "client" or t.startswith("client:") for t in tags):
+            out.append(item)
+    return out
 
 
 def search(project_dir: Path, query: str, limit: int = 20) -> list[dict]:

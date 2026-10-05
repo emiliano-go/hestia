@@ -5,7 +5,7 @@ project has ``allow_git_writes`` set.
 """
 
 from home.tools import files, github, memory, notify, repo, webfetch, workspace
-from home.tools import gitwrites
+from home.tools import gitwrites, preferences
 from home.tools.registry import Registry
 
 
@@ -20,4 +20,7 @@ def build_registry(writes: bool = False, db=None) -> Registry:
     webfetch.register(registry)
     if writes:
         gitwrites.register(registry, db)
+    if db is not None:
+        for tool in preferences.make_tools(db):
+            registry.register(tool)
     return registry

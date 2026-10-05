@@ -2155,3 +2155,78 @@ def test_schedules_crud_and_run(client, monkeypatch):
 
     assert client.delete(f"/api/schedules/{sched['id']}").status_code == 204
     assert client.post(f"/api/schedules/{sched['id']}/run").status_code == 404
+
+
+def test_preferences_crud(client):
+    assert client.get("/api/settings/preferences").json() == {"preferences": []}
+    assert client.post("/api/settings/preferences", json={"text": ""}).status_code == 400
+
+    added = client.post(
+        "/api/settings/preferences", json={"text": "Never use em dashes."}
+    ).json()
+    assert added["preferences"] == ["Never use em dashes."]
+
+    again = client.post(
+        "/api/settings/preferences", json={"text": "Never use em dashes."}
+    ).json()
+    assert again["preferences"] == ["Never use em dashes."]
+
+    client.post("/api/settings/preferences", json={"text": "Be concise."})
+    assert client.delete("/api/settings/preferences/0").json()["preferences"] == [
+        "Be concise."
+    ]
+    assert client.delete("/api/settings/preferences/9").json()["preferences"] == [
+        "Be concise."
+    ]
+
+
+def test_preferences_in_prompt(client, monkeypatch):
+    from home.routers import chat as chat_router
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+    client.post("/api/settings/preferences", json={"text": "Never use em dashes."})
+    seen = {}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def stream_chat(self, messages, tools=None):
+            seen["system"] = messages[0]["content"]
+            yield {"choices": [{"delta": {"content": "ok"}}]}
+
+    monkeypatch.setattr(chat_router, "OpenAIClient", FakeClient)
+    resp = client.post(
+        f"/api/projects/{project['id']}/chat",
+        json={"message": "hi", "provider_id": provider["id"]},
+    )
+    assert resp.status_code == 200
+    assert "Standing preferences" in seen["system"]
+    assert "Never use em dashes." in seen["system"]
+
+
+def test_project_preference_memory_always_in_context(client):
+    from home import totem_store
+
+    project = _mk_project(client)
+    path = Path(project["local_path"])
+    totem_store.create(
+        path,
+        type="observation",
+        title="House style",
+        statement="Never use em dashes.",
+        tags=["preference"],
+        metadata={"observation": "house_style"},
+    )
+    totem_store.create(
+        path,
+        type="observation",
+        title="Client Acme",
+        statement="Acme uses SSO.",
+        tags=["client:acme"],
+        metadata={"observation": "client_fact"},
+    )
+    context = totem_store.digest(path, task="anything").get("context", "")
+    assert "Never use em dashes." in context
+    assert "Acme uses SSO." in context

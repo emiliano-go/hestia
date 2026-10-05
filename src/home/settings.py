@@ -5,6 +5,7 @@ Stored as key/value rows so new preferences do not need migrations.
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -17,6 +18,7 @@ DEFAULTS: dict[str, str] = {
     "user_name": "",
     "timezone": "UTC",
     "instructions": "",
+    "preferences": "[]",
     "briefing_enabled": "0",
     "briefing_time": "08:00",
     "briefing_agent": "0",
@@ -67,6 +69,34 @@ def set_many(db: Session, values: dict) -> dict[str, str]:
     return get_all(db)
 
 
+def preferences(db: Session) -> list[str]:
+    """Global standing preferences: durable rules injected into every prompt."""
+    try:
+        items = json.loads(get(db, "preferences") or "[]")
+    except ValueError:
+        items = []
+    if not isinstance(items, list):
+        return []
+    return [str(x).strip() for x in items if str(x).strip()]
+
+
+def add_preference(db: Session, text: str) -> list[str]:
+    text = (text or "").strip()
+    items = preferences(db)
+    if text and text not in items:
+        items.append(text)
+        set_many(db, {"preferences": json.dumps(items)})
+    return items
+
+
+def remove_preference(db: Session, index: int) -> list[str]:
+    items = preferences(db)
+    if 0 <= index < len(items):
+        del items[index]
+        set_many(db, {"preferences": json.dumps(items)})
+    return items
+
+
 def timezone_name(db: Session) -> str:
     return get(db, "timezone", "UTC") or "UTC"
 
@@ -102,4 +132,8 @@ def prompt_context(db: Session) -> str:
     instructions = get(db, "instructions").strip()
     if instructions:
         lines.append(f"Standing instructions: {instructions}")
+    prefs = preferences(db)
+    if prefs:
+        lines.append("Standing preferences (always follow these):")
+        lines.extend(f"- {p}" for p in prefs)
     return "\n".join(lines)
