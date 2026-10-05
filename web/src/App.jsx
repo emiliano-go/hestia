@@ -177,6 +177,18 @@ const DEFAULT_THEME = {
   '--err': '#e06c5a',
 }
 
+const LIGHT_THEME = {
+  '--content-bg': '#faf9f5',
+  '--sidebar-bg': '#f0eee8',
+  '--surface': '#ffffff',
+  '--border': '#d9d4c9',
+  '--fg': '#2b2a27',
+  '--muted': '#6f6d66',
+  '--accent': '#c96442',
+  '--ok': '#4f7a3f',
+  '--err': '#c0392b',
+}
+
 const THEME_LABELS = {
   '--content-bg': 'Content background',
   '--sidebar-bg': 'Sidebar background',
@@ -189,51 +201,135 @@ const THEME_LABELS = {
   '--err': 'Danger',
 }
 
+const THEME_MODES = [
+  ['system', 'Follow system'],
+  ['light', 'Light'],
+  ['dark', 'Dark'],
+]
+
 function hexToRgb(hex) {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim())
   if (!m) return null
   const n = parseInt(m[1], 16)
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
 }
 
-function mixWithBlack(hex, amount) {
-  const rgb = hexToRgb(hex)
-  if (!rgb) return hex
-  const c = rgb.map((v) => Math.round(v * (1 - amount)))
-  return '#' + c.map((v) => v.toString(16).padStart(2, '0')).join('')
+function rgbToHex(rgb) {
+  return '#' + rgb.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
 }
 
-function loadStoredTheme() {
+function mixColors(a, b, t) {
+  const ca = hexToRgb(a)
+  const cb = hexToRgb(b)
+  if (!ca || !cb) return a
+  return rgbToHex(ca.map((v, i) => v + (cb[i] - v) * t))
+}
+
+function rgba(hex, alpha) {
+  const rgb = hexToRgb(hex)
+  return rgb ? `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})` : hex
+}
+
+function luminance(hex) {
+  const rgb = hexToRgb(hex)
+  if (!rgb) return 0
+  const [r, g, b] = rgb.map((v) => {
+    const c = v / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  })
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+function readableOn(hex) {
+  return luminance(hex) > 0.2 ? '#20130c' : '#ffffff'
+}
+
+function systemMode() {
+  if (typeof window === 'undefined' || !window.matchMedia) return 'dark'
+  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+}
+
+function effectiveMode(state) {
+  return state.mode === 'system' ? systemMode() : state.mode
+}
+
+function defaultThemeState() {
+  return { mode: 'system', themes: { dark: {}, light: {} } }
+}
+
+function loadThemeState() {
   try {
     const raw = localStorage.getItem(THEME_KEY)
-    return raw ? JSON.parse(raw) : {}
+    if (!raw) return defaultThemeState()
+    const parsed = JSON.parse(raw)
+    if (parsed && parsed.themes) {
+      return {
+        mode: THEME_MODES.some(([m]) => m === parsed.mode) ? parsed.mode : 'system',
+        themes: { dark: parsed.themes.dark || {}, light: parsed.themes.light || {} },
+      }
+    }
+    if (parsed && Object.keys(parsed).some((k) => k.startsWith('--'))) {
+      // legacy single palette: keep it as dark-mode overrides
+      return { mode: 'dark', themes: { dark: parsed, light: {} } }
+    }
+    return defaultThemeState()
   } catch (e) {
-    return {}
+    return defaultThemeState()
   }
 }
 
-function applyTheme(theme) {
-  const root = document.documentElement.style
-  const vars = { ...DEFAULT_THEME, ...theme }
-  for (const [k, v] of Object.entries(vars)) root.setProperty(k, v)
-  root.setProperty('--accent-dim', mixWithBlack(vars['--accent'], 0.18))
-  root.setProperty('--accent-soft', vars['--accent'] + '1f')
-}
-
-function resetTheme() {
-  localStorage.removeItem(THEME_KEY)
-  applyTheme({})
-}
-
-function saveTheme(theme) {
-  const clean = Object.fromEntries(
-    Object.entries(theme).filter(([k, v]) => DEFAULT_THEME[k] && v !== DEFAULT_THEME[k])
-  )
-  if (Object.keys(clean).length === 0) {
+function saveThemeState(state) {
+  const themes = {}
+  for (const mode of ['dark', 'light']) {
+    const base = mode === 'light' ? LIGHT_THEME : DEFAULT_THEME
+    const clean = Object.fromEntries(
+      Object.entries(state.themes[mode] || {}).filter(
+        ([k, v]) => base[k] && hexToRgb(v) && v !== base[k]
+      )
+    )
+    if (Object.keys(clean).length) themes[mode] = clean
+  }
+  if (state.mode === 'system' && Object.keys(themes).length === 0) {
     localStorage.removeItem(THEME_KEY)
   } else {
-    localStorage.setItem(THEME_KEY, JSON.stringify(clean))
+    localStorage.setItem(THEME_KEY, JSON.stringify({ mode: state.mode, themes }))
   }
+}
+
+function applyThemeState(state) {
+  const mode = effectiveMode(state)
+  const base = mode === 'light' ? LIGHT_THEME : DEFAULT_THEME
+  const vars = { ...base, ...(state.themes[mode] || {}) }
+  const root = document.documentElement.style
+  root.setProperty('color-scheme', mode)
+  for (const [k, v] of Object.entries(vars)) root.setProperty(k, v)
+
+  const fg = vars['--fg']
+  const contentBg = vars['--content-bg']
+  const sidebarBg = vars['--sidebar-bg']
+  const surface = vars['--surface']
+  const border = vars['--border']
+  const accent = vars['--accent']
+
+  root.setProperty('--sidebar-bg-hover', mixColors(sidebarBg, fg, 0.06))
+  root.setProperty('--sidebar-active', mixColors(sidebarBg, fg, 0.12))
+  root.setProperty('--surface-2', mixColors(surface, fg, 0.05))
+  root.setProperty('--surface-hover', mixColors(surface, fg, 0.09))
+  root.setProperty('--border-soft', mixColors(border, contentBg, 0.45))
+  root.setProperty('--fg-secondary', mixColors(fg, contentBg, 0.25))
+  root.setProperty('--faint', mixColors(fg, contentBg, 0.5))
+  root.setProperty('--accent-dim', mixColors(accent, '#000000', 0.18))
+  root.setProperty(
+    '--accent-hover',
+    mode === 'light' ? mixColors(accent, '#000000', 0.08) : mixColors(accent, '#ffffff', 0.12)
+  )
+  root.setProperty('--accent-soft', rgba(accent, 0.14))
+  root.setProperty('--ok-soft', rgba(vars['--ok'], 0.14))
+  root.setProperty('--err-soft', rgba(vars['--err'], 0.14))
+  root.setProperty('--on-accent', readableOn(accent))
+
+  const meta = document.querySelector('meta[name="theme-color"]')
+  if (meta) meta.setAttribute('content', contentBg)
 }
 
 // ---------- tiny markdown ----------
@@ -1668,39 +1764,102 @@ function GithubPanel() {
   )
 }
 
-function ThemePanel() {
-  const [theme, setTheme] = useState(() => ({ ...DEFAULT_THEME, ...loadStoredTheme() }))
+function ColorField({ label, value, onChange }) {
+  const [draft, setDraft] = useState(value)
 
-  const set = (k) => (e) => {
-    const v = e.target.value
-    setTheme((t) => {
-      const next = { ...t, [k]: v }
-      applyTheme(next)
-      saveTheme(next)
-      return next
+  useEffect(() => {
+    setDraft(value)
+  }, [value])
+
+  const commit = () => {
+    if (hexToRgb(draft)) onChange(draft)
+    else setDraft(value)
+  }
+
+  return (
+    <div className="theme-row">
+      <label>{label}</label>
+      <input type="color" value={value} onChange={(e) => onChange(e.target.value)} />
+      <input
+        type="text"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit()
+        }}
+      />
+    </div>
+  )
+}
+
+function ThemePanel({ theme, setTheme }) {
+  const [editMode, setEditMode] = useState(effectiveMode(theme))
+  const base = editMode === 'light' ? LIGHT_THEME : DEFAULT_THEME
+  const overrides = theme.themes[editMode] || {}
+  const value = (key) => overrides[key] || base[key]
+
+  const setColor = (key, raw) => {
+    setTheme({
+      ...theme,
+      themes: { ...theme.themes, [editMode]: { ...overrides, [key]: raw } },
     })
   }
 
   return (
-    <div>
+    <div className="theme-panel">
+      <div className="field">
+        <span className="field-label">Appearance</span>
+        <div className="segmented">
+          {THEME_MODES.map(([mode, label]) => (
+            <button
+              key={mode}
+              className={theme.mode === mode ? 'on' : ''}
+              onClick={() => setTheme({ ...theme, mode })}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <span className="field-hint">
+          Follow system switches automatically when your OS theme changes.
+        </span>
+      </div>
+
+      <div className="field">
+        <span className="field-label">Customize palette</span>
+        <div className="segmented">
+          {['light', 'dark'].map((mode) => (
+            <button
+              key={mode}
+              className={editMode === mode ? 'on' : ''}
+              onClick={() => setEditMode(mode)}
+            >
+              {mode === 'light' ? 'Light' : 'Dark'}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="theme-grid">
-        {Object.entries(THEME_LABELS).map(([k, label]) => (
-          <div key={k} className="theme-row">
-            <label>{label}</label>
-            <input type="color" value={theme[k]} onChange={set(k)} />
-            <input type="text" value={theme[k]} onChange={set(k)} />
-          </div>
+        {Object.entries(THEME_LABELS).map(([key, label]) => (
+          <ColorField key={key} label={label} value={value(key)} onChange={(v) => setColor(key, v)} />
         ))}
       </div>
-      <button
-        className="btn"
-        onClick={() => {
-          resetTheme()
-          setTheme({ ...DEFAULT_THEME })
-        }}
-      >
-        Reset to defaults
-      </button>
+
+      <div className="row" style={{ marginBottom: 0 }}>
+        <button
+          className="btn"
+          onClick={() =>
+            setTheme({ ...theme, themes: { ...theme.themes, [editMode]: {} } })
+          }
+        >
+          Reset {editMode} palette
+        </button>
+        <button className="btn" onClick={() => setTheme(defaultThemeState())}>
+          Reset all
+        </button>
+      </div>
     </div>
   )
 }
@@ -5717,9 +5876,20 @@ export default function App() {
       .catch(() => setAuthState({ enabled: false, authenticated: true, has_passkeys: false }))
   }, [])
 
+  const [theme, setTheme] = useState(loadThemeState)
+
   useEffect(() => {
-    applyTheme(loadStoredTheme())
-  }, [])
+    applyThemeState(theme)
+    saveThemeState(theme)
+  }, [theme])
+
+  useEffect(() => {
+    if (theme.mode !== 'system') return
+    const media = window.matchMedia('(prefers-color-scheme: light)')
+    const onChange = () => applyThemeState(theme)
+    media.addEventListener('change', onChange)
+    return () => media.removeEventListener('change', onChange)
+  }, [theme])
 
   useEffect(() => {
     const applyHash = () => {
@@ -6082,6 +6252,27 @@ export default function App() {
             </button>
           </div>
 
+          <div className="sidebar-section">
+            <div className="sidebar-label">
+              <span>Theme</span>
+            </div>
+            <div className="segmented theme-seg">
+              {[
+                ['system', 'Auto'],
+                ['light', 'Light'],
+                ['dark', 'Dark'],
+              ].map(([mode, label]) => (
+                <button
+                  key={mode}
+                  className={theme.mode === mode ? 'on' : ''}
+                  onClick={() => setTheme({ ...theme, mode })}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {authState?.enabled && (
             <div className="sidebar-section">
               <button
@@ -6326,7 +6517,7 @@ export default function App() {
           {settingsTab === 'providers' && <ProvidersPanel />}
           {settingsTab === 'assistant' && <AssistantPanel />}
           {settingsTab === 'github' && <GithubPanel />}
-          {settingsTab === 'theme' && <ThemePanel />}
+          {settingsTab === 'theme' && <ThemePanel theme={theme} setTheme={setTheme} />}
         </Modal>
       )}
     </div>
