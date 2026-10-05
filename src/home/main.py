@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from home import __version__, auth, scheduler
+from home import __version__, auth, jobs, scheduler
 from home.registry.db import init_db
 from home.routers import (
     activity,
@@ -20,6 +20,7 @@ from home.routers import (
     github,
     goals,
     inbox,
+    jobs as jobs_router,
     milestones,
     notify as notify_router,
     overview,
@@ -39,6 +40,7 @@ from home.routers import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    jobs.manager.start()
     task = None
     if os.environ.get("HOME_DISABLE_SCHEDULER") != "1":
         task = asyncio.create_task(scheduler.worker())
@@ -76,6 +78,7 @@ def create_app() -> FastAPI:
     app.include_router(docs.router)
     app.include_router(projects.router)
     app.include_router(chat.router)
+    app.include_router(jobs_router.router)
     app.include_router(providers.router)
     app.include_router(sessions.router)
     app.include_router(agents.router)

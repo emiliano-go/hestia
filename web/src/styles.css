@@ -3568,3 +3568,25 @@ pre {
   color: var(--accent);
   border-color: var(--accent);
 }
+
+/* ---------- background tasks ---------- */
+
+.notification-banner {
+  white-space: pre-wrap;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  margin: 6px 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.job-result {
+  white-space: pre-wrap;
+  max-height: 160px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}

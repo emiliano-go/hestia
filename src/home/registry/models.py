@@ -255,6 +255,30 @@ class Schedule(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_now)
 
 
+class BackgroundTask(SQLModel, table=True):
+    """A detached agent or subagent run, kimi-code style.
+
+    Started from a chat turn via run_in_background. The manager runs it off
+    the request; on completion the originating session gets a notification
+    message and, when idle, a continuation turn reacts to the result.
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id", index=True)
+    session_id: Optional[int] = Field(default=None, foreign_key="session.id", index=True)
+    kind: str = "agent"  # agent | subagent
+    description: str = ""
+    instruction: str = ""
+    action: str = "chat"  # action key, or agent profile name for subagents
+    status: str = "queued"  # queued | running | done | error | stopped | lost
+    result: str = ""
+    error: str = ""
+    notified: bool = False
+    created_at: datetime = Field(default_factory=_now)
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+
 class InboxItem(SQLModel, table=True):
     """A notification surfaced from GitHub polling (new PR/issue, CI failure)."""
 

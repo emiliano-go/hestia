@@ -15,7 +15,9 @@ def engine():
     if _engine is None:
         config.data_dir().mkdir(parents=True, exist_ok=True)
         _engine = create_engine(
-            f"sqlite:///{Path(config.data_dir()) / 'home.db'}", echo=False
+            f"sqlite:///{Path(config.data_dir()) / 'home.db'}",
+            echo=False,
+            connect_args={"check_same_thread": False},  # background job workers
         )
     return _engine
 

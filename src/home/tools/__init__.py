@@ -21,6 +21,10 @@ def build_registry(writes: bool = False, db=None) -> Registry:
     if writes:
         gitwrites.register(registry, db)
     if db is not None:
+        from home.tools import jobs as job_tools
+
         for tool in preferences.make_tools(db):
+            registry.register(tool)
+        for tool in job_tools.make_tools(db):
             registry.register(tool)
     return registry

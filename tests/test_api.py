@@ -2230,3 +2230,121 @@ def test_project_preference_memory_always_in_context(client):
     context = totem_store.digest(path, task="anything").get("context", "")
     assert "Never use em dashes." in context
     assert "Acme uses SSO." in context
+
+
+def test_background_task_lifecycle(client, monkeypatch):
+    import asyncio
+
+    from sqlmodel import Session as SqlSession, select
+
+    from home import jobs
+    from home.registry.db import engine
+    from home.registry.models import BackgroundTask, Message
+    from home.registry.models import Session as ChatSession
+
+    project = _mk_project(client)
+    with SqlSession(engine()) as db:
+        cs = ChatSession(project_id=project["id"], title="bg")
+        db.add(cs)
+        db.commit()
+        db.refresh(cs)
+        sid = cs.id
+
+    monkeypatch.setattr(jobs.manager, "enqueue", lambda job_id: None)
+
+    async def fake_exec(db, job, project_obj):
+        return "did the thing", None, {}
+
+    monkeypatch.setattr(jobs, "_execute_job", fake_exec)
+
+    job_id = jobs.submit(
+        project_id=project["id"],
+        session_id=sid,
+        kind="agent",
+        instruction="do it",
+        description="test job",
+        action="chat",
+    )
+    asyncio.run(jobs.manager._run(job_id))
+
+    with SqlSession(engine()) as db:
+        job = db.get(BackgroundTask, job_id)
+        assert job.status == "completed"
+        assert job.result == "did the thing"
+        assert job.notified is True
+        notes = db.exec(
+            select(Message).where(
+                Message.session_id == sid, Message.role == "notification"
+            )
+        ).all()
+        assert notes and "task.completed" in notes[0].content
+
+
+def test_background_stop_and_reconcile(client, monkeypatch):
+    from sqlmodel import Session as SqlSession, select
+
+    from home import jobs
+    from home.registry.db import engine
+    from home.registry.models import BackgroundTask
+
+    project = _mk_project(client)
+    monkeypatch.setattr(jobs.manager, "enqueue", lambda job_id: None)
+
+    job_id = jobs.submit(
+        project_id=project["id"],
+        session_id=None,
+        kind="agent",
+        instruction="x",
+        description="y",
+    )
+    stopped = jobs.stop(job_id)
+    assert stopped["status"] == "stopped"
+
+    with SqlSession(engine()) as db:
+        db.add(
+            BackgroundTask(
+                project_id=project["id"],
+                kind="agent",
+                status="running",
+                instruction="x",
+                description="y",
+            )
+        )
+        db.commit()
+
+    jobs._reconcile()
+    with SqlSession(engine()) as db:
+        lost = db.exec(
+            select(BackgroundTask).where(BackgroundTask.status == "lost")
+        ).all()
+        assert any(j.project_id == project["id"] for j in lost)
+
+
+def test_run_subagent_background_returns_job(client, monkeypatch):
+    from sqlmodel import Session as SqlSession, select
+
+    from home import jobs
+    from home.registry.db import engine
+    from home.registry.models import BackgroundTask, Project
+    from home.tools import subagents
+    from home.tools.registry import ProjectContext
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+    client.post(
+        "/api/agents",
+        json={"name": "explore", "provider_id": provider["id"], "tools": ["repo"], "max_turns": 2},
+    )
+    monkeypatch.setattr(jobs.manager, "enqueue", lambda job_id: None)
+
+    with SqlSession(engine()) as db:
+        project_obj = db.get(Project, project["id"])
+        ctx = ProjectContext.from_project(project_obj)
+        registry_tools = {t.name: t for t in subagents.make_tools(db)}
+        result = registry_tools["run_subagent"].handler(
+            ctx,
+            {"action": "explore", "task": "look around", "run_in_background": True, "description": "bg look"},
+        )
+        assert result["status"] == "queued"
+        job = db.get(BackgroundTask, result["job_id"])
+        assert job.kind == "subagent" and job.action == "explore"

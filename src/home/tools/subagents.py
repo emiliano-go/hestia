@@ -39,6 +39,23 @@ def make_tools(db: Session) -> list[Tool]:
             raise ValueError(
                 f"unknown agent profile or action: {args.get('action') or args.get('agent')}"
             )
+        if args.get("run_in_background"):
+            from home import jobs
+
+            key = args.get("action") or args.get("agent") or config.name
+            job_id = jobs.submit(
+                project_id=ctx.project_id,
+                session_id=ctx.session_id,
+                kind="subagent",
+                instruction=args["task"],
+                description=args.get("description") or args["task"][:60],
+                action=key,
+            )
+            return {
+                "job_id": job_id,
+                "status": "queued",
+                "note": "Subagent running in the background; you will be notified when it finishes.",
+            }
         provider = db.get(Provider, config.provider_id)
         if provider is None:
             raise ValueError(f"agent profile '{config.name}' has no valid provider")
@@ -99,6 +116,17 @@ def make_tools(db: Session) -> list[Tool]:
                 },
                 "agent": {"type": "string", "description": "agent profile name (see agent_list)"},
                 "task": {"type": "string", "description": "self-contained task for the subagent"},
+                "run_in_background": {
+                    "type": "boolean",
+                    "description": (
+                        "run the subagent detached and return a job id now; you "
+                        "will be notified when it finishes"
+                    ),
+                },
+                "description": {
+                    "type": "string",
+                    "description": "short 3 to 5 word label (required with run_in_background)",
+                },
             }, ["task"]),
             handler=run_handler,
             group="agents",

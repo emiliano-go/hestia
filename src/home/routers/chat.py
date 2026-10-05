@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
-from home import actions, memory_ingest, questions, settings, totem_store, usage
+from home import actions, jobs, memory_ingest, questions, settings, totem_store, usage
 from home.agent import loop as agent_loop
 from home.agent.prompt import build_system_prompt
 from home.providers.base import OpenAIClient, resolve_api_key
@@ -43,6 +43,14 @@ outcome with focused questions (one or two at a time) and keep the draft spec at
 the path from the first message updated with workspace_write. Do not build the
 board yourself; when the goal is clear, tell the user to press "Generate board"
 on the Goals tab."""
+
+_BACKGROUND_NOTE = """\
+## Background tasks
+Long jobs can run in the background: call start_background_task (or
+run_subagent with run_in_background=true) with a short description. It returns
+a task id immediately; keep working or stop, and a notification arrives when
+it finishes (messages tagged [background task]). Use job_list and job_output
+for a quick status check and job_stop to cancel; do not poll in a loop."""
 
 
 def _sse(event: dict) -> str:
@@ -130,10 +138,11 @@ def chat(project_id: int, body: dict, s: Session = Depends(session)):
     if agent_config and agent_config.system_prompt:
         system += f"\n\n## Agent instructions\n{agent_config.system_prompt}"
     system += "\n\n" + _DELEGATION_NOTE
+    system += "\n\n" + _BACKGROUND_NOTE
     if action_key == "goal":
         system += "\n\n" + _GOAL_NOTE
 
-    async def stream():
+    async def _stream_impl():
         rows = s.exec(
             select(Message)
             .where(Message.session_id == chat_session.id)
@@ -157,6 +166,10 @@ def chat(project_id: int, body: dict, s: Session = Depends(session)):
                         "name": m.name,
                         "content": m.content,
                     }
+                )
+            elif m.role == "notification":
+                messages.append(
+                    {"role": "user", "content": f"[background task]\n{m.content}"}
                 )
             else:
                 messages.append({"role": m.role, "content": m.content})
@@ -265,5 +278,13 @@ def chat(project_id: int, body: dict, s: Session = Depends(session)):
             except Exception:
                 pass  # memory ingest must never break the chat
         yield _sse({"event": "session", "session_id": chat_session.id})
+
+    async def stream():
+        jobs.mark_active(chat_session.id)
+        try:
+            async for event in _stream_impl():
+                yield event
+        finally:
+            jobs.mark_idle(chat_session.id)
 
     return StreamingResponse(stream(), media_type="text/event-stream")

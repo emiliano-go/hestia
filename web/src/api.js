@@ -134,6 +134,9 @@ export const api = {
   getSettings: () => request('/settings'),
   updateSettings: (body) =>
     request('/settings', { method: 'PUT', body: JSON.stringify(body) }),
+  listJobs: (projectId, activeOnly = false) =>
+    request(`/projects/${projectId}/jobs${activeOnly ? '?active_only=true' : ''}`),
+  stopJob: (id) => request(`/jobs/${id}/stop`, { method: 'POST', body: '{}' }),
   listPreferences: () => request('/settings/preferences'),
   addPreference: (text) =>
     request('/settings/preferences', { method: 'POST', body: JSON.stringify({ text }) }),
