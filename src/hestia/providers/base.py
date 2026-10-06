@@ -99,6 +99,11 @@ def resolve_api_key(provider) -> str | None:
     return os.environ.get(env) if env else None
 
 
+def resolve_model(agent, provider) -> str:
+    """The agent's model override when set, else the provider's model."""
+    return getattr(agent, "model", None) or provider.model
+
+
 async def list_models(base_url: str, api_key: str | None) -> list[str]:
     """Fetch model ids from an OpenAI-compatible /v1/models endpoint."""
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}

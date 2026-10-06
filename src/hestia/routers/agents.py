@@ -87,6 +87,7 @@ def create_agent(body: dict, s: Session = Depends(session)):
         name=body["name"],
         system_prompt=body.get("system_prompt", ""),
         provider_id=body["provider_id"],
+        model=(body.get("model") or "").strip() or None,
         tools=tools,
         max_turns=body.get("max_turns", 6),
     )
@@ -107,6 +108,8 @@ def update_agent(agent_id: int, body: dict, s: Session = Depends(session)):
         config.system_prompt = body["system_prompt"] or ""
     if body.get("provider_id"):
         config.provider_id = body["provider_id"]
+    if "model" in body:
+        config.model = (body.get("model") or "").strip() or None
     if "tools" in body:
         tools = body["tools"]
         config.tools = ",".join(tools) if isinstance(tools, list) else tools

@@ -1,8 +1,11 @@
-"""Providers: presets, CRUD, model listing, test-connection.
+"""Providers: presets, CRUD, per-provider model list, test-connection.
 
-Keys may be stored on the provider row (from the UI) or read from an env var;
-the stored key is never returned to the client.
+A provider is one connection (base_url + key); it can have many models
+configured. Agents pick a provider and a model. Keys may be stored on the row
+or read from an env var; the stored key is never returned to the client.
 """
+
+import json
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
@@ -15,6 +18,24 @@ from hestia.registry.models import Provider
 router = APIRouter(prefix="/api/providers", tags=["providers"])
 
 
+def _model_list(provider: Provider) -> list[str]:
+    try:
+        return [m for m in json.loads(provider.models or "[]") if isinstance(m, str)]
+    except ValueError:
+        return []
+
+
+def _save_models(provider: Provider, models: list[str]) -> None:
+    seen: list[str] = []
+    for m in models:
+        m = str(m or "").strip()
+        if m and m not in seen:
+            seen.append(m)
+    provider.models = json.dumps(seen)
+    if not provider.model or provider.model not in seen:
+        provider.model = seen[0] if seen else ""
+
+
 def _public(provider: Provider) -> dict:
     return {
         "id": provider.id,
@@ -22,6 +43,7 @@ def _public(provider: Provider) -> dict:
         "base_url": provider.base_url,
         "api_key_env": provider.api_key_env,
         "model": provider.model,
+        "models": _model_list(provider),
         "has_key": bool(provider.api_key),
         "created_at": provider.created_at,
     }
@@ -48,8 +70,42 @@ def create_provider(body: dict, s: Session = Depends(session)):
         base_url=base_url.rstrip("/"),
         api_key_env=(body.get("api_key_env") or "").strip(),
         api_key=(body.get("api_key") or "").strip() or None,
-        model=(body.get("model") or "").strip(),
     )
+    models = body.get("models")
+    if isinstance(models, str):
+        models = [models]
+    if not models and body.get("model"):
+        models = [body["model"]]
+    _save_models(provider, models or [])
+    s.add(provider)
+    s.commit()
+    s.refresh(provider)
+    return _public(provider)
+
+
+@router.post("/{provider_id}/models")
+def add_models(provider_id: int, body: dict, s: Session = Depends(session)):
+    provider = s.get(Provider, provider_id)
+    if not provider:
+        raise HTTPException(404, "provider not found")
+    incoming = body.get("models")
+    if isinstance(incoming, str):
+        incoming = [incoming]
+    if not incoming and body.get("model"):
+        incoming = [body["model"]]
+    _save_models(provider, _model_list(provider) + list(incoming or []))
+    s.add(provider)
+    s.commit()
+    s.refresh(provider)
+    return _public(provider)
+
+
+@router.delete("/{provider_id}/models/{name}")
+def remove_model(provider_id: int, name: str, s: Session = Depends(session)):
+    provider = s.get(Provider, provider_id)
+    if not provider:
+        raise HTTPException(404, "provider not found")
+    _save_models(provider, [m for m in _model_list(provider) if m != name])
     s.add(provider)
     s.commit()
     s.refresh(provider)

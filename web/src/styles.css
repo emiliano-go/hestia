@@ -1218,6 +1218,33 @@ a:hover {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.model-checklist {
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 6px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 12px;
+}
+.model-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  cursor: pointer;
+}
+.model-check:hover {
+  background: var(--surface-2);
+}
+@media (max-width: 620px) {
+  .model-checklist {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 
 /* code / pre */
 pre {

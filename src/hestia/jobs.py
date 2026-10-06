@@ -85,7 +85,8 @@ def _agent_for(db: Session, key: str) -> AgentConfig | None:
 
 def _provider_for(db: Session, project: Project, agent: AgentConfig | None) -> Provider | None:
     provider_id = (agent.provider_id if agent else None) or project.default_provider_id
-    return db.get(Provider, provider_id) if provider_id else None
+    provider = db.get(Provider, provider_id) if provider_id else None
+    return actions.effective_provider(agent, provider)
 
 
 def as_dict(job: BackgroundTask) -> dict:

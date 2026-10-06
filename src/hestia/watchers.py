@@ -278,6 +278,7 @@ async def _check_condition(db: Session, watch: Watch) -> None:
     agent = actions.resolve_action(db, "chat")
     provider_id = (agent.provider_id if agent else None) or project.default_provider_id
     provider = db.get(Provider, provider_id) if provider_id else None
+    provider = actions.effective_provider(agent, provider)
     if provider is None:
         watch.last_result = "no provider configured; skipped"
         return

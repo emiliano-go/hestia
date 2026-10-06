@@ -1,10 +1,94 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../api.js'
+import { Modal } from '../components/Modal.jsx'
 import { Spinner } from '../components/primitives.jsx'
+import { Icon } from '../icons.jsx'
 import { useAsync } from '../lib/hooks.js'
 
-const EMPTY = { name: '', base_url: '', api_key: '', model: '' }
-const STEPS = ['Provider', 'API key', 'Model']
+const EMPTY = { name: '', base_url: '', api_key: '', models: [] }
+const STEPS = ['Provider', 'API key', 'Models']
+
+function ModelChecklist({ models, selected, onToggle }) {
+  if (!models.length) return <p className="muted">No models loaded.</p>
+  return (
+    <div className="model-checklist">
+      {models.map((m) => (
+        <label key={m} className="model-check">
+          <input type="checkbox" checked={selected.includes(m)} onChange={() => onToggle(m)} />
+          <span>{m}</span>
+        </label>
+      ))}
+    </div>
+  )
+}
+
+function ModelManager({ provider, onClose, onSaved }) {
+  const [available, setAvailable] = useState(provider.models)
+  const [selected, setSelected] = useState(provider.models)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+  const [custom, setCustom] = useState('')
+
+  useEffect(() => {
+    api
+      .listProviderModels({ provider_id: provider.id })
+      .then((r) => setAvailable([...new Set([...(r.models || []), ...provider.models])].sort()))
+      .catch((e) => setError(e.message || String(e)))
+      .finally(() => setLoading(false))
+  }, [provider.id])
+
+  const toggle = (m) =>
+    setSelected((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]))
+
+  const addCustom = () => {
+    const m = custom.trim()
+    if (m && !available.includes(m)) setAvailable((prev) => [...prev, m].sort())
+    if (m && !selected.includes(m)) setSelected((prev) => [...prev, m])
+    setCustom('')
+  }
+
+  const save = () => {
+    setSaving(true)
+    setError(null)
+    const toAdd = selected.filter((m) => !provider.models.includes(m))
+    const toRemove = provider.models.filter((m) => !selected.includes(m))
+    Promise.all([
+      toAdd.length ? api.addProviderModels(provider.id, toAdd) : null,
+      ...toRemove.map((m) => api.removeProviderModel(provider.id, m)),
+    ])
+      .then(onSaved)
+      .catch((e) => setError(e.message || String(e)))
+      .finally(() => setSaving(false))
+  }
+
+  return (
+    <Modal title={`Models · ${provider.name}`} onClose={onClose}>
+      {loading && <p className="note">Loading models...</p>}
+      {error && <p className="error-text">{error}</p>}
+      <ModelChecklist models={available} selected={selected} onToggle={toggle} />
+      <div className="row" style={{ marginTop: 10, marginBottom: 0 }}>
+        <input
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addCustom())}
+          placeholder="Add a custom model id"
+        />
+        <button type="button" className="btn" onClick={addCustom} disabled={!custom.trim()}>
+          Add
+        </button>
+      </div>
+      <div className="row" style={{ marginTop: 14, marginBottom: 0 }}>
+        <button className="btn primary" onClick={save} disabled={saving}>
+          {saving ? 'Saving...' : 'Save models'}
+        </button>
+        <button className="btn" onClick={onClose}>
+          Cancel
+        </button>
+      </div>
+    </Modal>
+  )
+}
 
 export function ProvidersPanel() {
   const { data: providers, error, loading, reload } = useAsync(api.listProviders, [])
@@ -12,12 +96,13 @@ export function ProvidersPanel() {
   const [step, setStep] = useState(0)
   const [presetKey, setPresetKey] = useState('')
   const [form, setForm] = useState(EMPTY)
-  const [models, setModels] = useState([])
-  const [customModel, setCustomModel] = useState(false)
+  const [available, setAvailable] = useState([])
+  const [custom, setCustom] = useState('')
   const [loadingModels, setLoadingModels] = useState(false)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState(null)
   const [testResults, setTestResults] = useState({})
+  const [managing, setManaging] = useState(null)
 
   const presets = presetsReq.data || {}
   const isCustom = presetKey === 'custom'
@@ -26,8 +111,8 @@ export function ProvidersPanel() {
     setStep(0)
     setPresetKey('')
     setForm(EMPTY)
-    setModels([])
-    setCustomModel(false)
+    setAvailable([])
+    setCustom('')
     setFormError(null)
   }
 
@@ -38,15 +123,28 @@ export function ProvidersPanel() {
       name: p.name || key,
       base_url: p.base_url || '',
       api_key: '',
-      model: p.model || '',
+      models: p.model ? [p.model] : [],
     })
-    setModels([])
-    setCustomModel(false)
+    setAvailable([])
     setFormError(null)
     setStep(1)
   }
 
-  const loadModels = (advance) => {
+  const toggleModel = (m) =>
+    setForm((f) => ({
+      ...f,
+      models: f.models.includes(m) ? f.models.filter((x) => x !== m) : [...f.models, m],
+    }))
+
+  const addCustomModel = () => {
+    const m = custom.trim()
+    if (!m) return
+    if (!available.includes(m)) setAvailable((prev) => [...prev, m].sort())
+    if (!form.models.includes(m)) setForm((f) => ({ ...f, models: [...f.models, m] }))
+    setCustom('')
+  }
+
+  const loadModels = () => {
     if (!form.base_url.trim()) {
       setFormError('Base URL is required.')
       return
@@ -57,14 +155,17 @@ export function ProvidersPanel() {
       .listProviderModels({ base_url: form.base_url, api_key: form.api_key })
       .then((r) => {
         const list = r.models || []
-        setModels(list)
-        if (!form.model && list.length) setForm((f) => ({ ...f, model: list[0] }))
+        setAvailable(list)
+        setForm((f) => ({
+          ...f,
+          models: f.models.filter((m) => list.includes(m)),
+        }))
         if (!list.length) setFormError('No models returned for that key.')
-        if (advance) setStep(2)
+        setStep(2)
       })
       .catch((err) => {
         setFormError(err.message || String(err))
-        if (advance) setStep(2)
+        setStep(2)
       })
       .finally(() => setLoadingModels(false))
   }
@@ -112,7 +213,7 @@ export function ProvidersPanel() {
 
         {step === 0 && (
           <div className="wizard-body">
-            <p className="note">Pick a provider to register.</p>
+            <p className="note">Pick a provider, then choose the models to enable.</p>
             <div className="preset-grid">
               {Object.entries(presets).map(([k, p]) => (
                 <button key={k} type="button" className="preset-card" onClick={() => choosePreset(k)}>
@@ -129,7 +230,7 @@ export function ProvidersPanel() {
             className="wizard-body"
             onSubmit={(e) => {
               e.preventDefault()
-              loadModels(true)
+              loadModels()
             }}
           >
             <p className="note">
@@ -161,10 +262,7 @@ export function ProvidersPanel() {
               <button type="button" className="btn" onClick={() => setStep(0)}>
                 Back
               </button>
-              <button
-                className="btn primary"
-                disabled={loadingModels || !form.base_url.trim()}
-              >
+              <button className="btn primary" disabled={loadingModels || !form.base_url.trim()}>
                 {loadingModels ? (
                   <>
                     <Spinner size={13} /> Loading models
@@ -180,63 +278,31 @@ export function ProvidersPanel() {
         {step === 2 && (
           <form className="wizard-body" onSubmit={submit}>
             <label className="field">
-              <span className="field-label">Model</span>
-              {models.length > 0 && !customModel ? (
-                <div className="row" style={{ marginBottom: 0 }}>
-                  <select
-                    value={form.model}
-                    onChange={(e) => {
-                      if (e.target.value === '__custom__') {
-                        setCustomModel(true)
-                        setForm((f) => ({ ...f, model: '' }))
-                      } else {
-                        setForm((f) => ({ ...f, model: e.target.value }))
-                      }
-                    }}
-                    required
-                  >
-                    <option value="">Choose a model...</option>
-                    {form.model && !models.includes(form.model) && (
-                      <option value={form.model}>{form.model}</option>
-                    )}
-                    {models.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                    <option value="__custom__">Custom…</option>
-                  </select>
-                  <button
-                    type="button"
-                    className="btn"
-                    onClick={() => loadModels(false)}
-                    disabled={loadingModels}
-                  >
-                    {loadingModels ? <Spinner size={13} /> : 'Reload'}
-                  </button>
-                </div>
-              ) : (
-                <div className="row" style={{ marginBottom: 0 }}>
-                  <input
-                    value={form.model}
-                    onChange={set('model')}
-                    placeholder="model id"
-                    required
-                    autoFocus
-                  />
-                  <button
-                    type="button"
-                    className="btn"
-                    onClick={() => loadModels(false)}
-                    disabled={loadingModels}
-                  >
-                    {loadingModels ? <Spinner size={13} /> : 'Load models'}
-                  </button>
-                </div>
-              )}
-              {models.length > 0 && (
-                <span className="field-hint">{models.length} models available</span>
-              )}
+              <span className="field-label">Models ({form.models.length} selected)</span>
+              <ModelChecklist
+                models={available}
+                selected={form.models}
+                onToggle={toggleModel}
+              />
+              <div className="row" style={{ marginTop: 8, marginBottom: 0 }}>
+                <input
+                  value={custom}
+                  onChange={(e) => setCustom(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addCustomModel())}
+                  placeholder="Add a custom model id"
+                />
+                <button type="button" className="btn" onClick={addCustomModel} disabled={!custom.trim()}>
+                  Add
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={loadModels}
+                  disabled={loadingModels}
+                >
+                  {loadingModels ? <Spinner size={13} /> : 'Reload'}
+                </button>
+              </div>
             </label>
             <label className="field">
               <span className="field-label">Name</span>
@@ -247,10 +313,7 @@ export function ProvidersPanel() {
               <button type="button" className="btn" onClick={() => setStep(1)}>
                 Back
               </button>
-              <button
-                className="btn primary"
-                disabled={saving || !form.name.trim() || !form.model.trim()}
-              >
+              <button className="btn primary" disabled={saving || !form.name.trim()}>
                 {saving ? 'Saving...' : 'Add provider'}
               </button>
             </div>
@@ -274,14 +337,24 @@ export function ProvidersPanel() {
                   </span>
                 )}
               </h3>
-              <div className="meta">{p.base_url}</div>
               <div className="meta">
-                {p.model} ({p.has_key ? 'key stored' : 'no key'})
+                {p.base_url} ({p.has_key ? 'key stored' : 'no key'})
+              </div>
+              <div className="link-chips" style={{ marginTop: 8 }}>
+                {p.models.length === 0 && <span className="muted">No models configured.</span>}
+                {p.models.map((m) => (
+                  <span key={m} className={`link-chip ${m === p.model ? 'static' : ''}`}>
+                    {m}
+                  </span>
+                ))}
               </div>
               {tr && !tr.testing && !tr.ok && tr.error && (
                 <div className="meta error-text">{tr.error}</div>
               )}
               <div className="row" style={{ marginTop: 10, marginBottom: 0 }}>
+                <button className="btn primary" onClick={() => setManaging(p)}>
+                  <Icon name="settings" size={13} /> Models
+                </button>
                 <button className="btn" onClick={() => test(p.id)} disabled={tr?.testing}>
                   {tr?.testing ? 'Testing...' : 'Test'}
                 </button>
@@ -298,6 +371,17 @@ export function ProvidersPanel() {
           )
         })}
       </div>
+
+      {managing && (
+        <ModelManager
+          provider={managing}
+          onClose={() => setManaging(null)}
+          onSaved={() => {
+            setManaging(null)
+            reload()
+          }}
+        />
+      )}
     </div>
   )
 }

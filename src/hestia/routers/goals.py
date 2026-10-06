@@ -106,7 +106,7 @@ def _provider_for(s: Session, project: Project, body: dict) -> Provider:
     provider = s.get(Provider, provider_id) if provider_id else None
     if not provider:
         raise HTTPException(400, "no provider configured for this project")
-    return provider
+    return actions.effective_provider(agent, provider)
 
 
 @router.get("/projects/{project_id}/goals")

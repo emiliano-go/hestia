@@ -92,6 +92,7 @@ def fix_memory(project_id: int, body: dict, s: Session = Depends(session)):
         or project.default_provider_id
     )
     provider = s.get(Provider, provider_id) if provider_id else None
+    provider = actions.effective_provider(agent_config, provider)
     if not provider:
         raise HTTPException(400, "no provider configured for this project")
 

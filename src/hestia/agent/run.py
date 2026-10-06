@@ -23,6 +23,7 @@ async def run_once(
     max_turns: int = 8,
     tasks_db: Session | None = None,
     writes: bool = False,
+    model: str | None = None,
 ) -> tuple[str, str | None, dict]:
     """Run one agent turn to completion.
 
@@ -53,7 +54,7 @@ async def run_once(
                 for tool in builder(tasks_db):
                     registry.register(tool)
     client = OpenAIClient(
-        provider.base_url, resolve_api_key(provider), provider.model
+        provider.base_url, resolve_api_key(provider), model or provider.model
     )
     messages = [
         {"role": "system", "content": system},

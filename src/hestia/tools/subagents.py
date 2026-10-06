@@ -59,6 +59,7 @@ def make_tools(db: Session) -> list[Tool]:
         provider = db.get(Provider, config.provider_id)
         if provider is None:
             raise ValueError(f"agent profile '{config.name}' has no valid provider")
+        provider = actions.effective_provider(config, provider)
         client = OpenAIClient(
             provider.base_url,
             resolve_api_key(provider),

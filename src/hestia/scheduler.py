@@ -118,6 +118,7 @@ async def _maybe_send_briefing(db: Session) -> None:
             agent = actions.resolve_action(db, "chat")
             provider_id = (agent.provider_id if agent else None) or project.default_provider_id
             provider = db.get(Provider, provider_id) if provider_id else None
+            provider = actions.effective_provider(agent, provider)
             if provider is not None:
                 digest = totem_store.digest(
                     project.local_path, task="Write the briefing commentary"
@@ -264,6 +265,7 @@ async def _agent_narrative(db: Session, project: Project, digest: str, prompt: s
     agent = actions.resolve_action(db, "chat")
     provider_id = (agent.provider_id if agent else None) or project.default_provider_id
     provider = db.get(Provider, provider_id) if provider_id else None
+    provider = actions.effective_provider(agent, provider)
     if provider is None:
         return None
     system = build_system_prompt(
@@ -412,6 +414,7 @@ async def run_schedule(schedule_id: int, event: dict | None = None) -> dict | No
             (agent.provider_id if agent else None) or project.default_provider_id
         )
         provider = db.get(Provider, provider_id) if provider_id else None
+        provider = actions.effective_provider(agent, provider)
 
         budget = usage.budget_state(db, project)
         if project.budget_enforced and budget["over"]:

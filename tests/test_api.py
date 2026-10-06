@@ -2881,3 +2881,39 @@ def test_pull_pending_and_inbox(client):
     assert client.post(f"/api/projects/{project['id']}/pull").status_code == 200
     items = client.get("/api/inbox").json()["items"]
     assert not [i for i in items if i["kind"] == "pull"]
+
+
+def test_provider_models_crud(client):
+    p = client.post(
+        "/api/providers",
+        json={"name": "multi", "base_url": "http://x", "api_key": "k", "models": ["a", "b"]},
+    ).json()
+    assert p["models"] == ["a", "b"]
+    assert p["model"] == "a"  # default = first
+
+    p2 = client.post(f"/api/providers/{p['id']}/models", json={"models": ["c", "a"]}).json()
+    assert p2["models"] == ["a", "b", "c"]
+
+    p3 = client.delete(f"/api/providers/{p['id']}/models/b").json()
+    assert p3["models"] == ["a", "c"]
+
+    # removing the default moves it to the first remaining
+    p4 = client.delete(f"/api/providers/{p['id']}/models/a").json()
+    assert p4["models"] == ["c"] and p4["model"] == "c"
+
+
+def test_effective_provider_and_resolve_model(client):
+    from hestia import actions
+    from hestia.providers.base import resolve_model
+    from hestia.registry.models import Provider
+
+    class FakeAgent:
+        model = "m2"
+
+    prov = Provider(name="x", base_url="http://x", model="m1", models='["m1","m2"]')
+    assert resolve_model(FakeAgent(), prov) == "m2"
+    assert resolve_model(None, prov) == "m1"
+
+    eff = actions.effective_provider(FakeAgent(), prov)
+    assert eff.model == "m2"
+    assert prov.model == "m1"  # original is untouched

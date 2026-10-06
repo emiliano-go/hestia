@@ -117,6 +117,7 @@ def suggest_tasks(project_id: int, body: dict, s: Session = Depends(session)):
         or project.default_provider_id
     )
     provider = s.get(Provider, provider_id) if provider_id else None
+    provider = actions.effective_provider(agent, provider)
     if provider is None:
         raise HTTPException(400, "no provider configured for this project")
 

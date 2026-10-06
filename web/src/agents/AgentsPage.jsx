@@ -74,11 +74,14 @@ export function AgentForm({ providers, presets, initial, onSubmit, onCancel, sav
   const [form, setForm] = useState(() => ({
     name: initial?.name || '',
     provider_id: initial?.provider_id ? String(initial.provider_id) : '',
+    model: initial?.model || '',
     system_prompt: initial?.system_prompt || '',
     tools: toTools(initial?.tools),
     max_turns: initial?.max_turns != null ? String(initial.max_turns) : '6',
   }))
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
+  const selectedProvider = providers.find((p) => String(p.id) === form.provider_id)
+  const modelOptions = selectedProvider?.models || []
   const applyPreset = (key) => {
     const p = presets[key]
     if (!p) return
@@ -95,6 +98,7 @@ export function AgentForm({ providers, presets, initial, onSubmit, onCancel, sav
     onSubmit({
       name: form.name,
       provider_id: form.provider_id ? parseInt(form.provider_id, 10) : undefined,
+      model: form.model,
       system_prompt: form.system_prompt,
       tools: form.tools,
       max_turns: form.max_turns ? parseInt(form.max_turns, 10) : undefined,
@@ -121,12 +125,29 @@ export function AgentForm({ providers, presets, initial, onSubmit, onCancel, sav
           <input value={form.name} onChange={set('name')} placeholder="default" required />
         </label>
         <label className="field">
-          <span className="field-label">Provider / model</span>
-          <select value={form.provider_id} onChange={set('provider_id')} required>
+          <span className="field-label">Provider</span>
+          <select
+            value={form.provider_id}
+            onChange={(e) => setForm((f) => ({ ...f, provider_id: e.target.value, model: '' }))}
+            required
+          >
             <option value="">Choose a provider...</option>
             {providers.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.name} ({p.model})
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span className="field-label">Model</span>
+          <select value={form.model} onChange={set('model')} disabled={!selectedProvider}>
+            <option value="">
+              Provider default{selectedProvider?.model ? ` (${selectedProvider.model})` : ''}
+            </option>
+            {modelOptions.map((m) => (
+              <option key={m} value={m}>
+                {m}
               </option>
             ))}
           </select>
@@ -178,7 +199,10 @@ export function SimpleAgentForm({ defaultAgent, providers, saving, error, onSave
   const [providerId, setProviderId] = useState(
     defaultAgent?.provider_id ? String(defaultAgent.provider_id) : ''
   )
+  const [model, setModel] = useState(defaultAgent?.model || '')
   const [prompt, setPrompt] = useState(defaultAgent?.system_prompt || '')
+
+  const selectedProvider = providers.find((p) => String(p.id) === providerId)
 
   const submit = (e) => {
     e.preventDefault()
@@ -186,6 +210,7 @@ export function SimpleAgentForm({ defaultAgent, providers, saving, error, onSave
     onSave({
       name: defaultAgent?.name || 'default',
       provider_id: parseInt(providerId, 10),
+      model,
       system_prompt: prompt,
       tools: ALL_TOOLS,
       max_turns: defaultAgent?.max_turns || 10,
@@ -222,12 +247,32 @@ export function SimpleAgentForm({ defaultAgent, providers, saving, error, onSave
       </div>
       <form className="agent-form" onSubmit={submit}>
         <label className="field">
-          <span className="field-label">Provider / model</span>
-          <select value={providerId} onChange={(e) => setProviderId(e.target.value)} required>
+          <span className="field-label">Provider</span>
+          <select
+            value={providerId}
+            onChange={(e) => {
+              setProviderId(e.target.value)
+              setModel('')
+            }}
+            required
+          >
             <option value="">Choose a provider...</option>
             {providers.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.name} ({p.model})
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span className="field-label">Model</span>
+          <select value={model} onChange={(e) => setModel(e.target.value)} disabled={!selectedProvider}>
+            <option value="">
+              Provider default{selectedProvider?.model ? ` (${selectedProvider.model})` : ''}
+            </option>
+            {(selectedProvider?.models || []).map((m) => (
+              <option key={m} value={m}>
+                {m}
               </option>
             ))}
           </select>

@@ -56,7 +56,8 @@ class Provider(SQLModel, table=True):
     base_url: str
     api_key_env: str = ""  # optional env var name holding the key
     api_key: Optional[str] = Field(default=None)  # key stored from the UI (optional)
-    model: str = ""
+    model: str = ""  # default model
+    models: str = "[]"  # JSON list of model ids configured for this provider
     created_at: datetime = Field(default_factory=_now)
 
 
@@ -71,6 +72,7 @@ class AgentConfig(SQLModel, table=True):
     name: str
     system_prompt: str = ""
     provider_id: int = Field(foreign_key="provider.id")
+    model: Optional[str] = Field(default=None)  # overrides the provider's model when set
     tools: str = "repo,files"  # comma-separated tool groups: repo, files, github, memory
     max_turns: int = 6
     created_at: datetime = Field(default_factory=_now)

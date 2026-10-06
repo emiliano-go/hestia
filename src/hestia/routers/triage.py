@@ -92,6 +92,7 @@ def review_item(project_id: int, body: dict, s: Session = Depends(session)):
         or project.default_provider_id
     )
     provider = s.get(Provider, provider_id) if provider_id else None
+    provider = actions.effective_provider(agent, provider)
     if provider is None:
         raise HTTPException(400, "no provider configured for this project")
 
@@ -188,6 +189,7 @@ def triage(project_id: int, body: dict, s: Session = Depends(session)):
     provider = s.get(Provider, agent.provider_id) if agent else None
     if provider is None and project.default_provider_id:
         provider = s.get(Provider, project.default_provider_id)
+    provider = actions.effective_provider(agent, provider)
     if provider is None:
         raise HTTPException(400, "no provider configured for this project")
 

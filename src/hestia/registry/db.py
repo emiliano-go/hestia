@@ -81,6 +81,17 @@ def _migrate() -> None:
         provider_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(provider)")}
         if provider_columns and "api_key" not in provider_columns:
             conn.exec_driver_sql("ALTER TABLE provider ADD COLUMN api_key TEXT")
+        if provider_columns and "models" not in provider_columns:
+            conn.exec_driver_sql("ALTER TABLE provider ADD COLUMN models TEXT DEFAULT '[]'")
+            # seed the list from the existing single default model
+            conn.exec_driver_sql(
+                "UPDATE provider SET models = '[\"' || model || '\"]' "
+                "WHERE (models IS NULL OR models = '[]') AND model IS NOT NULL AND model != ''"
+            )
+
+        agent_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(agentconfig)")}
+        if agent_columns and "model" not in agent_columns:
+            conn.exec_driver_sql("ALTER TABLE agentconfig ADD COLUMN model TEXT")
 
         message_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(message)")}
         if message_columns and "tool_call_id" not in message_columns:

@@ -8,6 +8,7 @@ can use a single agent for everything while advanced setups specialise.
 
 from sqlmodel import Session, select
 
+from hestia.providers.base import resolve_model
 from hestia.registry.models import ActionDefault, AgentConfig
 
 ACTIONS: list[dict] = [
@@ -131,3 +132,17 @@ def resolve_action(db: Session, key: str) -> AgentConfig | None:
             if agent:
                 return agent
     return db.exec(select(AgentConfig).where(AgentConfig.name == key)).first()
+
+
+def effective_provider(agent, provider):
+    """The provider with its model overridden by the agent's chosen model.
+
+    Lets every downstream ``provider.model`` use the right model without
+    threading it through each call site.
+    """
+    if provider is None:
+        return None
+    model = resolve_model(agent, provider)
+    if model and model != provider.model:
+        return provider.model_copy(update={"model": model})
+    return provider

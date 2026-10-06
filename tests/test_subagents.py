@@ -140,3 +140,37 @@ def test_subagent_action_uses_assigned_agent_model(tmp_path, monkeypatch):
 
         assert actions.resolve_action(s, "explore").name == "explore"
         assert actions.resolve_action(s, "github-scan").name == "default"
+
+
+def test_subagent_uses_agent_model_override(tmp_path, monkeypatch):
+    os.environ["DATA_DIR"] = str(tmp_path / "data")
+    init_db()
+
+    captured = {}
+
+    def fake_client(base_url, api_key, model, **kwargs):
+        captured["model"] = model
+        return object()
+
+    monkeypatch.setattr(subagents, "OpenAIClient", fake_client)
+    monkeypatch.setattr(
+        subagents,
+        "_run_subagent_in_thread",
+        lambda ctx, client, registry, messages, max_turns: {"summary": "ok"},
+    )
+
+    with Session(engine()) as s:
+        provider = Provider(
+            name="multi", base_url="http://x", model="m1", models='["m1","m2"]'
+        )
+        s.add(provider)
+        s.commit()
+        s.refresh(provider)
+        s.add(AgentConfig(name="explore-ovr", provider_id=provider.id, model="m2", tools="repo", max_turns=2))
+        s.commit()
+
+        tools = {t.name: t for t in subagents.make_tools(s)}
+        ctx = ProjectContext(project_id=1, name="t", repo_url="", local_path=tmp_path)
+        tools["run_subagent"].handler(ctx, {"agent": "explore-ovr", "task": "x"})
+
+    assert captured["model"] == "m2"

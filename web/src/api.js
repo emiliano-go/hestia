@@ -152,6 +152,10 @@ export const api = {
   listProviders: () => request('/providers'),
   listProviderModels: (body) =>
     request('/providers/models', { method: 'POST', body: JSON.stringify(body) }),
+  addProviderModels: (id, models) =>
+    request(`/providers/${id}/models`, { method: 'POST', body: JSON.stringify({ models }) }),
+  removeProviderModel: (id, name) =>
+    request(`/providers/${id}/models/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   createProvider: (body) => request('/providers', { method: 'POST', body: JSON.stringify(body) }),
   deleteProvider: (id) => request(`/providers/${id}`, { method: 'DELETE' }),
   testProvider: (id) => request(`/providers/${id}/test`, { method: 'POST' }),
