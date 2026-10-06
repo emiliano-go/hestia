@@ -174,3 +174,63 @@ def test_subagent_uses_agent_model_override(tmp_path, monkeypatch):
         tools["run_subagent"].handler(ctx, {"agent": "explore-ovr", "task": "x"})
 
     assert captured["model"] == "m2"
+
+
+def test_delegation_modes_filter_tools():
+    from hestia.tools.subagents import delegated_registry
+
+    read = {t.name for t in delegated_registry("repo,files,memory,workspace", "read").all()}
+    assert {"read_file", "grep", "memory_search", "workspace_read"} <= read
+    assert not read & {"workspace_write", "memory_create", "memory_update", "memory_delete"}
+
+    write = {t.name for t in delegated_registry("repo,files,memory,workspace", "write").all()}
+    assert {"workspace_write", "memory_create", "memory_update", "memory_delete"} <= write
+
+    # principal-only groups are stripped even when a profile lists them
+    stripped = delegated_registry(
+        "images,tasks,agents,background,automations,browser", "write"
+    )
+    assert stripped.all() == []
+
+    # git writes: file edits are delegable, git mutations never are
+    assert "write_file" not in {t.name for t in delegated_registry("repo,writes", "write").all()}
+    edit = {t.name for t in delegated_registry("repo,writes", "write", writes=True).all()}
+    assert "write_file" in edit
+    assert not edit & {"git_create_branch", "git_commit", "git_push", "gh_open_pr"}
+    read_edit = {
+        t.name for t in delegated_registry("repo,writes", "read", writes=True).all()
+    }
+    assert "write_file" not in read_edit
+
+
+def test_subagent_system_notes():
+    from types import SimpleNamespace
+
+    from hestia.tools.subagents import subagent_system
+
+    read = subagent_system(SimpleNamespace(mode="read", system_prompt="X"))
+    write = subagent_system(SimpleNamespace(mode="write", system_prompt="X"))
+    assert "Read-only mode" in read and "Write mode" not in read
+    assert "Write mode" in write and "Read-only mode" not in write
+
+
+def test_subagent_rejects_non_delegable_profile(tmp_path, monkeypatch):
+    import pytest
+
+    os.environ["DATA_DIR"] = str(tmp_path / "data")
+    init_db()
+
+    with Session(engine()) as s:
+        provider = Provider(name="img", base_url="http://x", api_key_env="NOPE", model="m")
+        s.add(provider)
+        s.commit()
+        s.refresh(provider)
+        s.add(AgentConfig(
+            name="image-only", provider_id=provider.id, tools="images", mode="write", max_turns=2
+        ))
+        s.commit()
+
+        tools = {t.name: t for t in subagents.make_tools(s)}
+        ctx = ProjectContext(project_id=1, name="t", repo_url="", local_path=tmp_path)
+        with pytest.raises(ValueError, match="no delegable tools"):
+            tools["run_subagent"].handler(ctx, {"agent": "image-only", "task": "draw"})

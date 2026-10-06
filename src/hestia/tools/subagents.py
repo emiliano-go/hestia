@@ -2,8 +2,17 @@
 
 Each AgentConfig has its own provider (any OpenAI-compatible model), system
 prompt, and tool subset, so cheap models can run exploration while the main
-agent reasons with a stronger one. Subagents never get the agents tool group,
-so they cannot spawn further subagents.
+agent reasons with a stronger one.
+
+Delegation has two modes, enforced here for foreground and background runs:
+read (exploration, scanning, review: no writes at all) and write (workspace
+files, project memory, and file edits in the clone when the project has git
+writes enabled, for cheap bulk work like doc sweeps, renames, and typo
+fixes). Subagents can never run mutating git commands (branch/commit/push/PR)
+or use principal-only capabilities (images, task board, automations,
+notifications, delegation itself); the principal commits and opens PRs after
+review. Subagents never get the agents group, so they cannot spawn further
+subagents.
 """
 
 import asyncio
@@ -19,6 +28,17 @@ from hestia.registry.models import AgentConfig, Provider
 from hestia.tools import build_registry
 from hestia.tools.registry import ProjectContext, Registry, Tool, schema
 
+DELEGABLE_GROUPS = (
+    "repo",
+    "files",
+    "github",
+    "web",
+    "skills",
+    "memory",
+    "workspace",
+    "writes",
+)
+
 SUBAGENT_PROMPT = """\
 You are a subagent of a project cockpit agent. Complete the task below and
 return a concise, self-contained summary of your findings (plain text, no
@@ -26,6 +46,47 @@ questions back).
 
 ## Policy
 """ + POLICY
+
+READONLY_NOTE = """\
+## Read-only mode (overrides the policy above)
+This run has read-only tools: you cannot write files, the workspace, or
+memory. Investigate, inspect, and report only.
+"""
+
+WRITE_NOTE = """\
+## Write mode
+You may write workspace files and project memory. When git writes are enabled
+you may also edit repository files with write_file. You cannot run mutating
+git commands: the principal agent handles branches, commits, pushes, and pull
+requests after reviewing your changes.
+"""
+
+
+def delegated_registry(
+    groups: str, mode: str = "read", writes: bool = False, db=None
+) -> Registry:
+    """The only registry a subagent ever gets: delegable groups, read-only in read mode.
+
+    Principal-only groups (images, tasks, agents, automations, ...) and
+    principal-only tools (git branch/commit/push/PR) are stripped even when a
+    profile lists them. ``writes`` is the project's allow_git_writes flag: in
+    write mode it adds file editing in the clone; git mutations stay with the
+    principal.
+    """
+    wanted = [g.strip() for g in (groups or "").split(",") if g.strip()]
+    allowed = [g for g in wanted if g in DELEGABLE_GROUPS]
+    registry = build_registry()
+    if writes:
+        from hestia.tools import gitwrites
+
+        gitwrites.register(registry, db)
+    registry = registry.filtered(allowed).delegable()
+    return registry.readonly() if (mode or "read") == "read" else registry
+
+
+def subagent_system(config: AgentConfig) -> str:
+    note = READONLY_NOTE if (config.mode or "read") == "read" else WRITE_NOTE
+    return f"{SUBAGENT_PROMPT}\n{note}\n## Agent instructions\n{config.system_prompt}"
 
 
 def make_tools(db: Session) -> list[Tool]:
@@ -66,13 +127,16 @@ def make_tools(db: Session) -> list[Tool]:
             provider.model,
             session=f"subagent-{ctx.session_id or ctx.project_id}",
         )
-        groups = [g.strip() for g in config.tools.split(",") if g.strip()]
-        registry = build_registry().filtered(groups)
+        registry = delegated_registry(
+            config.tools, config.mode, writes=ctx.allow_git_writes, db=db
+        )
+        if not registry.all():
+            raise ValueError(
+                f"agent profile '{config.name}' has no delegable tools "
+                f"(tools={config.tools!r}, mode={config.mode!r})"
+            )
         messages = [
-            {
-                "role": "system",
-                "content": f"{SUBAGENT_PROMPT}\n\n## Agent instructions\n{config.system_prompt}",
-            },
+            {"role": "system", "content": subagent_system(config)},
             {"role": "user", "content": args["task"]},
         ]
         result = _run_subagent_in_thread(ctx, client, registry, messages, config.max_turns)
@@ -86,6 +150,7 @@ def make_tools(db: Session) -> list[Tool]:
             {
                 "name": c.name,
                 "tools": c.tools,
+                "mode": c.mode,
                 "max_turns": c.max_turns,
                 "provider_id": c.provider_id,
             }
@@ -96,11 +161,15 @@ def make_tools(db: Session) -> list[Tool]:
         Tool(
             name="run_subagent",
             description=(
-                "Delegate a read-only subtask to a specialised agent. Pass an "
-                "'action' (the configured role: explore, github-scan, "
-                "memory-keeper, writer, code-reviewer) so the app uses the agent "
-                "assigned to it, or a specific 'agent' profile name (see "
-                "agent_list). Returns the subagent's summary."
+                "Delegate a subtask to a specialised agent: read mode for "
+                "exploration, scanning, and review, write mode for workspace "
+                "deliverables, memory curation, and bulk file edits in the "
+                "clone (doc sweeps, renames, typo fixes) with a cheap model. "
+                "Pass an 'action' (the configured role: explore, github-scan, "
+                "memory-keeper, writer, code-reviewer, bulk-edit) so the app "
+                "uses the agent assigned to it, or a specific 'agent' profile "
+                "name (see agent_list). Subagents can edit files but never "
+                "branch, commit, push, or open PRs; those are yours."
             ),
             parameters=schema({
                 "action": {
@@ -112,11 +181,7 @@ def make_tools(db: Session) -> list[Tool]:
                         "memory-keeper",
                         "writer",
                         "code-reviewer",
-                        "goal",
-                        "docs",
-                        "triage",
-                        "capture",
-                        "memory-fix",
+                        "bulk-edit",
                     ],
                 },
                 "agent": {"type": "string", "description": "agent profile name (see agent_list)"},
@@ -138,7 +203,7 @@ def make_tools(db: Session) -> list[Tool]:
         ),
         Tool(
             name="agent_list",
-            description="List available subagent profiles (name, tool groups, provider).",
+            description="List available subagent profiles (name, mode, tool groups, provider).",
             parameters=schema({}, []),
             handler=list_handler,
             group="agents",

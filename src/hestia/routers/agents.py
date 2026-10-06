@@ -19,6 +19,7 @@ PRESETS = {
             "file paths, symbols, and concise findings."
         ),
         "tools": "repo,files",
+        "mode": "read",
         "max_turns": 6,
     },
     "github-scan": {
@@ -29,6 +30,7 @@ PRESETS = {
             "numbers, and statuses."
         ),
         "tools": "github,repo",
+        "mode": "read",
         "max_turns": 6,
     },
     "memory-keeper": {
@@ -39,6 +41,7 @@ PRESETS = {
             "recording. Create or update memories where warranted."
         ),
         "tools": "memory",
+        "mode": "write",
         "max_turns": 6,
     },
     "writer": {
@@ -46,10 +49,26 @@ PRESETS = {
         "system_prompt": (
             "You are a writing subagent. Produce the deliverable in the "
             "project workspace with workspace_write (plans, specs, docs) and "
-            "return a short summary with the file paths you wrote."
+            "return a short summary with the file paths you wrote. When git "
+            "writes are enabled you may also edit repo docs with write_file; "
+            "the principal commits and opens the pull request."
         ),
-        "tools": "workspace,repo,files",
+        "tools": "workspace,repo,files,writes",
+        "mode": "write",
         "max_turns": 8,
+    },
+    "bulk-editor": {
+        "name": "bulk-editor",
+        "system_prompt": (
+            "You are a bulk editing subagent for large, simple, mechanical "
+            "changes: doc sweeps, renames, typo fixes, repetitive edits. When "
+            "git writes are enabled, edit files with write_file in small "
+            "verifiable batches. Do not commit: the principal reviews the diff "
+            "and commits. Report exactly what changed."
+        ),
+        "tools": "repo,files,writes,workspace",
+        "mode": "write",
+        "max_turns": 12,
     },
     "code-reviewer": {
         "name": "code-reviewer",
@@ -58,9 +77,17 @@ PRESETS = {
             "code and diffs, then return findings ordered by severity."
         ),
         "tools": "repo,files,github",
+        "mode": "read",
         "max_turns": 8,
     },
 }
+
+
+def _mode(body: dict) -> str:
+    mode = (body.get("mode") or "read").strip().lower()
+    if mode not in ("read", "write"):
+        raise HTTPException(400, "mode must be 'read' or 'write'")
+    return mode
 
 
 @router.get("/presets")
@@ -89,6 +116,7 @@ def create_agent(body: dict, s: Session = Depends(session)):
         provider_id=body["provider_id"],
         model=(body.get("model") or "").strip() or None,
         tools=tools,
+        mode=_mode(body),
         max_turns=body.get("max_turns", 6),
     )
     s.add(config)
@@ -113,6 +141,8 @@ def update_agent(agent_id: int, body: dict, s: Session = Depends(session)):
     if "tools" in body:
         tools = body["tools"]
         config.tools = ",".join(tools) if isinstance(tools, list) else tools
+    if "mode" in body:
+        config.mode = _mode(body)
     if body.get("max_turns"):
         config.max_turns = int(body["max_turns"])
     s.add(config)

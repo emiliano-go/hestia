@@ -220,6 +220,7 @@ def register(registry: Registry, db: Session | None = None) -> None:
         }, ["path", "content"]),
         handler=_write_file,
         group="writes",
+        effect="write",
     ))
     registry.register(Tool(
         name="git_create_branch",
@@ -227,6 +228,8 @@ def register(registry: Registry, db: Session | None = None) -> None:
         parameters=schema({"name": {"type": "string"}}, ["name"]),
         handler=_create_branch,
         group="writes",
+        effect="write",
+        delegable=False,
     ))
     registry.register(Tool(
         name="git_commit",
@@ -237,6 +240,8 @@ def register(registry: Registry, db: Session | None = None) -> None:
         }, ["message"]),
         handler=_commit,
         group="writes",
+        effect="write",
+        delegable=False,
     ))
     registry.register(Tool(
         name="git_push",
@@ -244,6 +249,8 @@ def register(registry: Registry, db: Session | None = None) -> None:
         parameters=schema({"branch": {"type": "string"}}, []),
         handler=lambda ctx, a: _push(ctx, a, db),
         group="writes",
+        effect="write",
+        delegable=False,
     ))
     registry.register(Tool(
         name="gh_open_pr",
@@ -255,4 +262,6 @@ def register(registry: Registry, db: Session | None = None) -> None:
         }, ["title"]),
         handler=lambda ctx, a: _open_pr(ctx, a, db),
         group="writes",
+        effect="write",
+        delegable=False,
     ))

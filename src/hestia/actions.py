@@ -79,6 +79,16 @@ ACTIONS: list[dict] = [
         "tools": "repo,files,github,workspace,tasks",
     },
     {
+        "key": "bulk-edit",
+        "label": "Bulk code edits",
+        "description": (
+            "Delegate large mechanical changes (doc sweeps, renames, typo "
+            "fixes) to a cheap write agent: it edits files in the clone, the "
+            "principal commits and opens the pull request."
+        ),
+        "tools": "repo,files,writes,workspace",
+    },
+    {
         "key": "capture",
         "label": "Capture notes",
         "description": (

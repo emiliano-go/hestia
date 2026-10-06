@@ -56,6 +56,7 @@ def register(registry: Registry) -> None:
         }, ["path", "content"]),
         handler=lambda ctx, a: _write(ctx, a["path"], a["content"]),
         group="workspace",
+        effect="write",
     ))
     registry.register(Tool(
         name="workspace_read",

@@ -382,9 +382,11 @@ export function HelpView() {
           ))}
         </div>
         <p className="help-note">
-          When an agent uses <strong>Delegation</strong>, it hands a read-only subtask to the agent
-          configured for an action and continues with the summary. Subagents cannot delegate
-          further.
+          When an agent uses <strong>Delegation</strong>, it hands a subtask to the agent
+          configured for an action and continues with the summary. Read mode explores and reports
+          (no writes); write mode may also write workspace files, curate memory, and edit files in
+          the clone when git writes are on, but never commits or pushes: the main agent reviews
+          the diff and does that. Subagents cannot delegate further.
         </p>
         <p>
           The agent can also <strong>ask you a question</strong> with <code>ask_user</code> when a

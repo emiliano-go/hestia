@@ -221,7 +221,7 @@ class JobManager:
 async def _execute_job(
     db: Session, job: BackgroundTask, project: Project
 ) -> tuple[str, str | None, dict]:
-    from hestia.tools.subagents import SUBAGENT_PROMPT
+    from hestia.tools.subagents import SUBAGENT_PROMPT, subagent_system
 
     agent = _agent_for(db, job.action or "chat")
     provider = _provider_for(db, project, agent)
@@ -231,9 +231,16 @@ async def _execute_job(
     ctx.session_id = job.session_id
     instruction = job.instruction or job.description or "Do the background task."
 
+    mode = None
     if job.kind == "subagent":
-        system = f"{SUBAGENT_PROMPT}\n\n## Agent instructions\n{agent.system_prompt if agent else ''}"
-        groups = agent.tools if agent else "repo,files"
+        if agent:
+            system = subagent_system(agent)
+            groups = agent.tools
+            mode = agent.mode or "read"
+        else:
+            system = SUBAGENT_PROMPT
+            groups = "repo,files"
+            mode = "read"
     else:
         digest = totem_store.digest(ctx.local_path, task=instruction)
         system = build_system_prompt(
@@ -257,9 +264,10 @@ async def _execute_job(
         system,
         instruction,
         groups=groups,
-        max_turns=agent.max_turns if agent else 10,
+        max_turns=agent.max_turns if agent else (6 if mode else 10),
         tasks_db=db,
         writes=bool(project.allow_git_writes),
+        mode=mode,
     )
     usage.record(
         db,

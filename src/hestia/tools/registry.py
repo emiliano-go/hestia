@@ -17,6 +17,7 @@ class ProjectContext:
     local_path: Path
     workspace_path: Path | None = None
     session_id: int | None = None  # set for interactive chat turns
+    allow_git_writes: bool = False  # project opt-in; gates write-mode clone edits
 
     @classmethod
     def from_project(cls, project) -> "ProjectContext":
@@ -28,6 +29,7 @@ class ProjectContext:
             repo_url=project.repo_url,
             local_path=Path(project.local_path),
             workspace_path=config.workspace_dir(project.name),
+            allow_git_writes=bool(getattr(project, "allow_git_writes", False)),
         )
 
 
@@ -38,6 +40,8 @@ class Tool:
     parameters: dict[str, Any]  # JSON Schema for the tool arguments
     handler: Callable[[ProjectContext, dict[str, Any]], Any]
     group: str = ""  # repo | files | github | memory | agents
+    effect: str = "read"  # read | write; write tools are dropped in read delegation mode
+    delegable: bool = True  # False: principal-only, never handed to a subagent
 
 
 class Registry:
@@ -58,6 +62,22 @@ class Registry:
         view = Registry()
         for tool in self._tools.values():
             if not tool.group or tool.group in groups:
+                view.register(tool)
+        return view
+
+    def readonly(self) -> "Registry":
+        """A view without write-effect tools (read delegation mode, side questions)."""
+        view = Registry()
+        for tool in self._tools.values():
+            if tool.effect == "read":
+                view.register(tool)
+        return view
+
+    def delegable(self) -> "Registry":
+        """A view without principal-only tools (what a subagent may ever use)."""
+        view = Registry()
+        for tool in self._tools.values():
+            if tool.delegable:
                 view.register(tool)
         return view
 

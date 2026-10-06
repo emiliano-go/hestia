@@ -339,3 +339,61 @@ def test_daily_plan_and_weekly_review_gates(client, monkeypatch):
 
     assert client.put("/api/settings", json={"weekly_review_time": "25:00"}).status_code == 400
     assert client.put("/api/settings", json={"weekly_review_day": "9"}).status_code == 400
+
+
+def test_background_subagent_uses_delegation_mode(client, monkeypatch):
+    import asyncio
+
+    from sqlmodel import Session as SqlSession
+
+    from hestia import jobs
+    from hestia.agent import run as run_mod
+    from hestia.registry.db import engine
+    from hestia.registry.models import BackgroundTask
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+    client.put(f"/api/projects/{project['id']}/git-writes", json={"enabled": True})
+    client.post(
+        "/api/agents",
+        json={
+            "name": "bulk-editor",
+            "provider_id": provider["id"],
+            "tools": ["repo", "workspace", "memory", "writes", "tasks", "images"],
+            "mode": "write",
+            "max_turns": 2,
+        },
+    )
+    seen = {}
+
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+        seen["tools"] = {t.name for t in registry.all()}
+        seen["system"] = messages[0]["content"]
+        yield {"type": "message", "content": "ok", "tool_calls": []}
+
+    monkeypatch.setattr(run_mod.agent_loop, "run_turn", fake_run_turn)
+    monkeypatch.setattr(jobs.manager, "enqueue", lambda job_id: None)
+
+    job_id = jobs.submit(
+        project_id=project["id"],
+        session_id=None,
+        kind="subagent",
+        instruction="write the docs",
+        description="docs overhaul",
+        action="bulk-editor",
+    )
+    asyncio.run(jobs.manager._run(job_id))
+
+    assert {"write_file", "workspace_write", "memory_create"} <= seen["tools"]
+    assert not seen["tools"] & {
+        "git_create_branch",
+        "git_commit",
+        "git_push",
+        "gh_open_pr",
+        "task_create",
+        "generate_image",
+        "notify",
+    }
+    assert "Write mode" in seen["system"]
+    with SqlSession(engine()) as db:
+        assert db.get(BackgroundTask, job_id).status == "completed"

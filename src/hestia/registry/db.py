@@ -92,6 +92,13 @@ def _migrate() -> None:
         agent_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(agentconfig)")}
         if agent_columns and "model" not in agent_columns:
             conn.exec_driver_sql("ALTER TABLE agentconfig ADD COLUMN model TEXT")
+        if agent_columns and "mode" not in agent_columns:
+            conn.exec_driver_sql("ALTER TABLE agentconfig ADD COLUMN mode TEXT DEFAULT 'read'")
+            # profiles that can already write workspace/memory become write mode
+            conn.exec_driver_sql(
+                "UPDATE agentconfig SET mode = 'write' "
+                "WHERE tools LIKE '%workspace%' OR tools LIKE '%memory%'"
+            )
 
         message_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(message)")}
         if message_columns and "tool_call_id" not in message_columns:

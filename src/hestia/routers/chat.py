@@ -30,11 +30,15 @@ HEARTBEAT_SECONDS = float(os.environ.get("HESTIA_SSE_HEARTBEAT", "15"))
 
 _DELEGATION_NOTE = """\
 ## Delegation
-You can delegate read-only subtasks to specialised agents via run_subagent,
-preferably by action (explore, github-scan, memory-keeper, writer,
-code-reviewer) so the app uses the agent assigned to that role; list specific
-profiles with agent_list. Delegate exploration and scanning instead of doing
-everything yourself."""
+You can delegate subtasks via run_subagent: read mode for exploration,
+scanning, and review; write mode for workspace deliverables, memory curation,
+and bulk file edits (doc sweeps, renames, typo fixes) when git writes are
+enabled. Prefer an action (explore, github-scan, memory-keeper, writer,
+code-reviewer, bulk-edit) so the app uses the agent assigned to that role;
+list profiles with agent_list. Send large mechanical edits to a cheap
+bulk-edit agent, then review the diff and commit/push/open the PR yourself:
+subagents can edit files but never run mutating git commands. Images, the
+task board, automations, and notifications are yours alone too."""
 
 _GOAL_NOTE = """\
 ## Goal mode

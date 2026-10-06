@@ -74,6 +74,7 @@ class AgentConfig(SQLModel, table=True):
     provider_id: int = Field(foreign_key="provider.id")
     model: Optional[str] = Field(default=None)  # overrides the provider's model when set
     tools: str = "repo,files"  # comma-separated tool groups: repo, files, github, memory
+    mode: str = "read"  # delegation mode: read (no writes) | write (workspace + memory)
     max_turns: int = 6
     created_at: datetime = Field(default_factory=_now)
 

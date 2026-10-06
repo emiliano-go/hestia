@@ -71,6 +71,7 @@ def register(registry: Registry) -> None:
             metadata=a.get("metadata"),
         ),
         group="memory",
+        effect="write",
     ))
     registry.register(Tool(
         name="memory_update",
@@ -90,6 +91,7 @@ def register(registry: Registry) -> None:
             details=a.get("details"),
         ),
         group="memory",
+        effect="write",
     ))
     registry.register(Tool(
         name="memory_delete",
@@ -100,4 +102,5 @@ def register(registry: Registry) -> None:
         }, ["id", "reason"]),
         handler=lambda ctx, a: totem_store.delete(ctx.local_path, a["id"], a["reason"]),
         group="memory",
+        effect="write",
     ))

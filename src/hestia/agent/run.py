@@ -24,35 +24,49 @@ async def run_once(
     tasks_db: Session | None = None,
     writes: bool = False,
     model: str | None = None,
+    mode: str | None = None,
 ) -> tuple[str, str | None, dict]:
     """Run one agent turn to completion.
+
+    ``mode`` marks a delegated subagent run ("read" or "write"): the registry
+    is capped to delegable groups and stripped of writes in read mode, and
+    principal-only tools (images, task board, automations) are never added.
+    ``writes`` is the project's allow_git_writes flag: in write mode it adds
+    the repo edit tools, gated by the approval check through ``tasks_db``.
 
     Returns ``(final_text, error, token_usage)``.
     """
     ctx = ProjectContext.from_project(project)
-    registry = build_registry(writes=writes)
-    wanted = [g for g in (groups or "").split(",") if g]
-    if wanted:
-        registry = registry.filtered(wanted)
-    if tasks_db is not None:
-        from hestia.tools import jobs as job_tools
-        from hestia.tools import preferences as pref_tools
-        from hestia.tools import reminders as reminder_tools
-        from hestia.tools import schedules as schedule_tools
-        from hestia.tools import watches as watch_tools
+    if mode is not None:
+        from hestia.tools.subagents import delegated_registry
 
-        builders = {
-            "tasks": task_tools.make_tools,
-            "reminders": reminder_tools.make_tools,
-            "watches": watch_tools.make_tools,
-            "background": job_tools.make_tools,
-            "automations": schedule_tools.make_tools,
-            "memory": pref_tools.make_tools,
-        }
-        for group, builder in builders.items():
-            if group in wanted:
-                for tool in builder(tasks_db):
-                    registry.register(tool)
+        registry = delegated_registry(groups, mode, writes=writes, db=tasks_db)
+        if not registry.all():
+            return "", f"no delegable tools (groups={groups!r}, mode={mode!r})", {}
+    else:
+        registry = build_registry(writes=writes)
+        wanted = [g for g in (groups or "").split(",") if g]
+        if wanted:
+            registry = registry.filtered(wanted)
+        if tasks_db is not None:
+            from hestia.tools import jobs as job_tools
+            from hestia.tools import preferences as pref_tools
+            from hestia.tools import reminders as reminder_tools
+            from hestia.tools import schedules as schedule_tools
+            from hestia.tools import watches as watch_tools
+
+            builders = {
+                "tasks": task_tools.make_tools,
+                "reminders": reminder_tools.make_tools,
+                "watches": watch_tools.make_tools,
+                "background": job_tools.make_tools,
+                "automations": schedule_tools.make_tools,
+                "memory": pref_tools.make_tools,
+            }
+            for group, builder in builders.items():
+                if group in wanted:
+                    for tool in builder(tasks_db):
+                        registry.register(tool)
     client = OpenAIClient(
         provider.base_url, resolve_api_key(provider), model or provider.model
     )

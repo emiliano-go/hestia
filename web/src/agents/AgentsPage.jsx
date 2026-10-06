@@ -9,40 +9,66 @@ export const TOOL_GROUPS = [
     key: 'repo',
     label: 'Repository',
     desc: 'Git history, diffs, branches, and showing commits in the clone.',
+    delegable: true,
   },
-  { key: 'files', label: 'Files', desc: 'List, read, and search files in the repository.' },
-  { key: 'github', label: 'GitHub', desc: 'Commits, pull requests, issues, and CI runs.' },
-  { key: 'memory', label: 'Memory', desc: 'Read and write Totem project memory.' },
+  {
+    key: 'files',
+    label: 'Files',
+    desc: 'List, read, and search files in the repository.',
+    delegable: true,
+  },
+  {
+    key: 'github',
+    label: 'GitHub',
+    desc: 'Commits, pull requests, issues, and CI runs (read-only).',
+    delegable: true,
+  },
+  {
+    key: 'memory',
+    label: 'Memory',
+    desc: 'Read Totem project memory, and write it in write mode.',
+    delegable: true,
+  },
   {
     key: 'workspace',
     label: 'Workspace',
-    desc: 'Write plans, specs, and docs to the project workspace.',
+    desc: 'Read workspace files, and write plans/specs/docs in write mode.',
+    delegable: true,
+  },
+  {
+    key: 'writes',
+    label: 'Code writes',
+    desc: 'Edit files in the clone (needs git writes). Subagents edit only; branch/commit/push stay with the principal.',
+    delegable: true,
   },
   {
     key: 'tasks',
     label: 'Task board',
-    desc: 'Create and move tasks on the project kanban. Main chat agents only.',
+    desc: 'Create and move tasks on the project kanban. Principal agent only.',
+    delegable: false,
   },
   {
     key: 'agents',
     label: 'Delegation',
-    desc: 'Hand subtasks to other agents. Main chat agents only.',
+    desc: 'Hand subtasks to other agents. Principal agent only.',
+    delegable: false,
   },
 ]
 
 export const ALL_TOOLS = TOOL_GROUPS.map((g) => g.key)
+export const DELEGABLE_GROUPS = TOOL_GROUPS.filter((g) => g.delegable)
 
-export function ToolGroupPicker({ value, onChange }) {
+export function ToolGroupPicker({ value, onChange, groups = TOOL_GROUPS }) {
   const selected = new Set(value)
   const toggle = (k) => {
     const next = new Set(selected)
     if (next.has(k)) next.delete(k)
     else next.add(k)
-    onChange(TOOL_GROUPS.filter((g) => next.has(g.key)).map((g) => g.key))
+    onChange(groups.filter((g) => next.has(g.key)).map((g) => g.key))
   }
   return (
     <div className="tool-groups">
-      {TOOL_GROUPS.map((g) => (
+      {groups.map((g) => (
         <button
           type="button"
           key={g.key}
@@ -77,6 +103,7 @@ export function AgentForm({ providers, presets, initial, onSubmit, onCancel, sav
     model: initial?.model || '',
     system_prompt: initial?.system_prompt || '',
     tools: toTools(initial?.tools),
+    mode: initial?.mode || 'read',
     max_turns: initial?.max_turns != null ? String(initial.max_turns) : '6',
   }))
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
@@ -90,6 +117,7 @@ export function AgentForm({ providers, presets, initial, onSubmit, onCancel, sav
       name: f.name || p.name || key,
       system_prompt: p.system_prompt || '',
       tools: toTools(p.tools),
+      mode: p.mode || 'read',
       max_turns: p.max_turns != null ? String(p.max_turns) : f.max_turns,
     }))
   }
@@ -101,6 +129,7 @@ export function AgentForm({ providers, presets, initial, onSubmit, onCancel, sav
       model: form.model,
       system_prompt: form.system_prompt,
       tools: form.tools,
+      mode: form.mode,
       max_turns: form.max_turns ? parseInt(form.max_turns, 10) : undefined,
     })
   }
@@ -154,12 +183,38 @@ export function AgentForm({ providers, presets, initial, onSubmit, onCancel, sav
         </label>
       </div>
       <div className="field">
+        <span className="field-label">Delegation mode</span>
+        <div className="segmented">
+          <button
+            type="button"
+            className={form.mode === 'read' ? 'on' : ''}
+            onClick={() => setForm((f) => ({ ...f, mode: 'read' }))}
+          >
+            Read
+          </button>
+          <button
+            type="button"
+            className={form.mode === 'write' ? 'on' : ''}
+            onClick={() => setForm((f) => ({ ...f, mode: 'write' }))}
+          >
+            Write
+          </button>
+        </div>
+        <span className="field-hint">
+          Read: explore and report only. Write: may also write workspace files and project
+          memory. Project code stays read-only either way.
+        </span>
+      </div>
+      <div className="field">
         <span className="field-label">What this agent can do</span>
         <ToolGroupPicker
           value={form.tools}
+          groups={DELEGABLE_GROUPS}
           onChange={(tools) => setForm((f) => ({ ...f, tools }))}
         />
-        <span className="field-hint">Leave everything off for a plain chat model.</span>
+        <span className="field-hint">
+          Images, the task board, and delegation belong to the principal agent only.
+        </span>
       </div>
       <label className="field narrow">
         <span className="field-label">Max tool turns</span>
@@ -213,6 +268,7 @@ export function SimpleAgentForm({ defaultAgent, providers, saving, error, onSave
       model,
       system_prompt: prompt,
       tools: ALL_TOOLS,
+      mode: 'write',
       max_turns: defaultAgent?.max_turns || 10,
     })
   }
@@ -470,7 +526,8 @@ export function AgentsPage({ onOpenSettings }) {
                       </div>
                       <div className="agent-card-meta">
                         {providerName(a.provider_id)} · {providerModel(a.provider_id) || 'model'} ·{' '}
-                        {toTools(a.tools).length} tool groups · {a.max_turns} turns
+                        {a.mode || 'read'} mode · {toTools(a.tools).length} tool groups ·{' '}
+                        {a.max_turns} turns
                       </div>
                     </div>
                     <div className="agent-card-actions">
