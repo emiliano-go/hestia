@@ -6,7 +6,7 @@ import { Composer, Skeleton, Spinner } from '../components/primitives.jsx'
 import { Icon } from '../icons.jsx'
 import { fmtTokens, relDate, truncate } from '../lib/format.js'
 import { useAsync } from '../lib/hooks.js'
-import { clickable } from '../lib/ui.js'
+import { clickable, handleArrowNav } from '../lib/ui.js'
 
 export const WELCOME_SUGGESTIONS = [
   'Explain how this codebase is structured',
@@ -286,7 +286,7 @@ export function ProjectOverviewView({ project, since, onStart, onNavigate, onOpe
       {usage?.budget?.budget && (
         <button
           type="button"
-          className={`digest clickable ${usage.budget.percent >= 80 ? 'budget-alert' : ''}`}
+          className={`digest clickable ${usage.budget.over ? 'budget-critical' : usage.budget.percent >= 80 ? 'budget-alert' : ''}`}
           onClick={() => setDetail({ id: 'tokens', title: 'Token usage' })}
         >
           <span className="digest-head">
@@ -330,7 +330,7 @@ export function ProjectOverviewView({ project, since, onStart, onNavigate, onOpe
           ))}
         </div>
       ) : (
-        <div className="stat-grid">
+        <div className="stat-grid" onKeyDown={handleArrowNav}>
           <Stat
             icon="git"
             label="Branch"
@@ -385,7 +385,7 @@ export function ProjectOverviewView({ project, since, onStart, onNavigate, onOpe
                 icon="alert"
                 label="Failing runs"
                 value={github.failing_runs}
-                tone={github.failing_runs ? 'err' : ''}
+                tone={github.failing_runs ? 'err' : 'ok'}
                 onClick={() => setDetail({ id: 'runs', title: 'CI runs' })}
               />
               <Stat
@@ -433,7 +433,7 @@ export function ProjectOverviewView({ project, since, onStart, onNavigate, onOpe
           onSend={(msg) => onStart(msg)}
         />
       </div>
-      <div className="suggestions">
+      <div className="suggestions" onKeyDown={handleArrowNav}>
         {WELCOME_SUGGESTIONS.map((s) => (
           <button key={s} className="suggestion" onClick={() => onStart(s)}>
             <span>{s}</span>
