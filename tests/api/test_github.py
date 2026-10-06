@@ -57,8 +57,8 @@ def test_github_review(client, monkeypatch):
     provider = _mk_provider(client)
     monkeypatch.setattr(
         overview,
-        "github_item",
-        lambda p, kind, number: {
+        "github_item_for_url",
+        lambda repo_url, kind, number: {
             "kind": "pr",
             "number": number,
             "title": "Add caching",

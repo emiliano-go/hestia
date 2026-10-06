@@ -1,5 +1,6 @@
 """Registry database access (SQLModel + sqlite at $DATA_DIR/hestia.db)."""
 
+from datetime import datetime, timezone
 from typing import Iterator
 
 from sqlmodel import SQLModel, Session, create_engine
@@ -55,6 +56,8 @@ def _migrate() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE project ADD COLUMN allow_local_browser BOOLEAN DEFAULT 0"
             )
+        if columns and "description" not in columns:
+            conn.exec_driver_sql("ALTER TABLE project ADD COLUMN description TEXT DEFAULT ''")
 
         task_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(task)")}
         if task_columns and "milestone_id" not in task_columns:
@@ -71,6 +74,8 @@ def _migrate() -> None:
             conn.exec_driver_sql("ALTER TABLE task ADD COLUMN due_at DATETIME")
         if task_columns and "pr_url" not in task_columns:
             conn.exec_driver_sql("ALTER TABLE task ADD COLUMN pr_url TEXT")
+        if task_columns and "repo" not in task_columns:
+            conn.exec_driver_sql("ALTER TABLE task ADD COLUMN repo TEXT")
 
         question_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(question)")}
         if question_columns and "kind" not in question_columns:
@@ -109,6 +114,33 @@ def _migrate() -> None:
             conn.exec_driver_sql("ALTER TABLE message ADD COLUMN tool_call_id TEXT")
         if message_columns and "ok" not in message_columns:
             conn.exec_driver_sql("ALTER TABLE message ADD COLUMN ok BOOLEAN")
+
+        inbox_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(inboxitem)")}
+        if inbox_columns and "repo" not in inbox_columns:
+            conn.exec_driver_sql("ALTER TABLE inboxitem ADD COLUMN repo TEXT DEFAULT ''")
+
+        # Backfill one primary ProjectRepo per legacy single-repo project.
+        repo_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(projectrepo)")}
+        if repo_columns:
+            legacy = conn.exec_driver_sql(
+                "SELECT id, repo_url, local_path FROM project WHERE repo_url != ''"
+            ).fetchall()
+            for project_id, repo_url, local_path in legacy:
+                existing = conn.exec_driver_sql(
+                    "SELECT COUNT(*) FROM projectrepo WHERE project_id = ?", (project_id,)
+                ).scalar()
+                if not existing:
+                    conn.exec_driver_sql(
+                        "INSERT INTO projectrepo "
+                        "(project_id, alias, repo_url, local_path, is_primary, created_at) "
+                        "VALUES (?, 'main', ?, ?, 1, ?)",
+                        (
+                            project_id,
+                            repo_url,
+                            local_path or "",
+                            datetime.now(timezone.utc).isoformat(),
+                        ),
+                    )
 
         schedule_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(schedule)")}
         if schedule_columns and "trigger" not in schedule_columns:

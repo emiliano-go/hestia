@@ -21,8 +21,8 @@ def test_triage_creates_task_and_plan(client, monkeypatch):
 
     monkeypatch.setattr(
         overview,
-        "github_item",
-        lambda p, kind, number: {
+        "github_item_for_url",
+        lambda repo_url, kind, number: {
             "kind": "issue",
             "number": number,
             "title": "Support plugins",

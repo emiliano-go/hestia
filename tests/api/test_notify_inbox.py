@@ -83,11 +83,11 @@ def test_inbox_poll_and_read(client, monkeypatch):
         {"id": 12, "name": "CI", "conclusion": "success", "url": "x"},
     ]
 
-    def fake_github_list(project_, kind, state="open", limit=30):
+    def fake_github_list(repo_url, kind, state="open", limit=30):
         items = prs if kind == "prs" else runs if kind == "runs" else []
         return {"available": True, "repo": "a/b", "items": items}
 
-    monkeypatch.setattr(overview, "github_list", fake_github_list)
+    monkeypatch.setattr(overview, "github_list_for_url", fake_github_list)
     monkeypatch.setattr(overview, "repo_slug", lambda url: "a/b")
 
     # first poll is a baseline: items arrive already read
@@ -115,10 +115,10 @@ def test_inbox_notifies_new_items(client, monkeypatch):
     _mk_project(client)
     prs = [{"number": 1, "title": "one", "user": "eve", "url": "u1"}]
 
-    def fake_github_list(project_, kind, state="open", limit=30):
+    def fake_github_list(repo_url, kind, state="open", limit=30):
         return {"available": True, "repo": "a/b", "items": prs if kind == "prs" else []}
 
-    monkeypatch.setattr(overview, "github_list", fake_github_list)
+    monkeypatch.setattr(overview, "github_list_for_url", fake_github_list)
     monkeypatch.setattr(overview, "repo_slug", lambda url: "a/b")
     monkeypatch.setenv("NTFY_TOPIC", "home")
 
@@ -148,8 +148,8 @@ def test_inbox_poll_emits_ci_event(client, monkeypatch):
     runs = [{"id": 99, "name": "CI", "conclusion": "failure", "url": "u"}]
     monkeypatch.setattr(
         overview,
-        "github_list",
-        lambda p, kind, state="open", limit=30: {
+        "github_list_for_url",
+        lambda repo_url, kind, state="open", limit=30: {
             "available": True,
             "repo": "a/b",
             "items": runs if kind == "runs" else [],

@@ -53,6 +53,7 @@ def create_task(project_id: int, body: dict, s: Session = Depends(session)):
             acceptance=body.get("acceptance", ""),
             source=body.get("source", "user"),
             due_at=body.get("due_at"),
+            repo=body.get("repo"),
         )
     except taskboard.InvalidTask as e:
         raise HTTPException(400, str(e))
@@ -84,7 +85,7 @@ def sync_issues(project_id: int, body: dict, s: Session = Depends(session)):
     """Push board tasks to GitHub issues (requires git writes + GITHUB_TOKEN)."""
     project = _project_or_404(project_id, s)
     try:
-        return issuesync.sync_tasks(s, project, body.get("task_ids"))
+        return issuesync.sync_tasks(s, project, body.get("task_ids"), repo=body.get("repo"))
     except PermissionError as e:
         raise HTTPException(403, str(e))
     except ValueError as e:
@@ -125,7 +126,7 @@ def suggest_tasks(project_id: int, body: dict, s: Session = Depends(session)):
     registry = build_registry()
     for tool in task_tools.make_tools(s):
         registry.register(tool)
-    digest = totem_store.digest(ctx.local_path, task="Suggest next work")
+    digest = totem_store.digest(ctx.memory_path, task="Suggest next work")
     system = build_system_prompt(
         ctx,
         agents_md=project.agents_md,

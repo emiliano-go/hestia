@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlmodel import Session, select
 
-from hestia import actions, events, inbox, notify, overview, reminders, settings, taskboard, totem_store, usage, watchers
+from hestia import actions, events, inbox, notify, overview, reminders, repos, settings, taskboard, totem_store, usage, watchers
 from hestia.agent.prompt import build_system_prompt
 from hestia.agent.run import run_once
 from hestia.registry.db import engine
@@ -121,7 +121,7 @@ async def _maybe_send_briefing(db: Session) -> None:
             provider = actions.effective_provider(agent, provider)
             if provider is not None:
                 digest = totem_store.digest(
-                    project.local_path, task="Write the briefing commentary"
+                    repos.memory_root(project), task="Write the briefing commentary"
                 )
                 system = build_system_prompt(
                     ProjectContext.from_project(project),
@@ -455,7 +455,7 @@ async def run_schedule(schedule_id: int, event: dict | None = None) -> dict | No
                         f"({payload.get('title', '')})"
                     )
                 schedule.last_event_key = event.get("key", "")
-            digest = totem_store.digest(project.local_path, task=instruction)
+            digest = totem_store.digest(repos.memory_root(project), task=instruction)
             system = build_system_prompt(
                 ProjectContext.from_project(project),
                 agents_md=project.agents_md,

@@ -10,7 +10,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
-from hestia import settings, actions, totem_store, usage
+from hestia import settings, actions, repos, totem_store, usage
 from hestia.agent.prompt import build_system_prompt
 from hestia.agent.run import run_once
 from hestia.registry.db import session
@@ -64,7 +64,7 @@ def generate_doc(project_id: int, body: dict, s: Session = Depends(session)):
     if not provider:
         raise HTTPException(400, "no provider configured for this project")
 
-    digest = totem_store.digest(project.local_path, task=label)
+    digest = totem_store.digest(repos.memory_root(project), task=label)
     system = build_system_prompt(
         ProjectContext.from_project(project),
         agents_md=project.agents_md,

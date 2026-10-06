@@ -17,8 +17,11 @@ def _now() -> datetime:
 class Project(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
-    repo_url: str
-    local_path: str
+    description: str = ""
+    # Legacy single-repo mirror of the primary ProjectRepo; multi-repo code
+    # reads ProjectRepo rows and only falls back here for pre-migration data.
+    repo_url: str = ""
+    local_path: str = ""
     agents_md: Optional[str] = None
     default_provider_id: Optional[int] = None
     last_opened_at: Optional[datetime] = None
@@ -27,6 +30,23 @@ class Project(SQLModel, table=True):
     allow_local_browser: bool = False  # explicit opt-in: browser may reach localhost
     token_budget: Optional[int] = None  # monthly token budget (None = unlimited)
     budget_enforced: bool = False  # skip scheduled runs once the budget is spent
+    created_at: datetime = Field(default_factory=_now)
+
+
+class ProjectRepo(SQLModel, table=True):
+    """One Git repository belonging to a project.
+
+    A project owns one or more repositories; exactly one is primary (the
+    legacy ``Project.repo_url``/``local_path`` mirror). Alias is the short
+    name the agent and UI use to reference the repo.
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id", index=True)
+    alias: str
+    repo_url: str
+    local_path: str
+    is_primary: bool = False
     created_at: datetime = Field(default_factory=_now)
 
 
@@ -116,6 +136,7 @@ class Task(SQLModel, table=True):
     depends_on: str = "[]"  # JSON: task ids that must be done first
     acceptance: str = ""  # definition of done; gates the done column
     github_issue: Optional[int] = None  # synced GitHub issue number
+    repo: Optional[str] = None  # repo alias for implement/issue sync (None = primary)
     source: str = "user"  # user | suggested
     due_at: Optional[datetime] = None  # UTC deadline, surfaced as at-risk
     pr_url: Optional[str] = None  # pull request opened by the implement runner
@@ -314,7 +335,8 @@ class InboxItem(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     project_id: int = Field(foreign_key="project.id", index=True)
     kind: str  # pr | issue | run
-    external_id: str  # dedupe key within a project, e.g. "pr:12"
+    external_id: str  # dedupe key within a project, e.g. "pr:12" or "api:pr:12"
+    repo: str = ""  # repo alias the item came from ("" = primary)
     title: str
     subtitle: str = ""
     url: Optional[str] = None

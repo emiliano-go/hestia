@@ -12,21 +12,21 @@ def register(registry: Registry) -> None:
             "query": {"type": "string"},
             "limit": {"type": "integer"},
         }, ["query"]),
-        handler=lambda ctx, a: totem_store.search(ctx.local_path, a["query"], a.get("limit", 20)),
+        handler=lambda ctx, a: totem_store.search(ctx.memory_path, a["query"], a.get("limit", 20)),
         group="memory",
     ))
     registry.register(Tool(
         name="memory_get",
         description="Fetch a single memory item by id.",
         parameters=schema({"id": {"type": "string"}}, ["id"]),
-        handler=lambda ctx, a: totem_store.get(ctx.local_path, a["id"]),
+        handler=lambda ctx, a: totem_store.get(ctx.memory_path, a["id"]),
         group="memory",
     ))
     registry.register(Tool(
         name="memory_list",
         description="List recent project memories.",
         parameters=schema({"limit": {"type": "integer"}}, []),
-        handler=lambda ctx, a: totem_store.list_all(ctx.local_path, a.get("limit", 50)),
+        handler=lambda ctx, a: totem_store.list_all(ctx.memory_path, a.get("limit", 50)),
         group="memory",
     ))
     registry.register(Tool(
@@ -60,7 +60,7 @@ def register(registry: Registry) -> None:
             },
         }, ["type", "title", "statement", "tags"]),
         handler=lambda ctx, a: totem_store.create(
-            ctx.local_path,
+            ctx.memory_path,
             type=a["type"],
             title=a["title"],
             statement=a["statement"],
@@ -84,7 +84,7 @@ def register(registry: Registry) -> None:
             "reason": {"type": "string", "description": "why this update"},
         }, ["id"]),
         handler=lambda ctx, a: totem_store.update(
-            ctx.local_path, a["id"],
+            ctx.memory_path, a["id"],
             reason=a.get("reason"),
             title=a.get("title"),
             statement=a.get("statement"),
@@ -100,7 +100,7 @@ def register(registry: Registry) -> None:
             "id": {"type": "string"},
             "reason": {"type": "string"},
         }, ["id", "reason"]),
-        handler=lambda ctx, a: totem_store.delete(ctx.local_path, a["id"], a["reason"]),
+        handler=lambda ctx, a: totem_store.delete(ctx.memory_path, a["id"], a["reason"]),
         group="memory",
         effect="write",
     ))

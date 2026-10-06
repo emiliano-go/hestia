@@ -15,7 +15,7 @@ from pathlib import Path
 import httpx
 from sqlmodel import Session, select
 
-from hestia import config, totem_store
+from hestia import config, repos, totem_store
 from hestia.registry.models import Session as ChatSession
 
 GITHUB_API = "https://api.github.com"
@@ -255,8 +255,13 @@ def _norm_run(run: dict) -> dict:
 
 
 def github_summary(project, since: datetime | None) -> dict:
-    """Counts + latest CI run. Never raises: returns available=False instead."""
-    slug = repo_slug(project.repo_url)
+    """Counts + latest CI run for a project's primary repo. Never raises."""
+    return github_summary_for_url(project.repo_url, since)
+
+
+def github_summary_for_url(repo_url: str, since: datetime | None) -> dict:
+    """Counts + latest CI run for one repository URL. Never raises."""
+    slug = repo_slug(repo_url)
     if not slug:
         return {"available": False, "repo": None, "reason": "not a GitHub repository"}
     try:
@@ -299,8 +304,13 @@ def github_summary(project, since: datetime | None) -> dict:
 
 
 def github_item(project, kind: str, number: int) -> dict:
+    """Fetch one issue or PR from the primary repo. Raises on failure."""
+    return github_item_for_url(project.repo_url, kind, number)
+
+
+def github_item_for_url(repo_url: str, kind: str, number: int) -> dict:
     """Fetch one issue or PR. Raises on failure (caller maps to an HTTP error)."""
-    slug = repo_slug(project.repo_url)
+    slug = repo_slug(repo_url)
     if not slug:
         raise ValueError("project repo_url is not a GitHub URL")
     if kind == "prs":
@@ -330,7 +340,12 @@ def github_item(project, kind: str, number: int) -> dict:
 
 
 def github_list(project, kind: str, state: str = "open", limit: int = 30) -> dict:
-    slug = repo_slug(project.repo_url)
+    """List PRs/issues/runs for the primary repo."""
+    return github_list_for_url(project.repo_url, kind, state=state, limit=limit)
+
+
+def github_list_for_url(repo_url: str, kind: str, state: str = "open", limit: int = 30) -> dict:
+    slug = repo_slug(repo_url)
     if not slug:
         return {"available": False, "repo": None, "items": [], "error": "not a GitHub repository"}
     try:
@@ -354,12 +369,19 @@ def github_list(project, kind: str, state: str = "open", limit: int = 30) -> dic
 # changes since last visit
 # --------------------------------------------------------------------------
 
-def since_changes(project, since: datetime | None, github: dict | None = None) -> dict:
-    path = Path(project.local_path)
+def since_changes(
+    project,
+    since: datetime | None,
+    github: dict | None = None,
+    repo_paths: list[Path] | None = None,
+) -> dict:
+    paths = repo_paths if repo_paths is not None else (
+        [Path(project.local_path)] if project.local_path else []
+    )
     first_visit = since is None
     memories = [
         m
-        for m in totem_store.list_all(path, limit=200)
+        for m in totem_store.list_all(repos.memory_root(project), limit=200)
         if since is not None
         and (_parse_dt(m.get("updatedAt") or m.get("updated_at")) or _now()) >= since
     ]
@@ -370,7 +392,7 @@ def since_changes(project, since: datetime | None, github: dict | None = None) -
     ]
     gh_changes = (github or {}).get("changes", {}) if github and github.get("available") else {}
     counts = {
-        "commits": commits_since(path, since),
+        "commits": sum(commits_since(p, since) for p in paths),
         "memories": len(memories),
         "files": len(files),
         "prs": gh_changes.get("prs", 0),
@@ -411,7 +433,7 @@ def project_activity(
     limit: int = 80,
     include_github: bool = True,
 ) -> list[dict]:
-    path = Path(project.local_path)
+    repo_rows = repos.repos_for(db, project.id)
     entries: list[dict] = []
 
     for c in db.exec(
@@ -430,7 +452,7 @@ def project_activity(
             }
         )
 
-    for m in totem_store.list_all(path, limit=100):
+    for m in totem_store.list_all(repos.memory_root(project), limit=100):
         entries.append(
             {
                 "kind": "memory",
@@ -453,47 +475,52 @@ def project_activity(
             }
         )
 
-    for c in recent_commits(path, limit=15):
-        entries.append(
-            {
-                "kind": "commit",
-                "title": c["subject"],
-                "subtitle": f"{c['short']} by {c['author']}",
-                "timestamp": _iso(c["timestamp"]),
-                "sha": c["sha"],
-            }
-        )
+    multi = len(repo_rows) > 1
+    for row in repo_rows:
+        suffix = f" · {row.alias}" if multi else ""
+        for c in recent_commits(Path(row.local_path), limit=15):
+            entries.append(
+                {
+                    "kind": "commit",
+                    "title": c["subject"],
+                    "subtitle": f"{c['short']} by {c['author']}{suffix}",
+                    "timestamp": _iso(c["timestamp"]),
+                    "sha": c["sha"],
+                }
+            )
 
     if include_github:
-        slug = repo_slug(project.repo_url)
-        if slug:
+        for row in repo_rows:
+            if not repo_slug(row.repo_url):
+                continue
+            suffix = f" · {row.alias}" if multi else ""
             try:
-                for pr in github_list(project, "prs", state="all", limit=15).get("items", []):
+                for pr in github_list_for_url(row.repo_url, "prs", state="all", limit=15).get("items", []):
                     entries.append(
                         {
                             "kind": "pr",
                             "title": f"#{pr['number']} {pr['title']}",
-                            "subtitle": f"Pull request · {pr.get('state')}",
+                            "subtitle": f"Pull request · {pr.get('state')}{suffix}",
                             "timestamp": _iso(pr.get("updated_at")),
                             "url": pr.get("url"),
                         }
                     )
-                for issue in github_list(project, "issues", state="all", limit=15).get("items", []):
+                for issue in github_list_for_url(row.repo_url, "issues", state="all", limit=15).get("items", []):
                     entries.append(
                         {
                             "kind": "issue",
                             "title": f"#{issue['number']} {issue['title']}",
-                            "subtitle": f"Issue · {issue.get('state')}",
+                            "subtitle": f"Issue · {issue.get('state')}{suffix}",
                             "timestamp": _iso(issue.get("updated_at")),
                             "url": issue.get("url"),
                         }
                     )
-                for run in github_list(project, "runs", limit=10).get("items", []):
+                for run in github_list_for_url(row.repo_url, "runs", limit=10).get("items", []):
                     entries.append(
                         {
                             "kind": "run",
                             "title": run.get("name") or "CI run",
-                            "subtitle": f"CI · {run.get('conclusion') or run.get('status')}",
+                            "subtitle": f"CI · {run.get('conclusion') or run.get('status')}{suffix}",
                             "timestamp": _iso(run.get("updated_at")),
                             "url": run.get("url"),
                         }

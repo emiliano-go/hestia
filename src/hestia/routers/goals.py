@@ -5,7 +5,7 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
-from hestia import settings, actions, goals, milestones as milestones_mod, totem_store, usage
+from hestia import settings, actions, goals, milestones as milestones_mod, repos, totem_store, usage
 from hestia.agent import loop as agent_loop
 from hestia.agent.prompt import build_system_prompt
 from hestia.providers.base import OpenAIClient, resolve_api_key
@@ -210,7 +210,7 @@ async def _run_goal_agent(s: Session, goal: Goal, provider: Provider, system: st
 def _goal_system(s: Session, goal: Goal, provider: Provider, task: str, extra: str) -> str:
     project = s.get(Project, goal.project_id)
     agent = actions.resolve_action(s, "goal")
-    digest = totem_store.digest(project.local_path, task=task)
+    digest = totem_store.digest(repos.memory_root(project), task=task)
     system = build_system_prompt(
         ProjectContext.from_project(project),
         agents_md=project.agents_md,

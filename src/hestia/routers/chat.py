@@ -161,7 +161,7 @@ def chat(project_id: int, body: dict, s: Session = Depends(session)):
     for tool in watch_tools.make_tools(s):
         registry.register(tool)
 
-    digest = totem_store.digest(ctx.local_path, task=user_text)
+    digest = totem_store.digest(ctx.memory_path, task=user_text)
     system = build_system_prompt(
         ctx,
         agents_md=project.agents_md,
@@ -312,7 +312,7 @@ def chat(project_id: int, body: dict, s: Session = Depends(session)):
         )
         if full_text.strip():
             try:
-                memory_ingest.ingest_turn(ctx.local_path, user_text, full_text)
+                memory_ingest.ingest_turn(ctx.memory_path, user_text, full_text)
             except Exception:
                 pass  # memory ingest must never break the chat
         yield _sse({"event": "session", "session_id": chat_session.id})

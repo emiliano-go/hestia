@@ -86,26 +86,48 @@ def build_system_prompt(
     skills_context: str = "",
 ) -> str:
     policy = POLICY + (WRITE_POLICY if writes_enabled else "")
-    sections = [
-        f"You are the agent for the project '{ctx.name}' ({ctx.repo_url}).",
-        "",
-        "## Policy",
-        policy,
-        "",
-        "## Repository layout",
-        f"Clone root: {ctx.local_path}",
-        "```",
-        _repo_map(ctx.local_path),
-        "```",
-    ]
-    pending = overview.pending_pull(ctx.local_path)
+    intro = f"You are the agent for the project '{ctx.name}'"
+    if ctx.repo_url:
+        intro += f" ({ctx.repo_url})"
+    sections = [intro, "", "## Policy", policy]
+
+    if ctx.repos:
+        sections += [
+            "",
+            "## Repositories",
+            "Pass `repo` to git, file, and GitHub tools to target one of these; "
+            "the primary is the default.",
+        ]
+        for repo in ctx.repos:
+            mark = " (primary)" if repo.is_primary else ""
+            sections.append(f"- {repo.alias}{mark}: {repo.repo_url} at {repo.local_path}")
+        primary = ctx.primary_repo()
+        sections += [
+            "",
+            f"## Repository layout ({primary.alias})",
+            "```",
+            _repo_map(primary.local_path),
+            "```",
+        ]
+    else:
+        sections += [
+            "",
+            "## Repositories",
+            "This project has no repositories yet. Git, file, and GitHub tools "
+            "are unavailable; use the workspace tools, or repo_add to clone one.",
+        ]
+
+    pending = []
+    for repo in ctx.repos:
+        p = overview.pending_pull(repo.local_path)
+        if p:
+            pending.append(f"{repo.alias}: {p['behind']} commit(s) behind origin/{p['branch']}")
     if pending:
         sections += [
             "",
             "## Pull pending",
-            f"The local clone is {pending['behind']} commit(s) behind "
-            f"origin/{pending['branch']}. The checkout is stale: tell the user a "
-            "pull is pending and recommend pulling before relying on the code.",
+            "The local checkout(s) are stale: " + "; ".join(pending) + ". Tell the "
+            "user a pull is pending and recommend pulling before relying on the code.",
         ]
     if agents_md:
         sections += ["", "## Project instructions (AGENTS.md)", agents_md]

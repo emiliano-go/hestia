@@ -8,7 +8,7 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
-from hestia import settings, actions, overview, taskboard, totem_store, usage
+from hestia import settings, actions, overview, repos, taskboard, totem_store, usage
 from hestia.agent import loop as agent_loop
 from hestia.agent.prompt import build_system_prompt
 from hestia.providers.base import OpenAIClient, resolve_api_key
@@ -19,6 +19,20 @@ from hestia.tools import tasks as task_tools
 from hestia.tools.registry import ProjectContext
 
 router = APIRouter(prefix="/api", tags=["triage"])
+
+
+def _repo_row(s: Session, project: Project, body: dict):
+    """The repo selected by body['repo'], else the primary."""
+    rows = repos.repos_for(s, project.id)
+    if not rows:
+        raise HTTPException(400, "project has no repositories")
+    alias = (body.get("repo") or "").strip() or None
+    if alias:
+        row = next((r for r in rows if r.alias == alias), None)
+        if row is None:
+            raise HTTPException(404, f"unknown repo alias: {alias}")
+        return row, rows
+    return next((r for r in rows if r.is_primary), rows[0]), rows
 
 TRIAGE_PROMPT = """\
 You are triaging a {kind} from the project's GitHub repository into actionable work.
@@ -75,9 +89,10 @@ def review_item(project_id: int, body: dict, s: Session = Depends(session)):
     if not number:
         raise HTTPException(400, "number is required")
 
+    row, _rows = _repo_row(s, project, body)
     try:
-        item = overview.github_item(
-            project, "prs" if kind == "pr" else "issues", int(number)
+        item = overview.github_item_for_url(
+            row.repo_url, "prs" if kind == "pr" else "issues", int(number)
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -104,7 +119,7 @@ def review_item(project_id: int, body: dict, s: Session = Depends(session)):
     for tool in task_tools.make_tools(s):
         registry.register(tool)
 
-    digest = totem_store.digest(ctx.local_path, task=item["title"])
+    digest = totem_store.digest(ctx.memory_path, task=item["title"])
     system = build_system_prompt(
         ctx,
         agents_md=project.agents_md,
@@ -164,9 +179,10 @@ def triage(project_id: int, body: dict, s: Session = Depends(session)):
     if not number:
         raise HTTPException(400, "number is required")
 
+    row, rows = _repo_row(s, project, body)
     try:
-        item = overview.github_item(
-            project, "prs" if kind == "pr" else "issues", int(number)
+        item = overview.github_item_for_url(
+            row.repo_url, "prs" if kind == "pr" else "issues", int(number)
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -183,6 +199,7 @@ def triage(project_id: int, body: dict, s: Session = Depends(session)):
         description=((item.get("body") or "")[:4000] + f"\n\n{item['url']}").strip(),
         status="backlog",
         priority="medium",
+        repo=row.alias if len(rows) > 1 else None,
     )
 
     agent = actions.resolve_action(s, "triage")
@@ -201,7 +218,7 @@ def triage(project_id: int, body: dict, s: Session = Depends(session)):
     for tool in task_tools.make_tools(s):
         registry.register(tool)
 
-    digest = totem_store.digest(ctx.local_path, task=item["title"])
+    digest = totem_store.digest(ctx.memory_path, task=item["title"])
     system = build_system_prompt(
         ctx,
         agents_md=project.agents_md,

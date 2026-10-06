@@ -242,7 +242,7 @@ async def _execute_job(
             groups = "repo,files"
             mode = "read"
     else:
-        digest = totem_store.digest(ctx.local_path, task=instruction)
+        digest = totem_store.digest(ctx.memory_path, task=instruction)
         system = build_system_prompt(
             ctx,
             agents_md=project.agents_md,
@@ -392,7 +392,7 @@ async def _continue(session_id: int, project_id: int) -> None:
             ctx = ProjectContext.from_project(project)
             ctx.session_id = session_id
             digest = totem_store.digest(
-                ctx.local_path, task="Continue after a background task"
+                ctx.memory_path, task="Continue after a background task"
             )
             system = build_system_prompt(
                 ctx,

@@ -49,7 +49,7 @@ async def capture(project_id: int, body: dict, s: Session = Depends(session)):
         raise HTTPException(400, "no provider configured for this project")
 
     ctx = ProjectContext.from_project(project)
-    digest = totem_store.digest(ctx.local_path, task="Capture notes")
+    digest = totem_store.digest(ctx.memory_path, task="Capture notes")
     system = build_system_prompt(
         ctx,
         agents_md=project.agents_md,

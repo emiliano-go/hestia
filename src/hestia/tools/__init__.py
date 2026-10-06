@@ -11,7 +11,7 @@ from hestia.tools.registry import Registry
 
 def build_registry(writes: bool = False, db=None) -> Registry:
     registry = Registry()
-    repo.register(registry)
+    repo.register(registry, db)
     files.register(registry)
     github.register(registry)
     memory.register(registry)

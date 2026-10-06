@@ -9,17 +9,17 @@ from tests.api.conftest import _mk_project
 
 
 def test_clone_auth_args(client, monkeypatch):
-    from hestia.routers import projects
+    from hestia import repos
 
-    monkeypatch.setattr(projects.config, "github_token", lambda: "tok")
-    assert projects._auth_args("https://github.com/a/b.git") == [
+    monkeypatch.setattr(repos.config, "github_token", lambda: "tok")
+    assert repos.auth_args("https://github.com/a/b.git") == [
         "-c",
         "http.extraheader=Authorization: Bearer tok",
     ]
-    assert projects._auth_args("/tmp/local/repo") == []
+    assert repos.auth_args("/tmp/local/repo") == []
 
-    monkeypatch.setattr(projects.config, "github_token", lambda: None)
-    assert projects._auth_args("https://github.com/a/b.git") == []
+    monkeypatch.setattr(repos.config, "github_token", lambda: None)
+    assert repos.auth_args("https://github.com/a/b.git") == []
 
 
 def test_project_delete_cascade(client):
@@ -220,3 +220,78 @@ def test_allow_local_browser_roundtrip(client):
 
     fetched = client.get(f"/api/projects/{project['id']}").json()
     assert fetched["allow_local_browser"] is True
+
+
+def test_multi_repo_create_and_endpoints(client):
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    def mk(name):
+        src = tempfile.mkdtemp()
+        subprocess.run(["git", "init", "-q"], cwd=src, check=True)
+        (Path(src) / f"{name}.md").write_text(f"# {name}\n")
+        subprocess.run(["git", "add", "."], cwd=src, check=True)
+        subprocess.run(
+            ["git", "-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false",
+             "commit", "-qm", "i"],
+            cwd=src, check=True,
+        )
+        return src
+
+    a, b = mk("a"), mk("b")
+    resp = client.post(
+        "/api/projects",
+        json={
+            "name": "multirepo",
+            "description": "two repos",
+            "repos": [{"url": a, "alias": "api", "primary": True}, {"url": b, "alias": "web"}],
+            "allow_local_browser": True,
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    project = resp.json()
+    assert project["description"] == "two repos"
+    assert project["repo_url"] == a and project["local_path"].endswith("/api")
+
+    listed = client.get(f"/api/projects/{project['id']}/repos").json()
+    assert [r["alias"] for r in listed] == ["api", "web"]
+    assert listed[0]["is_primary"] and listed[0]["status"]["branch"]
+    assert listed[1]["local_path"].endswith("/web")
+
+    got = client.get(f"/api/projects/{project['id']}").json()
+    assert got["status"]["branch"] and len(got["repos"]) == 2
+
+    status = client.get(f"/api/projects/{project['id']}/status").json()
+    assert [r["alias"] for r in status["repos"]] == ["api", "web"]
+    assert status["git"]["branch"] and status["repos"][1]["git"]["branch"]
+
+    activity = client.get(f"/api/projects/{project['id']}/activity?github=false").json()["items"]
+    commits = [i for i in activity if i["kind"] == "commit"]
+    assert commits and any(" · " in c["subtitle"] for c in commits)
+
+    c = mk("cool")
+    added = client.post(f"/api/projects/{project['id']}/repos", json={"url": c})
+    assert added.status_code == 201, added.text
+    assert added.json()["alias"] == c.rstrip("/").split("/")[-1].lower()
+
+    pulled = client.post(f"/api/projects/{project['id']}/pull?repo=web")
+    assert pulled.status_code == 200
+    assert pulled.json()["results"][0]["alias"] == "web"
+
+    added_alias = added.json()["alias"]
+    assert client.delete(f"/api/projects/{project['id']}/repos/api").status_code == 204
+    rows = client.get(f"/api/projects/{project['id']}/repos").json()
+    assert [r["alias"] for r in rows] == ["web", added_alias]
+    assert rows[0]["is_primary"]
+    project = client.get(f"/api/projects/{project['id']}").json()
+    assert project["repo_url"] == b
+
+
+def test_workspace_only_project(client):
+    resp = client.post("/api/projects", json={"name": "notes"})
+    assert resp.status_code == 201, resp.text
+    project = resp.json()
+    assert project["repo_url"] == "" and project["local_path"] == ""
+    assert client.get(f"/api/projects/{project['id']}/repos").json() == []
+    assert client.post(f"/api/projects/{project['id']}/pull").status_code == 400

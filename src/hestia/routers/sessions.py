@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
-from hestia import actions, questions, totem_store, usage
+from hestia import actions, questions, repos, totem_store, usage
 from hestia.registry.db import session
 from hestia.registry.models import Message, Project, Provider, Question
 from hestia.registry.models import Session as ChatSession
@@ -36,7 +36,7 @@ def browse_memory(project_id: int, q: str | None = None, s: Session = Depends(se
     project = s.get(Project, project_id)
     if not project:
         raise HTTPException(404, "project not found")
-    path = project.local_path
+    path = repos.memory_root(project)
     if q:
         return totem_store.search(path, q, limit=50)
     return totem_store.list_all(path, limit=100)
@@ -96,7 +96,7 @@ def fix_memory(project_id: int, body: dict, s: Session = Depends(session)):
     if not provider:
         raise HTTPException(400, "no provider configured for this project")
 
-    memories = totem_store.list_all(Path(project.local_path), limit=200)
+    memories = totem_store.list_all(repos.memory_root(project), limit=200)
     catalog = "\n".join(
         f'- id={m["id"]} type={m["type"]} status={m["status"]} title={m["title"]}\n  {m["statement"][:400]}'
         for m in memories
