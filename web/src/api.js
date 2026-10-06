@@ -208,6 +208,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ device_code: deviceCode }),
     }),
+  githubOAuthStart: () => request('/github/oauth/start'),
 
   listReminders: (includeDone = false) =>
     request(`/reminders?include_done=${includeDone ? 'true' : 'false'}`),

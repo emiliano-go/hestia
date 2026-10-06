@@ -31,7 +31,7 @@ function truncate(str, n = 120) {
   return str.length > n ? str.slice(0, n) + '...' : str
 }
 
-const GLOBAL_VIEWS = ['home', 'help', 'search', 'agents', 'gallery', 'reminders', 'watches']
+const GLOBAL_VIEWS = ['home', 'help', 'search', 'agents', 'gallery', 'reminders', 'watches', 'settings']
 const PROJECT_VIEWS = [
   'welcome',
   'chat',
@@ -76,7 +76,7 @@ function parseHash(hash) {
 
 function viewHash(projectId, view, chatSessionId) {
   if (view.type === 'reminders' || view.type === 'watches') return `#/g/${view.type}`
-  if (['home', 'help', 'search', 'agents', 'gallery'].includes(view.type)) {
+  if (['home', 'help', 'search', 'agents', 'gallery', 'settings'].includes(view.type)) {
     return `#/${view.type}`
   }
   if (projectId && PROJECT_VIEWS.includes(view.type)) {
@@ -1865,11 +1865,31 @@ function GithubPanel() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [device, setDevice] = useState(null)
+  const [notice, setNotice] = useState(null)
   const pollRef = useRef(null)
 
   useEffect(() => {
     if (settings) setClientId(settings.github_oauth_client_id || '')
   }, [settings])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const gh = params.get('github')
+    if (!gh) return
+    setNotice(
+      gh === 'error'
+        ? { error: params.get('reason') || 'GitHub sign-in failed' }
+        : { ok: true }
+    )
+    params.delete('github')
+    params.delete('reason')
+    const qs = params.toString()
+    window.history.replaceState(
+      null,
+      '',
+      window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash
+    )
+  }, [])
 
   useEffect(() => () => clearInterval(pollRef.current), [])
 
@@ -1939,10 +1959,26 @@ function GithubPanel() {
       .catch((err) => setError(err.message || String(err)))
   }
 
+  const startOAuth = () => {
+    setBusy(true)
+    setError(null)
+    api
+      .githubOAuthStart()
+      .then((r) => {
+        window.location.href = r.url
+      })
+      .catch((err) => {
+        setError(err.message || String(err))
+        setBusy(false)
+      })
+  }
+
   const account = data || {}
 
   return (
     <div className="agent-form">
+      {notice?.ok && <p className="note">Signed in with GitHub.</p>}
+      {notice?.error && <p className="error-text">{notice.error}</p>}
       {account.connected ? (
         <div className="github-account">
           {account.avatar_url && <img src={account.avatar_url} alt="" className="github-avatar" />}
@@ -1995,7 +2031,7 @@ function GithubPanel() {
       </div>
 
       <div className="field">
-        <span className="field-label">Sign in with GitHub (device flow)</span>
+        <span className="field-label">Sign in with GitHub</span>
         {device ? (
           <div className="device-flow">
             <div>
@@ -2007,28 +2043,47 @@ function GithubPanel() {
             <div className="note">Waiting for approval...</div>
           </div>
         ) : (
-          <div className="row" style={{ marginBottom: 0 }}>
-            <input
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              placeholder="OAuth app client id"
-            />
-            <button type="button" className="btn" onClick={saveClientId} disabled={!clientId.trim()}>
-              Save
-            </button>
-            <button
-              type="button"
-              className="btn"
-              disabled={busy || !clientId.trim()}
-              onClick={startDevice}
-            >
-              Sign in
-            </button>
-          </div>
+          <>
+            <div className="row" style={{ marginBottom: 0 }}>
+              <input
+                value={clientId}
+                onChange={(e) => setClientId(e.target.value)}
+                placeholder="OAuth app client id"
+              />
+              <button
+                type="button"
+                className="btn"
+                onClick={saveClientId}
+                disabled={!clientId.trim()}
+              >
+                Save
+              </button>
+            </div>
+            <div className="row" style={{ marginBottom: 0 }}>
+              <button
+                type="button"
+                className="btn primary"
+                disabled={busy || !clientId.trim()}
+                onClick={startOAuth}
+              >
+                <Icon name="git" size={13} /> Sign in with GitHub
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={busy || !clientId.trim()}
+                onClick={startDevice}
+              >
+                Use device code
+              </button>
+            </div>
+          </>
         )}
         <span className="field-hint">
-          Create an OAuth app (device flow enabled) and paste its client id; no secret needed.
-        </span>
+          Create an OAuth app and paste its client id. Redirect sign-in also needs{' '}
+          <code>GITHUB_OAUTH_CLIENT_SECRET</code> on the server and the callback URL{' '}
+          <code>&lt;origin&gt;/api/github/oauth/callback</code>; the device code needs only the
+          client id.</span>
       </div>
     </div>
   )
@@ -3570,7 +3625,7 @@ function HelpView() {
           <li>
             <strong>Settings, GitHub</strong>: paste a personal access token (repo scope),
             import the token from the <code>gh</code> CLI (<code>gh auth login</code> first),
-            or use device sign-in with your own OAuth app client id.
+            sign in with OAuth (redirect or device code) using your own OAuth app client id.
           </li>
           <li>
             <code>GITHUB_TOKEN</code> in the environment takes precedence over the stored
@@ -7115,6 +7170,14 @@ export default function App() {
     applyHash()
     window.addEventListener('hashchange', applyHash)
     return () => window.removeEventListener('hashchange', applyHash)
+  }, [])
+
+  useEffect(() => {
+    // Return from the GitHub OAuth redirect: land on Settings, GitHub tab.
+    if (new URLSearchParams(window.location.search).get('github')) {
+      setSettingsTab('github')
+      setView({ type: 'settings' })
+    }
   }, [])
 
   const effectiveProjectId = projectId && projects.some((p) => p.id === projectId)

@@ -2856,3 +2856,58 @@ def test_skill_extract_tarball(tmp_path):
         archive.addfile(info, io.BytesIO(data))
     skills._safe_extract(buf.getvalue(), tmp_path / "out")
     assert (tmp_path / "out" / "SKILL.md").read_text() == "# hello\n"
+
+
+def test_github_oauth_state_roundtrip():
+    from home import github_auth
+
+    state = github_auth.make_state()
+    assert github_auth.verify_state(state)
+    assert not github_auth.verify_state(state + "x")
+    assert not github_auth.verify_state("nope")
+    assert not github_auth.verify_state(github_auth.make_state(ttl=-1))
+
+
+def test_github_oauth_authorize_url():
+    from home import github_auth
+
+    url = github_auth.oauth_authorize_url(
+        "cid", "http://x/api/github/oauth/callback", "st"
+    )
+    assert url.startswith("https://github.com/login/oauth/authorize?")
+    assert "client_id=cid" in url
+    assert "redirect_uri=http%3A%2F%2Fx%2Fapi%2Fgithub%2Foauth%2Fcallback" in url
+    assert "state=st" in url
+    assert "scope=repo" in url
+
+
+def test_github_oauth_start_requires_config(client, monkeypatch):
+    monkeypatch.delenv("GITHUB_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GITHUB_OAUTH_CLIENT_SECRET", raising=False)
+    assert client.get("/api/github/oauth/start").status_code == 400
+
+
+def test_github_oauth_callback_bad_state(client):
+    resp = client.get(
+        "/api/github/oauth/callback",
+        params={"code": "x", "state": "bad"},
+        follow_redirects=False,
+    )
+    assert resp.status_code in (302, 307)
+    assert "github=error" in resp.headers["location"]
+
+
+def test_github_oauth_callback_success(client, monkeypatch):
+    from home import github_auth
+
+    monkeypatch.setenv("GITHUB_OAUTH_CLIENT_ID", "cid")
+    monkeypatch.setenv("GITHUB_OAUTH_CLIENT_SECRET", "secret")
+    monkeypatch.setattr(github_auth, "oauth_exchange", lambda *a, **k: {"login": "octocat"})
+    state = github_auth.make_state()
+    resp = client.get(
+        "/api/github/oauth/callback",
+        params={"code": "c", "state": state},
+        follow_redirects=False,
+    )
+    assert resp.status_code in (302, 307)
+    assert "github=connected" in resp.headers["location"]

@@ -109,10 +109,12 @@ query GitHub, and write workspace files (plans, specs), but they do not modify t
   from About. Email is deliberately not implemented (SMTP setup for little gain
   over the other two).
 - **GitHub account connection**: paste a token, import from the `gh` CLI
-  (`gh auth login`), or sign in with the OAuth device flow using your own
-  client id. Stored at `<DATA_DIR>/github_token` (0600); `GITHUB_TOKEN` env
-  takes precedence. Enables private clones, higher rate limits, and issue/PR
-  writes.
+  (`gh auth login`), or sign in with OAuth using your own OAuth app. The
+  redirect flow needs `GITHUB_OAUTH_CLIENT_ID` + `GITHUB_OAUTH_CLIENT_SECRET`
+  and the callback URL `<HOME_ORIGIN>/api/github/oauth/callback` registered on
+  the app; the device flow needs only the client id. Stored at
+  `<DATA_DIR>/github_token` (0600); `GITHUB_TOKEN` env takes precedence. Enables
+  private clones, higher rate limits, and issue/PR writes.
 - **Agent questions**: the agent can ask you a blocking question with `ask_user`
   (optionally with choices). The question is stored on the chat session, pushes
   a notification, and survives page reloads; your next message is the answer.

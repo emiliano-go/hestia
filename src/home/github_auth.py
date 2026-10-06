@@ -13,11 +13,16 @@ it on github.com, Home polls until the token arrives.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
+import secrets
 import stat
 import subprocess
+import time
 from pathlib import Path
 from shutil import which
+from urllib.parse import urlencode
 
 import httpx
 
@@ -27,6 +32,7 @@ GITHUB_API = "https://api.github.com"
 GITHUB_WEB = "https://github.com"
 _TIMEOUT = 15.0
 DEFAULT_SCOPE = "repo"
+OAUTH_STATE_TTL = 600
 
 
 def _token_path() -> Path:
@@ -171,3 +177,81 @@ def device_poll(client_id: str, device_code: str) -> dict:
     if error in ("authorization_pending", "slow_down"):
         return {"status": error}
     raise ValueError(data.get("error_description") or error)
+
+
+# --------------------------------------------------------------------------
+# OAuth authorization-code (redirect) flow
+# --------------------------------------------------------------------------
+
+def oauth_client_secret() -> str | None:
+    """The OAuth app secret comes from the environment; never stored in the DB."""
+    return os.environ.get("GITHUB_OAUTH_CLIENT_SECRET") or None
+
+
+def oauth_redirect_uri(base: str) -> str:
+    return f"{(base or '').rstrip('/')}/api/github/oauth/callback"
+
+
+def _state_secret() -> bytes:
+    from home import auth  # persisted random secret; avoids a new file
+
+    return auth._secret()
+
+
+def make_state(ttl: int = OAUTH_STATE_TTL) -> str:
+    """Stateless, signed, expiring CSRF state for the OAuth redirect."""
+    payload = f"{int(time.time()) + ttl}.{secrets.token_urlsafe(16)}"
+    sig = hmac.new(_state_secret(), payload.encode(), hashlib.sha256).hexdigest()
+    return f"{payload}.{sig}"
+
+
+def verify_state(state: str) -> bool:
+    if not state or state.count(".") != 2:
+        return False
+    payload, _, sig = state.rpartition(".")
+    expected = hmac.new(_state_secret(), payload.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, sig):
+        return False
+    expires, _, _ = payload.partition(".")
+    try:
+        return int(expires) > time.time()
+    except ValueError:
+        return False
+
+
+def oauth_authorize_url(
+    client_id: str, redirect_uri: str, state: str, scope: str = DEFAULT_SCOPE
+) -> str:
+    query = urlencode(
+        {
+            "client_id": (client_id or "").strip(),
+            "redirect_uri": redirect_uri,
+            "scope": scope,
+            "state": state,
+        }
+    )
+    return f"{GITHUB_WEB}/login/oauth/authorize?{query}"
+
+
+def oauth_exchange(
+    client_id: str, client_secret: str, code: str, redirect_uri: str
+) -> dict:
+    resp = httpx.post(
+        f"{GITHUB_WEB}/login/oauth/access_token",
+        data={
+            "client_id": (client_id or "").strip(),
+            "client_secret": client_secret,
+            "code": code,
+            "redirect_uri": redirect_uri,
+        },
+        headers={"Accept": "application/json"},
+        timeout=_TIMEOUT,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    token = data.get("access_token")
+    if not token:
+        raise ValueError(
+            data.get("error_description") or data.get("error") or "OAuth exchange failed"
+        )
+    return connect_token(token)
