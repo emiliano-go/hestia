@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from './api.js'
-import { AddProjectModal } from './AddProjectModal.jsx'
 import { AgentsPage } from './agents/AgentsPage.jsx'
 import { Modal } from './components/Modal.jsx'
 import { Spinner } from './components/primitives.jsx'
@@ -20,6 +19,8 @@ import { FileReaderPane, FilesView, GalleryView } from './views/FilesView.jsx'
 import { GithubView } from './views/GithubView.jsx'
 import { GoalsView } from './views/GoalsView.jsx'
 import { HelpView } from './views/HelpView.jsx'
+import { NewProjectView } from './views/NewProjectView.jsx'
+import { ReposView } from './views/ReposView.jsx'
 import { HomeView, LoginView } from './views/HomeView.jsx'
 import { MemoryView } from './views/MemoryView.jsx'
 import { ProjectOverviewView } from './views/ProjectOverviewView.jsx'
@@ -42,7 +43,6 @@ export default function App() {
   const [chatSessionId, setChatSessionId] = useState(null)
   const [initialMessage, setInitialMessage] = useState(null)
   const [chatKey, setChatKey] = useState(0)
-  const [showAddProject, setShowAddProject] = useState(false)
   const [agentId, setAgentId] = useState('')
   const [providerId, setProviderId] = useState('')
   const [settingsTab, setSettingsTab] = useState('providers')
@@ -158,6 +158,10 @@ export default function App() {
     setInitialMessage(null)
   }
 
+  const openNewProject = () => {
+    setView({ type: 'new-project' })
+  }
+
   const startNewChat = () => {
     setView({ type: 'chat' })
     setChatSessionId(null)
@@ -247,7 +251,7 @@ export default function App() {
           </button>
           <div className="sidebar-label">
             <span>Projects</span>
-            <button title="Add project" onClick={() => setShowAddProject(true)}>
+            <button title="Add project" onClick={openNewProject}>
               <Icon name="plus" size={14} />
             </button>
           </div>
@@ -368,6 +372,13 @@ export default function App() {
               >
                 <Icon name="files" size={16} className="si-icon" />
                 Files
+              </button>
+              <button
+                className={`sidebar-item ${view.type === 'repos' ? 'active' : ''}`}
+                onClick={() => setView({ type: 'repos' })}
+              >
+                <Icon name="git" size={16} className="si-icon" />
+                Repositories
               </button>
               <button
                 className={`sidebar-item ${view.type === 'memory' ? 'active' : ''}`}
@@ -545,7 +556,7 @@ export default function App() {
         <div className="content">
           {view.type === 'home' && (
             <HomeView
-              onNewProject={() => setShowAddProject(true)}
+              onNewProject={openNewProject}
               onNavigate={setView}
               onOpenProject={(id) => selectProject(id)}
               onOpenSession={openSessionFromLanding}
@@ -554,6 +565,15 @@ export default function App() {
             />
           )}
           {view.type === 'help' && <HelpView />}
+          {view.type === 'new-project' && (
+            <NewProjectView
+              onCancel={() => setView({ type: 'home' })}
+              onCreated={(p) => {
+                projectsReq.reload()
+                selectProject(p.id)
+              }}
+            />
+          )}
           {view.type === 'search' && (
             <SearchView
               onOpenMemory={(pid) => openProjectView(pid, 'memory')}
@@ -635,6 +655,7 @@ export default function App() {
             <AutomationsView projectId={project.id} />
           )}
           {project && view.type === 'files' && <FilesView projectId={project.id} />}
+          {project && view.type === 'repos' && <ReposView projectId={project.id} />}
           {project && view.type === 'memory' && (
             <MemoryView projectId={project.id} providerId={providerId} onStart={startChatWith} />
           )}
@@ -681,16 +702,6 @@ export default function App() {
         </Modal>
       )}
 
-      {showAddProject && (
-        <AddProjectModal
-          onClose={() => setShowAddProject(false)}
-          onCreated={(p) => {
-            setShowAddProject(false)
-            projectsReq.reload()
-            selectProject(p.id)
-          }}
-        />
-      )}
     </div>
   )
 }

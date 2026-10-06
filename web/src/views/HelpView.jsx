@@ -91,14 +91,29 @@ export function HelpView() {
 
       <Doc id="projects" title="Projects">
         <p>
-          A project is a Git repository plus a workspace. Hestia never modifies your code unless
-          you explicitly enable <em>Git writes</em> for the project: the agent can read files and
-          git history, and write files to a separate workspace, but not change the repository.
+          A project is a workspace plus one or more Git repositories. Hestia never modifies your
+          code unless you explicitly enable <em>Git writes</em> for the project: the agent can
+          read files and git history, and write files to a separate workspace, but not change the
+          repositories.
         </p>
         <ul>
           <li>
-            <strong>Add</strong> a project with the <code>+</code> next to <em>Projects</em> or the
-            <em>New project</em> button on the dashboard.
+            <strong>Create</strong> a project with the <code>+</code> next to <em>Projects</em> or
+            the <em>New project</em> button on the dashboard. The wizard asks for a name, a
+            description, one or more Git URLs with short aliases (one is the primary), and
+            optional provider, git-writes, and local-browser settings. A project can start with
+            no repositories at all.
+          </li>
+          <li>
+            <strong>Repositories</strong> tab: per-repo branch, last commit, sync state, and
+            GitHub counts, with pull, add, and remove actions. The agent can also clone a new
+            repository with <code>repo_add</code>; removal stays a human action.
+          </li>
+          <li>
+            <strong>Aliases</strong> are how the agent targets a repo: git, file, and GitHub
+            tools take an optional <code>repo</code> argument (for example <code>api</code> or
+            <code>web</code>); the primary is the default. Totem memory stays with the primary
+            repo (or the workspace for repo-less projects).
           </li>
           <li>
             <strong>Open</strong> a project from the sidebar or the dashboard. Opening updates
@@ -106,11 +121,11 @@ export function HelpView() {
           </li>
           <li>
             <strong>Pull</strong> latest changes and refresh <code>AGENTS.md</code> from the
-            <em>About</em> tab.
+            <em>About</em> tab or the Repositories page (all repos, or one).
           </li>
           <li>
             <strong>Delete</strong> a project from the <em>About</em> tab. This removes its registry
-            entry and clone.
+            entry and all clones.
           </li>
         </ul>
       </Doc>

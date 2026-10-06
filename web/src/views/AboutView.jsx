@@ -116,14 +116,29 @@ export function AboutView({ projectId, onDeleted }) {
         )}
       </div>
       <dl className="kv">
-        <dt>Repo</dt>
+        <dt>Description</dt>
+        <dd>{project.description || '—'}</dd>
+        <dt>Repositories</dt>
         <dd>
-          <a href={project.repo_url} target="_blank" rel="noreferrer">
-            {project.repo_url}
-          </a>
+          {(project.repos || []).length === 0 ? (
+            <span className="muted">none (workspace-only project)</span>
+          ) : (
+            <div className="about-repos">
+              {project.repos.map((r) => (
+                <div key={r.alias} className="about-repo">
+                  <span className="badge accent">{r.alias}</span>
+                  {r.is_primary && <span className="badge">primary</span>}
+                  <a href={r.repo_url} target="_blank" rel="noreferrer">
+                    {r.repo_url}
+                  </a>
+                  <span className="muted" style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>
+                    {r.local_path}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </dd>
-        <dt>Local path</dt>
-        <dd>{project.local_path}</dd>
         <dt>Branch</dt>
         <dd>{status.branch || 'unknown'}</dd>
         <dt>Head</dt>

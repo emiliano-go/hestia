@@ -243,6 +243,17 @@ export function ProjectOverviewView({ project, since, onStart, onNavigate, onOpe
   const firstVisit = since === null
   const git = data?.git
   const github = data?.github
+  const repoEntries = data?.repos || []
+  const multi = repoEntries.length > 1
+  const githubStats = multi
+    ? {
+        available: repoEntries.some((r) => r.github?.available),
+        open_prs: repoEntries.reduce((n, r) => n + (r.github?.open_prs || 0), 0),
+        open_issues: repoEntries.reduce((n, r) => n + (r.github?.open_issues || 0), 0),
+        failing_runs: repoEntries.reduce((n, r) => n + (r.github?.failing_runs || 0), 0),
+        latest_run: github?.latest_run,
+      }
+    : github
   const tasks = data?.tasks
   const changes = data?.changes
   const [detail, setDetail] = useState(null)
@@ -313,7 +324,20 @@ export function ProjectOverviewView({ project, since, onStart, onNavigate, onOpe
           <h1>{project.name}</h1>
           <div className="repo">
             <Icon name="git" size={13} />
-            <code>{project.repo_url}</code>
+            {project.repo_url ? (
+              <code>{project.repo_url}</code>
+            ) : (
+              <span className="muted">workspace-only project</span>
+            )}
+            {multi && (
+              <button
+                type="button"
+                className="badge clickable"
+                onClick={() => onNavigate({ type: 'repos' })}
+              >
+                {repoEntries.length} repositories
+              </button>
+            )}
           </div>
         </div>
         <button className="btn" onClick={() => onNavigate({ type: 'tasks' })}>
@@ -367,36 +391,44 @@ export function ProjectOverviewView({ project, since, onStart, onNavigate, onOpe
             value={usage ? fmtTokens(usage.total.tokens) : '-'}
             onClick={() => setDetail({ id: 'tokens', title: 'Token usage' })}
           />
-          {github?.available ? (
+          {multi && (
+            <Stat
+              icon="git"
+              label="Repositories"
+              value={repoEntries.length}
+              onClick={() => onNavigate({ type: 'repos' })}
+            />
+          )}
+          {githubStats?.available ? (
             <>
               <Stat
                 icon="git"
-                label="Open PRs"
-                value={github.open_prs}
+                label={multi ? 'Open PRs (all)' : 'Open PRs'}
+                value={githubStats.open_prs}
                 onClick={() => setDetail({ id: 'prs', title: 'Open pull requests' })}
               />
               <Stat
                 icon="chat"
-                label="Open issues"
-                value={github.open_issues}
+                label={multi ? 'Open issues (all)' : 'Open issues'}
+                value={githubStats.open_issues}
                 onClick={() => setDetail({ id: 'issues', title: 'Open issues' })}
               />
               <Stat
                 icon="alert"
-                label="Failing runs"
-                value={github.failing_runs}
-                tone={github.failing_runs ? 'err' : ''}
+                label={multi ? 'Failing runs (all)' : 'Failing runs'}
+                value={githubStats.failing_runs}
+                tone={githubStats.failing_runs ? 'err' : ''}
                 onClick={() => setDetail({ id: 'runs', title: 'CI runs' })}
               />
               <Stat
                 icon="play"
                 label="Latest CI"
                 value={
-                  github.latest_run
-                    ? github.latest_run.conclusion || github.latest_run.status
+                  githubStats.latest_run
+                    ? githubStats.latest_run.conclusion || githubStats.latest_run.status
                     : 'none'
                 }
-                tone={runTone(github.latest_run)}
+                tone={runTone(githubStats.latest_run)}
                 onClick={() => setDetail({ id: 'ci', title: 'Latest CI run' })}
               />
             </>
@@ -411,13 +443,35 @@ export function ProjectOverviewView({ project, since, onStart, onNavigate, onOpe
         </div>
       )}
 
+      {multi && (
+        <div className="repo-table">
+          {repoEntries.map((r) => (
+            <button
+              key={r.alias}
+              type="button"
+              className="repo-line clickable"
+              onClick={() => onNavigate({ type: 'repos' })}
+            >
+              <span className="badge accent">{r.alias}</span>
+              <span>{r.git?.branch || '—'}</span>
+              <span className="muted">{truncate(r.git?.last_commit?.subject, 46) || 'no commits'}</span>
+              <span className="muted">
+                {r.github?.available
+                  ? `${r.github.open_prs} PR · ${r.github.open_issues} issues · ${r.github.failing_runs} failing`
+                  : '—'}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {detail && (
         <OverviewDetailModal
           detail={detail}
           project={project}
           git={git}
           usage={usage}
-          github={github}
+          github={githubStats}
           onStart={onStart}
           onClose={() => setDetail(null)}
           onOpenSettings={onOpenSettings}

@@ -1,4 +1,4 @@
-export const GLOBAL_VIEWS = ['home', 'help', 'search', 'agents', 'gallery', 'reminders', 'watches', 'settings']
+export const GLOBAL_VIEWS = ['home', 'help', 'search', 'agents', 'gallery', 'reminders', 'watches', 'settings', 'new-project']
 
 export const PROJECT_VIEWS = [
   'welcome',
@@ -14,6 +14,7 @@ export const PROJECT_VIEWS = [
   'background',
   'capture',
   'about',
+  'repos',
 ]
 
 export function parseHash(hash) {
@@ -44,7 +45,7 @@ export function parseHash(hash) {
 
 export function viewHash(projectId, view, chatSessionId) {
   if (view.type === 'reminders' || view.type === 'watches') return `#/g/${view.type}`
-  if (['home', 'help', 'search', 'agents', 'gallery', 'settings'].includes(view.type)) {
+  if (['home', 'help', 'search', 'agents', 'gallery', 'settings', 'new-project'].includes(view.type)) {
     return `#/${view.type}`
   }
   if (projectId && PROJECT_VIEWS.includes(view.type)) {

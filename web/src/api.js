@@ -64,7 +64,16 @@ export const api = {
   },
   getProject: (id) => request(`/projects/${id}`),
   openProject: (id) => request(`/projects/${id}/open`, { method: 'POST' }),
-  pullProject: (id) => request(`/projects/${id}/pull`, { method: 'POST' }),
+  pullProject: (id, repo) =>
+    request(`/projects/${id}/pull${repo ? `?repo=${encodeURIComponent(repo)}` : ''}`, {
+      method: 'POST',
+    }),
+  listProjectRepos: (id, github = false) =>
+    request(`/projects/${id}/repos${github ? '?github=true' : ''}`),
+  addProjectRepo: (id, body) =>
+    request(`/projects/${id}/repos`, { method: 'POST', body: JSON.stringify(body) }),
+  removeProjectRepo: (id, alias) =>
+    request(`/projects/${id}/repos/${encodeURIComponent(alias)}`, { method: 'DELETE' }),
   setGitWrites: (id, enabled) =>
     request(`/projects/${id}/git-writes`, {
       method: 'PUT',
@@ -81,8 +90,10 @@ export const api = {
     ),
   projectActivity: (id, github = true) =>
     request(`/projects/${id}/activity?github=${github ? 'true' : 'false'}`),
-  projectGithub: (id, kind, state = 'open') =>
-    request(`/projects/${id}/github?kind=${kind}&state=${state}`),
+  projectGithub: (id, kind, state = 'open', repo) =>
+    request(
+      `/projects/${id}/github?kind=${kind}&state=${state}${repo ? `&repo=${encodeURIComponent(repo)}` : ''}`
+    ),
   projectUsage: (id) => request(`/projects/${id}/usage`),
 
   listTasks: (projectId) => request(`/projects/${projectId}/tasks`),  createTask: (projectId, body) =>

@@ -80,9 +80,12 @@ export function GithubView({ projectId, onSummarize, onOpenTasks }) {
   const [triageReport, setTriageReport] = useState(null)
   const [reviewing, setReviewing] = useState(null)
   const [reviewReport, setReviewReport] = useState(null)
+  const [repo, setRepo] = useState('')
+  const reposReq = useAsync(() => api.listProjectRepos(projectId), [projectId])
+  const repoRows = reposReq.data || []
   const { data, error, loading, reload } = useAsync(
-    () => api.projectGithub(projectId, kind, kind === 'runs' ? 'open' : state),
-    [projectId, kind, state]
+    () => api.projectGithub(projectId, kind, kind === 'runs' ? 'open' : state, repo || undefined),
+    [projectId, kind, state, repo]
   )
   const items = (data && data.items) || []
 
@@ -95,7 +98,11 @@ export function GithubView({ projectId, onSummarize, onOpenTasks }) {
   const runTriage = (it) => {
     setTriaging(it.number)
     api
-      .triage(projectId, { kind: kind === 'prs' ? 'pr' : 'issue', number: it.number })
+      .triage(projectId, {
+        kind: kind === 'prs' ? 'pr' : 'issue',
+        number: it.number,
+        repo: repo || undefined,
+      })
       .then((r) => setTriageReport({ ...r, item: it }))
       .catch((e) => setTriageReport({ error: e.message || String(e), item: it }))
       .finally(() => setTriaging(null))
@@ -104,7 +111,11 @@ export function GithubView({ projectId, onSummarize, onOpenTasks }) {
   const runReview = (it) => {
     setReviewing(it.number)
     api
-      .reviewItem(projectId, { kind: kind === 'prs' ? 'pr' : 'issue', number: it.number })
+      .reviewItem(projectId, {
+        kind: kind === 'prs' ? 'pr' : 'issue',
+        number: it.number,
+        repo: repo || undefined,
+      })
       .then((r) => setReviewReport({ ...r, item: it }))
       .catch((e) => setReviewReport({ error: e.message || String(e), item: it }))
       .finally(() => setReviewing(null))
@@ -114,10 +125,22 @@ export function GithubView({ projectId, onSummarize, onOpenTasks }) {
     <div className="center-col wide">
       <div className="page-head">
         <h2>GitHub</h2>
-        <button className="btn" onClick={reload} disabled={loading}>
-          <Icon name="refresh" size={14} />
-          {loading ? 'Refreshing' : 'Refresh'}
-        </button>
+        <div className="row" style={{ marginBottom: 0 }}>
+          {repoRows.length > 1 && (
+            <select value={repo} onChange={(e) => setRepo(e.target.value)}>
+              <option value="">All repositories (primary)</option>
+              {repoRows.map((r) => (
+                <option key={r.alias} value={r.alias}>
+                  {r.alias}
+                </option>
+              ))}
+            </select>
+          )}
+          <button className="btn" onClick={reload} disabled={loading}>
+            <Icon name="refresh" size={14} />
+            {loading ? 'Refreshing' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
       <div className="gh-toolbar">
