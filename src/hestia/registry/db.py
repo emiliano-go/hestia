@@ -51,6 +51,10 @@ def _migrate() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE project ADD COLUMN require_write_approval BOOLEAN DEFAULT 0"
             )
+        if columns and "allow_local_browser" not in columns:
+            conn.exec_driver_sql(
+                "ALTER TABLE project ADD COLUMN allow_local_browser BOOLEAN DEFAULT 0"
+            )
 
         task_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(task)")}
         if task_columns and "milestone_id" not in task_columns:

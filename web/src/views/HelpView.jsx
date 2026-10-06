@@ -40,6 +40,7 @@ export function HelpView() {
         <a href="#providers">Providers</a>
         <a href="#agents">Agents &amp; actions</a>
         <a href="#chat">Chat &amp; tools</a>
+        <a href="#browser">Browser</a>
         <a href="#memory">Memory</a>
         <a href="#background">Background tasks</a>
         <a href="#capture">Capture notes</a>
@@ -394,6 +395,49 @@ export function HelpView() {
           the question appears as a card in the chat with any suggested choices. It is stored on
           the session, so it survives reloads; your next message answers it and the agent
           continues. <em>Skip</em> dismisses it without an answer.
+        </p>
+      </Doc>
+
+      <Doc id="browser" title="Browser &amp; UI debugging">
+        <p>
+          With the optional <code>browser</code> extra installed (<code>uv sync --extra
+          browser</code> plus <code>browser-use install</code>; included in the Docker image), the
+          agent gets a real browser.
+        </p>
+        <ul>
+          <li>
+            <strong><code>browser_task</code></strong>: autonomous multi-step web work (filling
+            forms, extracting data). Returns the result and screenshots.
+          </li>
+          <li>
+            <strong>Debugging tools</strong>: <code>browser_open</code>,{' '}
+            <code>browser_screenshot</code>, <code>browser_get_content</code>,{' '}
+            <code>browser_click</code>, <code>browser_type</code>, <code>browser_eval</code>, and
+            <code>browser_close</code> operate on a persistent session per chat, so cookies and
+            page state survive between calls.
+          </li>
+          <li>
+            <strong>Local dev servers</strong>: localhost and private addresses are blocked by
+            default. Enable <em>Browser &rarr; Allow the browser to reach localhost</em> in the
+            project's About tab, then the agent can debug <code>http://localhost:5173</code> and
+            friends.
+          </li>
+          <li>
+            <strong>Your own Chrome</strong>: set a Browser CDP URL in Assistant settings (or
+            <code>HESTIA_BROWSER_CDP_URL</code>) to attach to a Chrome started with{' '}
+            <code>--remote-debugging-port=9222</code> and reuse your logins. Hestia disconnects
+            without closing it.
+          </li>
+          <li>
+            <strong>Image reader</strong>: assign a cheap vision model to the{' '}
+            <em>Read images</em> action and screenshots are automatically described in text for
+            the main agent, which then never pays vision tokens. The reader can look at the page
+            itself (read-only) and sees a compacted version of the conversation.
+          </li>
+        </ul>
+        <p>
+          Browsing is principal-only and can be disabled globally in Assistant settings or with
+          <code>HESTIA_BROWSER=0</code>.
         </p>
       </Doc>
 

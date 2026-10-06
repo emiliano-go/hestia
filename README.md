@@ -128,6 +128,13 @@ query GitHub, and write workspace files (plans, specs), but they do not modify t
   the last result.
 - **Web fetch**: the agent can read static pages (SSRF guarded, no JavaScript
   rendering), gated by a setting.
+- **Browser (optional)**: with the `browser` extra (`uv sync --extra browser`
+  plus `browser-use install`; included in the Docker image) the agent runs
+  autonomous multi-step web tasks and debugs UIs on a persistent session
+  (open, screenshot, content, click, type, eval). Attach to your own Chrome
+  over CDP to reuse logins; localhost requires the per-project "local browser"
+  toggle. An optional cheap **image-reader** agent describes screenshots so the
+  main model never pays vision tokens.
 - **Approval gates**: opt-in per project; `git_push` and `gh_open_pr` require an
   approved request from chat when enabled.
 - **Suggested work**: "Suggest next work" on the board proposes 2 to 5 backlog

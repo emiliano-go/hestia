@@ -158,3 +158,16 @@ def test_token_budget(client):
     ).json()
     result = asyncio.run(scheduler.run_schedule(sched["id"]))
     assert result["last_status"] == "skipped: budget"
+
+
+def test_browser_settings(client):
+    data = client.get("/api/settings").json()
+    assert data["browser_enabled"] == "1"
+    assert data["browser_cdp_url"] == ""
+
+    updated = client.put(
+        "/api/settings",
+        json={"browser_enabled": "0", "browser_cdp_url": "http://localhost:9222"},
+    ).json()
+    assert updated["browser_enabled"] == "0"
+    assert updated["browser_cdp_url"] == "http://localhost:9222"

@@ -21,7 +21,9 @@ COPY src ./src
 # Drop the dev-only editable path override for totem; uv then resolves it
 # from the git URL in the dependency spec.
 RUN sed -i '/^\[tool.uv.sources\]/,$d' pyproject.toml \
-    && uv sync --no-dev --no-editable
+    && uv sync --no-dev --no-editable --extra browser
+# Chromium + system libraries for browser-use (the optional browser extra).
+RUN /app/.venv/bin/browser-use install
 COPY --from=web /web/dist ./web/dist
 
 ENV DATA_DIR=/data \

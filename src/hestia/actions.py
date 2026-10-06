@@ -67,6 +67,24 @@ ACTIONS: list[dict] = [
         "tools": "images,workspace",
     },
     {
+        "key": "browser",
+        "label": "Browse the web",
+        "description": (
+            "Drive a real browser: autonomous web tasks and UI debugging with "
+            "browser-use."
+        ),
+        "tools": "browser",
+    },
+    {
+        "key": "image-reader",
+        "label": "Read images",
+        "description": (
+            "Describe screenshots and images for the main agent, so expensive "
+            "models do not pay vision tokens."
+        ),
+        "tools": "browser",
+    },
+    {
         "key": "docs",
         "label": "Generate documentation",
         "description": (

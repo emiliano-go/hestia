@@ -242,6 +242,8 @@ def update_project(project_id: int, body: dict, s: Session = Depends(session)):
         project.budget_enforced = bool(body["budget_enforced"])
     if "require_write_approval" in body:
         project.require_write_approval = bool(body["require_write_approval"])
+    if "allow_local_browser" in body:
+        project.allow_local_browser = bool(body["allow_local_browser"])
     s.add(project)
     s.commit()
     s.refresh(project)

@@ -53,6 +53,12 @@ async def run_once(
 
             for tool in image_tools.make_tools(provider):
                 registry.register(tool)
+        if "browser" in wanted:
+            from hestia.tools import browser as browser_tools
+
+            if browser_tools.available():
+                for tool in browser_tools.make_tools(provider, tasks_db):
+                    registry.register(tool)
         if tasks_db is not None:
             from hestia.tools import jobs as job_tools
             from hestia.tools import preferences as pref_tools

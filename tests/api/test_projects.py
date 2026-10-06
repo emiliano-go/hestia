@@ -207,3 +207,16 @@ def test_project_preference_memory_always_in_context(client):
     context = totem_store.digest(path, task="anything").get("context", "")
     assert "Never use em dashes." in context
     assert "Acme uses SSO." in context
+
+
+def test_allow_local_browser_roundtrip(client):
+    project = _mk_project(client)
+    assert project["allow_local_browser"] is False
+
+    updated = client.put(
+        f"/api/projects/{project['id']}", json={"allow_local_browser": True}
+    ).json()
+    assert updated["allow_local_browser"] is True
+
+    fetched = client.get(f"/api/projects/{project['id']}").json()
+    assert fetched["allow_local_browser"] is True

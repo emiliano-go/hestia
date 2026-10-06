@@ -17,6 +17,7 @@ from hestia.providers.base import OpenAIClient, resolve_api_key
 from hestia.registry.db import session
 from hestia.registry.models import AgentConfig, Message, Project, Provider, Session as ChatSession
 from hestia.tools import build_registry, subagents
+from hestia.tools import browser as browser_tools
 from hestia.tools import goals as goal_tools
 from hestia.tools import images as image_tools
 from hestia.tools import questions as question_tools
@@ -64,6 +65,15 @@ run_subagent with run_in_background=true) with a short description. It returns
 a task id immediately; keep working or stop, and a notification arrives when
 it finishes (messages tagged [background task]). Use job_list and job_output
 for a quick status check and job_stop to cancel; do not poll in a loop."""
+
+_BROWSER_NOTE = """\
+## Browser
+You have a real browser. Use browser_task for autonomous multi-step web goals
+(filling forms, extracting data) and browser_open / browser_screenshot /
+browser_get_content / browser_click / browser_type / browser_eval for UI
+debugging on a persistent session; browser_close frees it. Local dev servers
+need the project's "local browser" toggle. Prefer web_fetch for reading a
+single static page."""
 
 
 def _sse(event: dict) -> str:
@@ -134,6 +144,10 @@ def chat(project_id: int, body: dict, s: Session = Depends(session)):
     registry = build_registry(writes=bool(project.allow_git_writes), db=s)
     for tool in image_tools.make_tools(provider):
         registry.register(tool)
+    browser_ready = browser_tools.available()
+    if browser_ready:
+        for tool in browser_tools.make_tools(provider, s):
+            registry.register(tool)
     for tool in subagents.make_tools(s):
         registry.register(tool)
     for tool in task_tools.make_tools(s):
@@ -162,6 +176,8 @@ def chat(project_id: int, body: dict, s: Session = Depends(session)):
     system += "\n\n" + _DELEGATION_NOTE
     system += "\n\n" + _USER_NOTE
     system += "\n\n" + _BACKGROUND_NOTE
+    if browser_ready:
+        system += "\n\n" + _BROWSER_NOTE
     if action_key == "goal":
         system += "\n\n" + _GOAL_NOTE
 

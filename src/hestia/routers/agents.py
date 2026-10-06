@@ -92,6 +92,29 @@ PRESETS = {
         "mode": "write",
         "max_turns": 4,
     },
+    "browser": {
+        "name": "browser",
+        "system_prompt": (
+            "You drive a real browser. Use browser_task for multi-step web "
+            "goals and the low-level browser tools for UI debugging; prefer "
+            "web_fetch for reading a single static page."
+        ),
+        "tools": "browser",
+        "mode": "write",
+        "max_turns": 8,
+    },
+    "image-reader": {
+        "name": "image-reader",
+        "system_prompt": (
+            "You read images for another agent. Given a screenshot and the "
+            "ongoing conversation, answer the question about it precisely and "
+            "briefly. Use the browser tools only if you need to look at more "
+            "of the page, and never take actions."
+        ),
+        "tools": "browser",
+        "mode": "read",
+        "max_turns": 3,
+    },
 }
 
 

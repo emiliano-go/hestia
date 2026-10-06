@@ -18,6 +18,7 @@ class ProjectContext:
     workspace_path: Path | None = None
     session_id: int | None = None  # set for interactive chat turns
     allow_git_writes: bool = False  # project opt-in; gates write-mode clone edits
+    allow_local_browser: bool = False  # project opt-in; allows localhost browsing
 
     @classmethod
     def from_project(cls, project) -> "ProjectContext":
@@ -30,6 +31,7 @@ class ProjectContext:
             local_path=Path(project.local_path),
             workspace_path=config.workspace_dir(project.name),
             allow_git_writes=bool(getattr(project, "allow_git_writes", False)),
+            allow_local_browser=bool(getattr(project, "allow_local_browser", False)),
         )
 
 

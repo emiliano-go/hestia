@@ -254,6 +254,26 @@ export function AboutView({ projectId, onDeleted }) {
         </>
       )}
       <h3 className="faint" style={{ fontSize: 13, fontWeight: 600 }}>
+        Browser
+      </h3>
+      <p className="note">
+        The agent can browse public sites. Allow localhost so it can debug this project's dev
+        server (for example <code>http://localhost:5173</code>).
+      </p>
+      <label className="dep-item" style={{ flex: 'none' }}>
+        <input
+          type="checkbox"
+          checked={!!project.allow_local_browser}
+          onChange={(e) =>
+            api
+              .updateProject(project.id, { allow_local_browser: e.target.checked })
+              .then(reload)
+              .catch((err) => setActionError(err.message))
+          }
+        />
+        Allow the browser to reach localhost and private addresses
+      </label>
+      <h3 className="faint" style={{ fontSize: 13, fontWeight: 600 }}>
         Notifications
       </h3>
       {notifyReq.data && notifyReq.data.configured.length > 0 ? (

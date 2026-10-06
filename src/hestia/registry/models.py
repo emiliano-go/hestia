@@ -24,6 +24,7 @@ class Project(SQLModel, table=True):
     last_opened_at: Optional[datetime] = None
     allow_git_writes: bool = False  # explicit opt-in: agent may modify the clone
     require_write_approval: bool = False  # hard gate: push/PR need an approved request
+    allow_local_browser: bool = False  # explicit opt-in: browser may reach localhost
     token_budget: Optional[int] = None  # monthly token budget (None = unlimited)
     budget_enforced: bool = False  # skip scheduled runs once the budget is spent
     created_at: datetime = Field(default_factory=_now)

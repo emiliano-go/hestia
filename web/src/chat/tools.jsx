@@ -32,6 +32,14 @@ export const TOOL_ICONS = {
   run_subagent: 'agents',
   agent_list: 'agents',
   generate_image: 'gallery',
+  browser_task: 'globe',
+  browser_open: 'globe',
+  browser_screenshot: 'gallery',
+  browser_get_content: 'files',
+  browser_click: 'play',
+  browser_type: 'edit',
+  browser_eval: 'settings',
+  browser_close: 'x',
 }
 
 export const TOOL_TITLES = {
@@ -63,14 +71,27 @@ export const TOOL_TITLES = {
   run_subagent: 'Delegate to a subagent',
   agent_list: 'List agent profiles',
   generate_image: 'Generate an image',
+  browser_task: 'Run a browser task',
+  browser_open: 'Open a page',
+  browser_screenshot: 'Screenshot the page',
+  browser_get_content: 'Read page content',
+  browser_click: 'Click an element',
+  browser_type: 'Type into a field',
+  browser_eval: 'Run page JavaScript',
+  browser_close: 'Close the browser',
 }
 
 function resultImage(result) {
   if (!result?.ok) return null
   try {
     const data = JSON.parse(result.preview)
-
-    const url = typeof data?.markdown === 'string' && data.markdown.match(/\]\(([^)]+)\)/)
+    const first =
+      typeof data?.markdown === 'string'
+        ? data.markdown
+        : Array.isArray(data?.screenshots)
+          ? data.screenshots[0]
+          : null
+    const url = typeof first === 'string' && first.match(/\]\(([^)]+)\)/)
     return url ? url[1] : null
   } catch (e) {
     return null

@@ -31,6 +31,8 @@ DEFAULTS: dict[str, str] = {
     "weekly_review_time": "16:00",
     "weekly_review_last_sent": "",
     "web_fetch_enabled": "1",
+    "browser_enabled": "1",
+    "browser_cdp_url": "",
 }
 
 _TRUE = {"1", "true", "yes", "on"}

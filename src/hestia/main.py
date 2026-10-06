@@ -54,6 +54,9 @@ async def lifespan(app: FastAPI):
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
+        from hestia.tools import browser as browser_tools
+
+        await asyncio.to_thread(browser_tools.manager.shutdown)
 
 
 def create_app() -> FastAPI:

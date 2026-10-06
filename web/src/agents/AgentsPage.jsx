@@ -48,6 +48,12 @@ export const TOOL_GROUPS = [
     delegable: false,
   },
   {
+    key: 'browser',
+    label: 'Browser',
+    desc: 'Autonomous web tasks and UI debugging. Principal agent only.',
+    delegable: false,
+  },
+  {
     key: 'tasks',
     label: 'Task board',
     desc: 'Create and move tasks on the project kanban. Principal agent only.',
