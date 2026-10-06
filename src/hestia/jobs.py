@@ -52,21 +52,21 @@ a task id immediately; keep working or stop and the owner will be notified.
 Use job_list and job_output to check progress, and job_stop to cancel. Do not
 poll in a loop: you will be woken with the result when it finishes."""
 
-ACTIVE_SESSIONS: set[int] = set()
+ACTIVE_SESSIONS: set[str] = set()
 _active_lock = threading.Lock()
 
 
-def mark_active(session_id: int) -> None:
+def mark_active(session_id: str) -> None:
     with _active_lock:
         ACTIVE_SESSIONS.add(session_id)
 
 
-def mark_idle(session_id: int) -> None:
+def mark_idle(session_id: str) -> None:
     with _active_lock:
         ACTIVE_SESSIONS.discard(session_id)
 
 
-def is_active(session_id: int) -> bool:
+def is_active(session_id: str) -> bool:
     with _active_lock:
         return session_id in ACTIVE_SESSIONS
 
@@ -110,7 +110,7 @@ def as_dict(job: BackgroundTask) -> dict:
 def submit(
     *,
     project_id: int,
-    session_id: int | None,
+    session_id: str | None,
     kind: str,
     instruction: str,
     description: str,
@@ -264,7 +264,7 @@ async def _execute_job(
         system,
         instruction,
         groups=groups,
-        max_turns=agent.max_turns if agent else (6 if mode else 10),
+        max_turns=None,
         tasks_db=db,
         writes=bool(project.allow_git_writes),
         mode=mode,
@@ -347,7 +347,7 @@ async def _deliver(job_id: int) -> None:
         await _continue(session_id, project_id)
 
 
-def _replay(db: Session, session_id: int, system: str) -> list[dict]:
+def _replay(db: Session, session_id: str, system: str) -> list[dict]:
     rows = db.exec(
         select(Message).where(Message.session_id == session_id).order_by(Message.id)
     ).all()
@@ -375,7 +375,7 @@ def _replay(db: Session, session_id: int, system: str) -> list[dict]:
     return messages
 
 
-async def _continue(session_id: int, project_id: int) -> None:
+async def _continue(session_id: str, project_id: int) -> None:
     if is_active(session_id):
         return
     mark_active(session_id)
@@ -411,7 +411,7 @@ async def _continue(session_id: int, project_id: int) -> None:
             messages = _replay(db, session_id, system)
             final = ""
             async for event in agent_loop.run_turn(
-                ctx, client, registry, messages, max_turns=agent.max_turns if agent else 8
+                ctx, client, registry, messages
             ):
                 if event["type"] == "message":
                     final = event.get("content", "")

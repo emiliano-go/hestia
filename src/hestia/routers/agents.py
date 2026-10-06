@@ -103,6 +103,18 @@ PRESETS = {
         "mode": "write",
         "max_turns": 8,
     },
+    "memory-writer": {
+        "name": "memory-writer",
+        "system_prompt": (
+            "You are the memory writer. Read the finished turn and store only "
+            "what future sessions need: memory_create for durable engineering "
+            "facts, memory_candidate for uncertain ones, memory_update to correct "
+            "existing memories. Never store the raw conversation."
+        ),
+        "tools": "memory",
+        "mode": "write",
+        "max_turns": 6,
+    },
     "image-reader": {
         "name": "image-reader",
         "system_prompt": (

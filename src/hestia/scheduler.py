@@ -139,7 +139,6 @@ async def _maybe_send_briefing(db: Session) -> None:
                     system,
                     "Write the briefing commentary.",
                     groups="workspace,repo,files",
-                    max_turns=4,
                     tasks_db=db,
                 )
                 usage.record(
@@ -284,7 +283,6 @@ async def _agent_narrative(db: Session, project: Project, digest: str, prompt: s
         system,
         "Write it.",
         groups="workspace,repo,files,tasks",
-        max_turns=6,
         tasks_db=db,
     )
     usage.record(db, project.id, action="plan", model=provider.model, usage=tokens)
@@ -473,7 +471,6 @@ async def run_schedule(schedule_id: int, event: dict | None = None) -> dict | No
                 system,
                 instruction or "Run the scheduled job.",
                 groups=groups,
-                max_turns=agent.max_turns if agent else 8,
                 tasks_db=db,
             )
             usage.record(

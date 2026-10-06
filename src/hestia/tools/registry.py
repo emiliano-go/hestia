@@ -26,7 +26,9 @@ class ProjectContext:
     repo_url: str  # primary repo mirror ("" when repo-less)
     local_path: Path  # primary clone path (workspace when repo-less)
     workspace_path: Path | None = None
-    session_id: int | None = None  # set for interactive chat turns
+    session_id: str | None = None  # set for interactive chat turns
+    run_id: str | None = None  # RunManager run backing this execution
+    tool_call_id: str | None = None  # current tool call (set by the agent loop)
     allow_git_writes: bool = False  # project opt-in; gates write-mode clone edits
     allow_local_browser: bool = False  # project opt-in; allows localhost browsing
     repos: list[RepoRef] = field(default_factory=list)

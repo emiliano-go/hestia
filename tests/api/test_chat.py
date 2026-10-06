@@ -87,7 +87,7 @@ def test_chat_question_flow(client, monkeypatch):
     provider = _mk_provider(client)
     calls = {"n": 0}
 
-    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
         calls["n"] += 1
         if calls["n"] == 1:
             try:
@@ -195,7 +195,7 @@ def test_chat_approval_event(client, monkeypatch):
     project = _mk_project(client)
     provider = _mk_provider(client)
 
-    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
         try:
             registry.get("ask_approval").handler(
                 ctx, {"action": "gh_open_pr", "summary": "Open the PR"}
@@ -292,7 +292,7 @@ def test_chat_persists_tool_history(client, monkeypatch):
     captured = {}
     calls = {"n": 0}
 
-    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
         calls["n"] += 1
         if calls["n"] == 1:
             yield {"type": "token", "text": "checking "}
@@ -357,12 +357,14 @@ def test_chat_heartbeat(client, monkeypatch):
     project = _mk_project(client)
     provider = _mk_provider(client)
 
-    async def slow_run_turn(ctx, client_, registry, messages, max_turns=10):
+    async def slow_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
         await asyncio.sleep(0.5)
         yield {"type": "message", "content": "late", "tool_calls": []}
 
+    from hestia import runs as runs_mod
+
     monkeypatch.setattr(agent_loop, "run_turn", slow_run_turn)
-    monkeypatch.setattr(chat_router, "HEARTBEAT_SECONDS", 0.1)
+    monkeypatch.setattr(runs_mod, "HEARTBEAT_SECONDS", 0.1)
     resp = client.post(
         f"/api/projects/{project['id']}/chat",
         json={"message": "slow", "provider_id": provider["id"]},
@@ -444,7 +446,7 @@ def test_btw_streams_answer_with_compacted_context(client, monkeypatch):
         json={"name": "fake-btw", "base_url": "http://x", "api_key_env": "NOPE", "model": "m"},
     ).json()
 
-    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
         assert messages[0]["content"].startswith("You are the project agent for 'demo'")
         assert "user: what changed?" in messages[0]["content"]
         assert messages[-1] == {"role": "user", "content": "why blue?"}
@@ -473,3 +475,101 @@ def test_btw_streams_answer_with_compacted_context(client, monkeypatch):
     assert '"event": "token"' in resp.text
     assert "Rayleigh " in resp.text
     assert '"event": "done"' in resp.text
+
+
+def test_chat_streams_thinking_with_setting(client, monkeypatch):
+    from hestia.agent import loop as agent_loop
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
+        yield {"type": "thinking", "text": "pondering the question"}
+        yield {"type": "message", "content": "answer", "tool_calls": []}
+
+    monkeypatch.setattr(agent_loop, "run_turn", fake_run_turn)
+
+    resp = client.post(
+        f"/api/projects/{project['id']}/chat",
+        json={"message": "hi", "provider_id": provider["id"]},
+    )
+    assert '"event": "thinking"' in resp.text
+    assert "pondering the question" in resp.text
+
+    client.put("/api/settings", json={"show_thinking": "0"})
+    resp = client.post(
+        f"/api/projects/{project['id']}/chat",
+        json={"message": "hi again", "provider_id": provider["id"]},
+    )
+    assert '"event": "thinking"' not in resp.text
+    assert '"event": "message"' in resp.text
+
+
+def test_memory_checkpoint_creates_candidate(client, monkeypatch):
+    from hestia.agent import loop as agent_loop
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+    calls = {"n": 0}
+
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
+        calls["n"] += 1
+        yield {"type": "message", "content": "Just chatting.", "tool_calls": []}
+
+    monkeypatch.setattr(agent_loop, "run_turn", fake_run_turn)
+    resp = client.post(
+        f"/api/projects/{project['id']}/chat",
+        json={"message": "hello", "provider_id": provider["id"]},
+    )
+    assert resp.status_code == 200
+    assert calls["n"] >= 2  # main turn + blocking checkpoint
+
+    candidates = client.get(f"/api/projects/{project['id']}/memory/candidates").json()
+    assert len(candidates) == 1
+    assert candidates[0]["source"] == "checkpoint"
+    assert candidates[0]["status"] == "pending"
+
+
+def test_memory_checkpoint_accepts_written_memory(client, monkeypatch):
+    import json
+
+    from hestia.agent import loop as agent_loop
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+    calls = {"n": 0}
+
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            yield {"type": "message", "content": "answer", "tool_calls": []}
+            return
+        args = {
+            "type": "gotcha",
+            "title": "Checkpoint gotcha",
+            "statement": "The checkpoint wrote this.",
+            "tags": ["test"],
+        }
+        result = registry.get("memory_create").handler(ctx, args)
+        yield {"type": "tool_call", "id": "c1", "name": "memory_create", "arguments": args}
+        yield {
+            "type": "tool_result",
+            "id": "c1",
+            "name": "memory_create",
+            "ok": True,
+            "preview": json.dumps(result)[:2000],
+        }
+        yield {"type": "message", "content": "", "tool_calls": []}
+
+    monkeypatch.setattr(agent_loop, "run_turn", fake_run_turn)
+    resp = client.post(
+        f"/api/projects/{project['id']}/chat",
+        json={"message": "hello", "provider_id": provider["id"]},
+    )
+    assert resp.status_code == 200
+    assert calls["n"] >= 2
+    assert client.get(f"/api/projects/{project['id']}/memory/candidates").json() == []
+    from hestia import totem_store
+
+    titles = [m["title"] for m in totem_store.list_all(project["local_path"])]
+    assert "Checkpoint gotcha" in titles

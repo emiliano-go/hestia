@@ -68,7 +68,6 @@ async def capture(project_id: int, body: dict, s: Session = Depends(session)):
         system,
         text,
         groups=groups,
-        max_turns=agent.max_turns if agent else 10,
         tasks_db=s,
     )
     usage.record(s, project.id, action="capture", model=provider.model, usage=tokens)

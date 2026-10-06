@@ -226,7 +226,7 @@ def test_watch_condition(client, monkeypatch):
     provider = _mk_provider(client)
     client.post("/api/agents", json={"name": "chat", "provider_id": provider["id"]})
 
-    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
         yield {"type": "message", "content": "MET\nThe v2 release is published.", "tool_calls": []}
 
     monkeypatch.setattr(agent_loop, "run_turn", fake_run_turn)

@@ -234,6 +234,38 @@ def _open_pr(ctx: ProjectContext, args: dict, db: Session | None = None) -> dict
     }
 
 
+def _merge_pr(ctx: ProjectContext, args: dict, db: Session | None = None) -> dict:
+    _require_approval(db, ctx, "gh_merge_pr")
+    repo = args.get("repo")
+    slug = overview.repo_slug(ctx.repo_url_for(repo))
+    if not slug:
+        raise ValueError("this repository is not a GitHub repository")
+    number = args.get("number")
+    if not number:
+        raise ValueError("number is required")
+    method = (args.get("method") or "squash").strip().lower()
+    if method not in ("squash", "merge", "rebase"):
+        raise ValueError("method must be squash, merge, or rebase")
+    resp = httpx.put(
+        f"{GITHUB_API}/repos/{slug}/pulls/{int(number)}/merge",
+        headers=_gh_headers(),
+        json={"merge_method": method},
+        timeout=30,
+    )
+    if resp.status_code not in (200, 201):
+        raise RuntimeError(f"GitHub {resp.status_code}: {resp.text[:300]}")
+    data = resp.json()
+    if not data.get("merged"):
+        raise RuntimeError(data.get("message") or "merge failed")
+    return {
+        "merged": True,
+        "number": int(number),
+        "repo": ctx.repo(repo).alias,
+        "sha": data.get("sha"),
+        "message": data.get("message"),
+    }
+
+
 def register(registry: Registry, db: Session | None = None) -> None:
     registry.register(Tool(
         name="write_file",
@@ -283,6 +315,22 @@ def register(registry: Registry, db: Session | None = None) -> None:
             "branch": {"type": "string"},
         }, []),
         handler=lambda ctx, a: _push(ctx, a, db),
+        group="writes",
+        effect="write",
+        delegable=False,
+    ))
+    registry.register(Tool(
+        name="gh_merge_pr",
+        description=(
+            "Merge a pull request (squash by default; method: squash, merge, or "
+            "rebase). Requires your approval when the project gates writes."
+        ),
+        parameters=schema({
+            "repo": {"type": "string", "description": "repo alias"},
+            "number": {"type": "integer", "description": "pull request number"},
+            "method": {"type": "string", "enum": ["squash", "merge", "rebase"]},
+        }, ["number"]),
+        handler=lambda ctx, a: _merge_pr(ctx, a, db),
         group="writes",
         effect="write",
         delegable=False,

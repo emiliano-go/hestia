@@ -47,7 +47,7 @@ def test_schedules_crud_and_run(client, monkeypatch):
 
     seen = {}
 
-    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
         seen["instruction"] = messages[-1]["content"]
         yield {"type": "message", "content": "Digest written.", "tool_calls": []}
 
@@ -113,7 +113,7 @@ def test_event_trigger_matching_and_run(client, monkeypatch):
 
     seen = {}
 
-    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
         seen["instruction"] = messages[-1]["content"]
         yield {"type": "message", "content": "handled", "tool_calls": []}
 
@@ -281,7 +281,7 @@ def test_run_once_registers_db_tools(client, monkeypatch):
     provider = _mk_provider(client)
     seen = {}
 
-    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
         seen["tools"] = [t.name for t in registry.all()]
         yield {"type": "message", "content": "ok", "tool_calls": []}
 
@@ -366,7 +366,7 @@ def test_background_subagent_uses_delegation_mode(client, monkeypatch):
     )
     seen = {}
 
-    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
         seen["tools"] = {t.name for t in registry.all()}
         seen["system"] = messages[0]["content"]
         yield {"type": "message", "content": "ok", "tool_calls": []}

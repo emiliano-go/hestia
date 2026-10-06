@@ -25,6 +25,7 @@ def build_registry(writes: bool = False, db=None) -> Registry:
         from hestia.tools import jobs as job_tools
         from hestia.tools import schedules as schedule_tools
 
+        memory.register_candidates(registry, db)
         for tool in preferences.make_tools(db):
             registry.register(tool)
         for tool in job_tools.make_tools(db):

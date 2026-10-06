@@ -22,7 +22,7 @@ def test_memory_fix(client, monkeypatch):
         "name": "fake", "base_url": "http://x", "api_key_env": "NOPE", "model": "m",
     }).json()
 
-    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
         # memory-only registry, catalog in system prompt, instruction in user msg
         assert set(registry._tools) == {"memory_search", "memory_get", "memory_list",
                                         "memory_create", "memory_update", "memory_delete"}
@@ -60,3 +60,39 @@ def test_user_memory_tools(client):
         assert tools["list_preferences"].handler(ctx, {})["preferences"] == []
 
     assert client.get("/api/settings").json()["user_name"] == "Sam"
+
+
+def test_candidate_api_accept_and_reject(client):
+    from sqlmodel import Session as SqlSession
+
+    from hestia.registry.db import engine
+    from hestia.registry.models import MemoryCandidate
+
+    project = _mk_project(client)
+    with SqlSession(engine()) as db:
+        first = MemoryCandidate(
+            project_id=project["id"], type="observation", title="C1",
+            statement="S1", tags='["x"]', confidence=0.5, source="checkpoint",
+        )
+        second = MemoryCandidate(
+            project_id=project["id"], type="observation", title="C2",
+            statement="S2", tags='["x"]', confidence=0.5, source="writer",
+        )
+        db.add(first)
+        db.add(second)
+        db.commit()
+        db.refresh(first)
+        db.refresh(second)
+        first_id, second_id = first.id, second.id
+
+    listed = client.get(f"/api/projects/{project['id']}/memory/candidates").json()
+    assert {c["id"] for c in listed} == {first_id, second_id}
+
+    accepted = client.post(f"/api/candidates/{first_id}/accept").json()
+    assert accepted["candidate"]["status"] == "accepted"
+    assert accepted["memory"]["id"] and accepted["memory"]["status"] == "active"
+
+    rejected = client.post(f"/api/candidates/{second_id}/reject").json()
+    assert rejected["status"] == "rejected"
+
+    assert client.get(f"/api/projects/{project['id']}/memory/candidates").json() == []

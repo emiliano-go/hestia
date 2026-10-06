@@ -105,3 +105,56 @@ def github_list(
     )
     result["alias"] = row.alias
     return result
+
+
+@router.post("/{project_id}/github/merge")
+def merge_pr(project_id: int, body: dict, s: Session = Depends(session)):
+    """Merge a pull request (owner-initiated; agent merges go through approval)."""
+    import httpx
+
+    from hestia import config
+
+    project = _project_or_404(project_id, s)
+    number = body.get("number")
+    if not number:
+        raise HTTPException(400, "number is required")
+    method = str(body.get("method") or "squash").lower()
+    if method not in ("squash", "merge", "rebase"):
+        raise HTTPException(400, "method must be squash, merge, or rebase")
+    rows = repos.repos_for(s, project.id)
+    alias = (body.get("repo") or "").strip() or None
+    if alias:
+        rows = [r for r in rows if r.alias == alias]
+        if not rows:
+            raise HTTPException(404, f"unknown repo alias: {alias}")
+    if not rows:
+        raise HTTPException(400, "project has no repositories")
+    row = next((r for r in rows if r.is_primary), rows[0])
+    slug = overview.repo_slug(row.repo_url)
+    if not slug:
+        raise HTTPException(400, "this repository is not a GitHub repository")
+    token = config.github_token()
+    if not token:
+        raise HTTPException(400, "GITHUB_TOKEN is required to merge pull requests")
+    resp = httpx.put(
+        f"https://api.github.com/repos/{slug}/pulls/{int(number)}/merge",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Authorization": f"Bearer {token}",
+        },
+        json={"merge_method": method},
+        timeout=30,
+    )
+    if resp.status_code not in (200, 201):
+        raise HTTPException(502, f"GitHub {resp.status_code}: {resp.text[:300]}")
+    data = resp.json()
+    if not data.get("merged"):
+        raise HTTPException(502, data.get("message") or "merge failed")
+    return {
+        "merged": True,
+        "number": int(number),
+        "repo": row.alias,
+        "sha": data.get("sha"),
+        "message": data.get("message"),
+    }

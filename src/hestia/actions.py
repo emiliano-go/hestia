@@ -76,6 +76,15 @@ ACTIONS: list[dict] = [
         "tools": "browser",
     },
     {
+        "key": "memory-writer",
+        "label": "Write memories",
+        "description": (
+            "Curate a finished turn into durable Totem memories with a cheap "
+            "model, so the main agent never waits."
+        ),
+        "tools": "memory",
+    },
+    {
         "key": "image-reader",
         "label": "Read images",
         "description": (

@@ -34,7 +34,7 @@ def test_triage_creates_task_and_plan(client, monkeypatch):
         },
     )
 
-    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
         system = messages[0]["content"]
         assert "Support plugins" in system
         assert "plans/issue-7.md" in system
@@ -72,7 +72,7 @@ def test_docs_generation(client, monkeypatch):
 
     seen = {}
 
-    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
         seen["system"] = messages[0]["content"]
         seen["tools"] = {t.name for t in registry.all()}
         yield {"type": "message", "content": "Wrote ARCHITECTURE.md", "tool_calls": []}

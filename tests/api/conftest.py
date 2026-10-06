@@ -12,6 +12,8 @@ from hestia import config
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     os.environ["DATA_DIR"] = str(tmp_path / "data")
+    # isolate Totem user memory (identity/preferences) per test
+    monkeypatch.setenv("TOTEM_USER_DB", str(tmp_path / "data" / "totem-user.db"))
     monkeypatch.setattr(config, "data_dir", lambda: tmp_path / "data")
 
     import hestia.registry.db as db

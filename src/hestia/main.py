@@ -29,6 +29,7 @@ from hestia.routers import (
     projects,
     providers,
     reminders,
+    runs,
     schedules,
     search,
     sessions,
@@ -87,6 +88,7 @@ def create_app() -> FastAPI:
     app.include_router(capture.router)
     app.include_router(implement.router)
     app.include_router(jobs_router.router)
+    app.include_router(runs.router)
     app.include_router(providers.router)
     app.include_router(sessions.router)
     app.include_router(agents.router)

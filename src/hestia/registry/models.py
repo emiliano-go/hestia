@@ -4,6 +4,7 @@ Sessions and messages are views for the UI; durable cross-session memory
 lives in each project's Totem DB, not here.
 """
 
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -51,7 +52,7 @@ class ProjectRepo(SQLModel, table=True):
 
 
 class Session(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
     project_id: int = Field(foreign_key="project.id", index=True)
     title: str = "New session"
     action: str = "chat"  # action key the session was started with
@@ -61,7 +62,7 @@ class Session(SQLModel, table=True):
 
 class Message(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    session_id: int = Field(foreign_key="session.id", index=True)
+    session_id: str = Field(foreign_key="session.id", index=True)
     role: str
     content: str
     tool_calls: Optional[str] = None  # JSON: OpenAI tool-call list
@@ -162,7 +163,7 @@ class Question(SQLModel, table=True):
     """
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    session_id: int = Field(foreign_key="session.id", index=True)
+    session_id: str = Field(foreign_key="session.id", index=True)
     project_id: int = Field(foreign_key="project.id", index=True)
     question: str
     kind: str = "question"  # question | approval
@@ -187,7 +188,7 @@ class Goal(SQLModel, table=True):
     description: str = ""
     success_criteria: str = ""
     status: str = "drafting"  # drafting | active | done | dropped
-    session_id: Optional[int] = Field(default=None, foreign_key="session.id")
+    session_id: Optional[str] = Field(default=None, foreign_key="session.id")
     milestone_id: Optional[int] = Field(default=None, foreign_key="milestone.id")
     spec_path: Optional[str] = None
     created_at: datetime = Field(default_factory=_now)
@@ -250,12 +251,34 @@ class Passkey(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_now)
 
 
+class MemoryCandidate(SQLModel, table=True):
+    """A proposed memory awaiting approval (or auto-accepted at high confidence).
+
+    Conversation turns become candidates; durable engineering classes are
+    auto-accepted into Totem, the rest wait for the owner in the Memory view.
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id", index=True)
+    session_id: Optional[str] = Field(default=None, foreign_key="session.id")
+    run_id: Optional[str] = None
+    type: str = "observation"
+    title: str
+    statement: str
+    tags: str = "[]"  # JSON list
+    confidence: float = 0.5
+    source: str = "agent"  # agent | writer | checkpoint
+    status: str = "pending"  # pending | accepted | rejected
+    created_at: datetime = Field(default_factory=_now)
+    decided_at: Optional[datetime] = None
+
+
 class Usage(SQLModel, table=True):
     """Token usage for one agent run: a chat turn, subagent, or one-shot job."""
 
     id: Optional[int] = Field(default=None, primary_key=True)
     project_id: int = Field(foreign_key="project.id", index=True)
-    session_id: Optional[int] = Field(default=None, foreign_key="session.id", index=True)
+    session_id: Optional[str] = Field(default=None, foreign_key="session.id", index=True)
     action: str = "chat"  # chat | docs | triage | memory-fix | schedule action
     model: str = ""
     prompt_tokens: int = 0
@@ -315,7 +338,7 @@ class BackgroundTask(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     project_id: int = Field(foreign_key="project.id", index=True)
-    session_id: Optional[int] = Field(default=None, foreign_key="session.id", index=True)
+    session_id: Optional[str] = Field(default=None, foreign_key="session.id", index=True)
     kind: str = "agent"  # agent | subagent
     description: str = ""
     instruction: str = ""

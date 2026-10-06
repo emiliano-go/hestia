@@ -1,7 +1,23 @@
 """Totem memory tools: these embed the Totem memory system into the agent."""
 
+import json
+
 from hestia import totem_store
 from hestia.tools.registry import Registry, Tool, schema
+
+# Durable engineering classes are accepted straight into Totem; everything
+# else becomes a candidate for the owner to approve.
+AUTO_ACCEPT_TYPES = {
+    "decision",
+    "gotcha",
+    "invariant",
+    "contract",
+    "constraint",
+    "bug",
+    "architecture",
+    "rejected_idea",
+}
+AUTO_ACCEPT_CONFIDENCE = 0.7
 
 
 def register(registry: Registry) -> None:
@@ -101,6 +117,91 @@ def register(registry: Registry) -> None:
             "reason": {"type": "string"},
         }, ["id", "reason"]),
         handler=lambda ctx, a: totem_store.delete(ctx.memory_path, a["id"], a["reason"]),
+        group="memory",
+        effect="write",
+    ))
+
+
+def register_candidates(registry: Registry, db) -> None:
+    """Candidate-memory tools (require a DB session)."""
+
+    def candidate_handler(ctx, args):
+        from hestia.registry.models import MemoryCandidate
+
+        type_ = str(args.get("type") or "observation").strip().lower()
+        title = (args.get("title") or "").strip()
+        statement = (args.get("statement") or "").strip()
+        tags = [str(t).strip() for t in (args.get("tags") or []) if str(t).strip()]
+        if not title or not statement:
+            raise ValueError("title and statement are required")
+        confidence = float(args.get("confidence", 0.5))
+        if type_ in AUTO_ACCEPT_TYPES and confidence >= AUTO_ACCEPT_CONFIDENCE:
+            metadata = args.get("metadata")
+            if type_ == "invariant" and not (metadata or {}).get("verificationMethod"):
+                metadata = {**(metadata or {}), "verificationMethod": "owner review"}
+            item = totem_store.create(
+                ctx.memory_path,
+                type=type_,
+                title=title,
+                statement=statement,
+                tags=tags or ["memory"],
+                confidence=confidence,
+                metadata=metadata,
+            )
+            return {
+                "accepted": True,
+                "type": type_,
+                "memory_id": item.get("id") if isinstance(item, dict) else None,
+            }
+        row = MemoryCandidate(
+            project_id=ctx.project_id,
+            session_id=ctx.session_id,
+            run_id=ctx.run_id,
+            type=type_,
+            title=title,
+            statement=statement,
+            tags=json.dumps(tags or ["memory"]),
+            confidence=confidence,
+            source=str(args.get("source") or "agent"),
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return {"accepted": False, "candidate_id": row.id, "status": "pending"}
+
+    def none_handler(ctx, args):
+        return {"acknowledged": True, "reason": (args.get("reason") or "").strip()[:300]}
+
+    registry.register(Tool(
+        name="memory_candidate",
+        description=(
+            "Propose a memory for approval instead of writing it directly. Durable "
+            "engineering classes (decision, gotcha, invariant, contract, constraint, "
+            "bug, architecture, rejected_idea) at confidence >= 0.7 are accepted "
+            "immediately; everything else waits in the Memory view. Use this when "
+            "unsure whether a fact is durable."
+        ),
+        parameters=schema({
+            "type": {"type": "string"},
+            "title": {"type": "string"},
+            "statement": {"type": "string"},
+            "tags": {"type": "array", "items": {"type": "string"}},
+            "confidence": {"type": "number", "description": "0..1"},
+            "metadata": {"type": "object"},
+            "source": {"type": "string", "description": "writer | checkpoint | agent"},
+        }, ["type", "title", "statement"]),
+        handler=candidate_handler,
+        group="memory",
+        effect="write",
+    ))
+    registry.register(Tool(
+        name="memory_none",
+        description=(
+            "Acknowledge a memory checkpoint when there is genuinely nothing "
+            "durable to record from this turn. Give a one-line reason."
+        ),
+        parameters=schema({"reason": {"type": "string"}}, []),
+        handler=none_handler,
         group="memory",
         effect="write",
     ))

@@ -83,7 +83,6 @@ def generate_doc(project_id: int, body: dict, s: Session = Depends(session)):
             system,
             f"Generate: {label}",
             groups=actions.ACTIONS_BY_KEY["docs"]["tools"],
-            max_turns=agent.max_turns if agent else 8,
             tasks_db=s,
         )
     )

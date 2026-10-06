@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from sqlmodel import Session, select
 
-from hestia import actions
+from hestia import actions, runs
 from hestia.agent import loop as agent_loop
 from hestia.agent.prompt import POLICY
 from hestia.providers.base import OpenAIClient, resolve_api_key
@@ -139,7 +139,14 @@ def make_tools(db: Session) -> list[Tool]:
             {"role": "system", "content": subagent_system(config)},
             {"role": "user", "content": args["task"]},
         ]
-        result = _run_subagent_in_thread(ctx, client, registry, messages, config.max_turns)
+        child = runs.manager.create(
+            "subagent",
+            project_id=ctx.project_id,
+            session_id=ctx.session_id,
+            parent_run_id=ctx.run_id,
+            title=args["task"],
+        )
+        result = _run_subagent_in_thread(ctx, client, registry, messages, child)
         if "error" in result:
             raise RuntimeError(result["error"])
         return result
@@ -211,17 +218,44 @@ def make_tools(db: Session) -> list[Tool]:
     ]
 
 
-async def _run_subagent(ctx, client, registry, messages, max_turns) -> dict:
+def _progress(parent_run, tool_call_id: str | None, text: str) -> None:
+    """Forward a child run's step into the parent tool row."""
+    if not parent_run or not tool_call_id:
+        return
+    runs.manager.emit(
+        parent_run,
+        {"type": "tool_progress", "tool_call_id": tool_call_id, "text": text[:160]},
+    )
+
+
+async def _run_subagent(ctx, client, registry, messages, run=None) -> dict:
     final = ""
-    async for event in agent_loop.run_turn(ctx, client, registry, messages, max_turns=max_turns):
-        if event["type"] == "message":
-            final = event.get("content", "")
-        if event["type"] == "error":
-            return {"error": event["message"]}
+    status, error = "done", ""
+    parent = runs.manager.get(ctx.run_id) if ctx.run_id else None
+    steps = 0
+    try:
+        async for event in agent_loop.run_turn(ctx, client, registry, messages, run=run):
+            if run is not None:
+                runs.manager.emit(run, event)
+            etype = event["type"]
+            if etype == "tool_call":
+                steps += 1
+                _progress(parent, ctx.tool_call_id, f"step {steps} · {event.get('name')}")
+            elif etype == "thinking" and event.get("text"):
+                _progress(parent, ctx.tool_call_id, event["text"].strip().splitlines()[-1][:120])
+            elif etype == "message":
+                final = event.get("content", "") or final
+            elif etype in ("error", "stopped", "timed_out"):
+                status, error = etype, event.get("message", "")
+    finally:
+        if run is not None:
+            runs.manager.finish(run, status, result=final, error=error)
+    if error:
+        return {"error": error}
     return {"summary": final}
 
 
-def _run_subagent_in_thread(ctx, client, registry, messages, max_turns) -> dict:
+def _run_subagent_in_thread(ctx, client, registry, messages, run=None) -> dict:
     """Run the subagent loop off the main event loop.
 
     Tool handlers are sync, so this is called from inside the parent's running
@@ -230,5 +264,5 @@ def _run_subagent_in_thread(ctx, client, registry, messages, max_turns) -> dict:
     """
     with ThreadPoolExecutor(max_workers=1) as pool:
         return pool.submit(
-            asyncio.run, _run_subagent(ctx, client, registry, messages, max_turns)
+            asyncio.run, _run_subagent(ctx, client, registry, messages, run)
         ).result()

@@ -106,7 +106,7 @@ def test_preferences_in_prompt(client, monkeypatch):
         json={"message": "hi", "provider_id": provider["id"]},
     )
     assert resp.status_code == 200
-    assert "Standing preferences" in seen["system"]
+    assert "User context" in seen["system"]
     assert "Never use em dashes." in seen["system"]
 
 

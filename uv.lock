@@ -4521,7 +4521,7 @@ wheels = [
 
 [[package]]
 name = "totem-mcp"
-version = "0.5.0"
+version = "0.5.1"
 source = { editable = "../totem" }
 dependencies = [
     { name = "click" },

@@ -20,7 +20,7 @@ async def run_once(
     system: str,
     user: str,
     groups: str = "",
-    max_turns: int = 8,
+    max_turns: int | None = None,
     tasks_db: Session | None = None,
     writes: bool = False,
     model: str | None = None,

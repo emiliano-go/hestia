@@ -303,7 +303,6 @@ async def _check_condition(db: Session, watch: Watch) -> None:
         system,
         "Check the watch condition.",
         groups="web,repo,files,github",
-        max_turns=6,
         tasks_db=db,
     )
     usage.record(db, project.id, action="watch", model=provider.model, usage=tokens)

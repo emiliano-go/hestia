@@ -59,6 +59,11 @@ def browser_executable() -> str | None:
     return os.environ.get("HESTIA_BROWSER_EXECUTABLE") or None
 
 
+def user_memory_path() -> Path:
+    """Global Totem user memory DB, kept in the data volume for persistence."""
+    return data_dir() / "totem-user.db"
+
+
 def browser_dir() -> Path:
     """Persistent browser data: profiles, downloads, saved screenshots live here."""
     path = data_dir() / "browser"

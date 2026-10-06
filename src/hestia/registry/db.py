@@ -86,6 +86,26 @@ def _migrate() -> None:
         session_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(session)")}
         if session_columns and "action" not in session_columns:
             conn.exec_driver_sql("ALTER TABLE session ADD COLUMN action TEXT DEFAULT 'chat'")
+        # Session ids became UUID strings; SQLite cannot alter a column type, so
+        # rebuild the table once and keep existing ids as their string form.
+        id_type = conn.exec_driver_sql(
+            "SELECT type FROM pragma_table_info('session') WHERE name='id'"
+        ).fetchone()
+        declared = (id_type[0] or "").upper() if id_type else ""
+        # SQLAlchemy emits VARCHAR for string PKs on SQLite; only rebuild for
+        # the legacy integer primary key.
+        if session_columns and declared and not any(t in declared for t in ("TEXT", "CHAR", "CLOB")):
+            rows = conn.exec_driver_sql(
+                "SELECT id, project_id, title, action, created_at, updated_at FROM session"
+            ).fetchall()
+            conn.exec_driver_sql("DROP TABLE session")
+            SQLModel.metadata.tables["session"].create(conn, checkfirst=False)
+            for row in rows:
+                conn.exec_driver_sql(
+                    "INSERT INTO session (id, project_id, title, action, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (str(row[0]), row[1], row[2], row[3], row[4], row[5]),
+                )
 
         provider_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(provider)")}
         if provider_columns and "api_key" not in provider_columns:

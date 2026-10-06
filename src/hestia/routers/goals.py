@@ -80,7 +80,7 @@ def _spec_path(goal: Goal) -> str:
     return goal.spec_path or f"goals/{goals.slugify(goal.title)}/spec.md"
 
 
-def _transcript(s: Session, session_id: int | None, limit: int = 20) -> str:
+def _transcript(s: Session, session_id: str | None, limit: int = 20) -> str:
     if not session_id:
         return "(no discussion yet)"
     rows = s.exec(
@@ -196,7 +196,7 @@ async def _run_goal_agent(s: Session, goal: Goal, provider: Provider, system: st
     ]
     final = ""
     tokens: dict = {}
-    async for event in agent_loop.run_turn(ctx, client, registry, messages, max_turns=10):
+    async for event in agent_loop.run_turn(ctx, client, registry, messages):
         if event["type"] == "usage":
             usage.merge(tokens, event.get("usage"))
             continue

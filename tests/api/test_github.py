@@ -71,7 +71,7 @@ def test_github_review(client, monkeypatch):
     )
     seen = {}
 
-    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
         seen["system"] = messages[0]["content"]
         seen["tools"] = {t.name for t in registry.all()}
         yield {"type": "message", "content": "LGTM with nits.", "tool_calls": []}
@@ -164,3 +164,47 @@ def test_github_import_gh(client, monkeypatch):
         lambda *a, **k: SimpleNamespace(returncode=1, stdout=""),
     )
     assert client.post("/api/github/import-gh").status_code == 400
+
+
+def test_github_merge(client, monkeypatch):
+    import httpx
+    from sqlmodel import Session as SqlSession, select
+
+    from hestia.registry.db import engine
+    from hestia.registry.models import ProjectRepo
+
+    project = _mk_project(client)
+    with SqlSession(engine()) as db:
+        rows = db.exec(
+            select(ProjectRepo).where(ProjectRepo.project_id == project["id"])
+        ).all()
+        for row in rows:
+            row.repo_url = "https://github.com/a/b"
+            db.add(row)
+        db.commit()
+
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = "ok"
+
+        def json(self):
+            return {"merged": True, "sha": "abc123", "message": "Pull Request successfully merged"}
+
+    def fake_put(url, headers=None, json=None, timeout=None):
+        captured.update({"url": url, "json": json})
+        return FakeResponse()
+
+    monkeypatch.setattr(httpx, "put", fake_put)
+    monkeypatch.setenv("GITHUB_TOKEN", "tok")
+
+    resp = client.post(
+        f"/api/projects/{project['id']}/github/merge",
+        json={"number": 5, "method": "squash"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["merged"] and body["sha"] == "abc123"
+    assert captured["url"].endswith("/repos/a/b/pulls/5/merge")
+    assert captured["json"] == {"merge_method": "squash"}

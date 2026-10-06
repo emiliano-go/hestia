@@ -177,3 +177,52 @@ def test_alias_aware_tools_and_repo_add(tmp_path, monkeypatch):
         src_c = _git_repo(tmp_path, "cool_repo")
         second = tools["repo_add"].handler(ctx2, {"url": str(src_c)})
         assert second["alias"] == "cool_repo" and not second["primary"]
+
+
+def test_new_session_ids_are_uuid(tmp_path, monkeypatch):
+    import uuid
+
+    from hestia.registry.models import Session as ChatSession
+
+    _fresh(tmp_path, monkeypatch)
+    with Session(engine()) as db:
+        chat = ChatSession(project_id=1)
+        db.add(chat)
+        db.commit()
+        db.refresh(chat)
+        uuid.UUID(chat.id)  # raises if not a UUID
+
+
+def test_session_id_migration_rebuilds_integer_pk(tmp_path, monkeypatch):
+    from hestia.registry.models import Session as ChatSession
+
+    _fresh(tmp_path, monkeypatch)
+    # simulate a legacy DB whose session table has an INTEGER primary key
+    with engine().begin() as conn:
+        conn.exec_driver_sql("DROP TABLE session")
+        conn.exec_driver_sql(
+            "CREATE TABLE session ("
+            "id INTEGER PRIMARY KEY, project_id INTEGER, title TEXT, "
+            "action TEXT DEFAULT 'chat', created_at DATETIME, updated_at DATETIME)"
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO session (id, project_id, title, action, created_at, updated_at) "
+            "VALUES (7, 1, 'legacy', 'chat', '2026-01-01 00:00:00', '2026-01-01 00:00:00')"
+        )
+
+    _migrate()
+    with Session(engine()) as db:
+        chat = db.get(ChatSession, "7")
+        assert chat is not None and chat.title == "legacy"
+
+    # a second pass must not rebuild again (an index would be dropped)
+    with engine().begin() as conn:
+        conn.exec_driver_sql("CREATE INDEX keep_idx ON session (title)")
+    _migrate()
+    with engine().begin() as conn:
+        still = conn.exec_driver_sql(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name='keep_idx'"
+        ).fetchall()
+        assert still
+    with Session(engine()) as db:
+        assert db.get(ChatSession, "7") is not None

@@ -6,6 +6,7 @@ and libSQL FTS handling verbatim. One Totem DB per project clone at
 makes cross-session memory work.
 """
 
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -23,6 +24,17 @@ from totem_mcp.tools import (
 )
 
 
+# Tags that make a user memory always-on (identity, preferences, ...).
+USER_TAGS = {
+    "identity",
+    "preference",
+    "habit",
+    "communication",
+    "standing-instruction",
+    "personal-fact",
+}
+
+
 @contextmanager
 def totem(project_dir: Path) -> Iterator:
     """Open a project's Totem DB (schema init + first-use project setup)."""
@@ -30,8 +42,78 @@ def totem(project_dir: Path) -> Iterator:
         yield conn
 
 
+def _user_db_path() -> Path:
+    """Hestia keeps the user DB in its data volume unless told otherwise."""
+    from hestia import config
+
+    os.environ.setdefault("TOTEM_USER_DB", str(config.user_memory_path()))
+    from totem_mcp.db import get_user_db_path
+
+    return get_user_db_path()
+
+
+@contextmanager
+def user_totem() -> Iterator:
+    """Open the global Totem user DB (identity, preferences, habits)."""
+    from totem_mcp.db import connect, init_db
+
+    path = _user_db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = connect(path)
+    init_db(conn)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def user_list(limit: int = 200) -> list[dict]:
+    with user_totem() as conn:
+        return memory_list(conn, limit=limit)
+
+
+def user_search(query: str, limit: int = 20) -> list[dict]:
+    with user_totem() as conn:
+        return memory_search(conn, query, limit=limit)
+
+
+def user_get(memory_id: str) -> dict | None:
+    with user_totem() as conn:
+        return memory_get(conn, memory_id)
+
+
+def user_create(
+    type: str, title: str, statement: str, tags: list[str], **kwargs
+) -> dict:
+    with user_totem() as conn:
+        return memory_create(conn, type, title, statement, tags, **kwargs)
+
+
+def user_update(memory_id: str, **kwargs) -> dict | None:
+    with user_totem() as conn:
+        item = memory_update(conn, memory_id, **kwargs)
+    return item or None
+
+
+def user_delete(memory_id: str, reason: str) -> dict:
+    with user_totem() as conn:
+        return memory_delete(conn, memory_id, reason)
+
+
+def user_context() -> str:
+    """Always-on user memory block injected into every prompt."""
+    items = []
+    for item in user_list(limit=300):
+        if set(_tags_of(item)) & USER_TAGS:
+            items.append(item)
+    if not items:
+        return ""
+    lines = [f"- {m.get('title')}: {m.get('statement')}" for m in items]
+    return "## User context\n" + "\n".join(lines)
+
+
 def digest(project_dir: Path, task: str, tags: list[str] | None = None) -> dict:
-    """Ranked memory context for a task; what bootstraps a sessionless agent."""
+    """Ranked memory context for a task: user memory, then project memory."""
     with totem(project_dir) as conn:
         result = engineering_context(
             conn,
@@ -39,15 +121,18 @@ def digest(project_dir: Path, task: str, tags: list[str] | None = None) -> dict:
             task=task,
             current_task=task,
         )
+    blocks = []
+    user = user_context()
+    if user:
+        blocks.append(user)
+    context = (result.get("context") or "").strip()
+    if context:
+        blocks.append(f"## Project context\n{context}")
     always = always_on(project_dir)
     if always:
         block = "\n".join(f"- {m['title']}: {m['statement']}" for m in always)
-        context = (result.get("context") or "").strip()
-        result["context"] = (
-            f"{context}\n\n## Standing preferences and client notes\n{block}"
-            if context
-            else f"## Standing preferences and client notes\n{block}"
-        )
+        blocks.append(f"## Standing preferences and client notes\n{block}")
+    result["context"] = "\n\n".join(blocks)
     return result
 
 

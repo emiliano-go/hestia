@@ -153,7 +153,7 @@ def suggest_tasks(project_id: int, body: dict, s: Session = Depends(session)):
         final = ""
         tokens: dict = {}
         async for event in agent_loop.run_turn(
-            ctx, client, registry, messages, max_turns=agent.max_turns if agent else 8
+            ctx, client, registry, messages
         ):
             if event["type"] == "usage":
                 usage.merge(tokens, event.get("usage"))

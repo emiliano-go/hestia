@@ -205,7 +205,7 @@ def test_suggest_next_work(client, monkeypatch):
     project = _mk_project(client)
     provider = _mk_provider(client)
 
-    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
         registry.get("task_create").handler(
             ctx,
             {

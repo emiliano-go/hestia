@@ -58,7 +58,7 @@ def test_run_subagent_inside_running_loop(tmp_path, monkeypatch):
     os.environ["DATA_DIR"] = str(tmp_path / "data")
     init_db()
 
-    async def fake_run_turn(ctx, client, registry, messages, max_turns=10):
+    async def fake_run_turn(ctx, client, registry, messages, max_turns=None, run=None, timeout=None):
         yield {"type": "message", "content": "subagent done", "tool_calls": []}
 
     monkeypatch.setattr(subagents.agent_loop, "run_turn", fake_run_turn)

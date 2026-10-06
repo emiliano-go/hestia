@@ -43,7 +43,7 @@ def test_goal_plan_and_converge(client, monkeypatch):
 
     seen = {}
 
-    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
         seen["system"] = messages[0]["content"]
         seen["tools"] = {t.name for t in registry.all()}
         yield {"type": "message", "content": "Planned: 3 tasks.", "tool_calls": []}

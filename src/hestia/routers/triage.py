@@ -141,13 +141,11 @@ def review_item(project_id: int, body: dict, s: Session = Depends(session)):
         {"role": "system", "content": system},
         {"role": "user", "content": f"Review {item['kind']} #{number}: {item['title']}"},
     ]
-    max_turns = agent.max_turns if agent else 8
-
     async def run():
         final = ""
         tokens: dict = {}
         async for event in agent_loop.run_turn(
-            ctx, client, registry, messages, max_turns=max_turns
+            ctx, client, registry, messages
         ):
             if event["type"] == "usage":
                 usage.merge(tokens, event.get("usage"))
@@ -240,13 +238,11 @@ def triage(project_id: int, body: dict, s: Session = Depends(session)):
         {"role": "system", "content": system},
         {"role": "user", "content": f"Triage {item['kind']} #{number}: {item['title']}"},
     ]
-    max_turns = agent.max_turns if agent else 8
-
     async def run():
         final = ""
         tokens: dict = {}
         async for event in agent_loop.run_turn(
-            ctx, client, registry, messages, max_turns=max_turns
+            ctx, client, registry, messages
         ):
             if event["type"] == "usage":
                 usage.merge(tokens, event.get("usage"))
