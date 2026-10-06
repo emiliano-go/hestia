@@ -112,6 +112,8 @@ def _ensure_migrated(db: Session) -> None:
                     statement=name,
                     tags=["identity"],
                     metadata={"observation": "identity"},
+                    asserted_by="user",
+                    scope=USER_SCOPE,
                 )
         if "standing-instruction" not in tags:
             instructions = str(_raw_setting(db, "instructions") or "").strip()
@@ -122,6 +124,8 @@ def _ensure_migrated(db: Session) -> None:
                     statement=instructions,
                     tags=["standing-instruction"],
                     metadata={"observation": "standing_instruction"},
+                    asserted_by="user",
+                    scope=USER_SCOPE,
                 )
         if "preference" not in tags:
             try:
@@ -137,10 +141,15 @@ def _ensure_migrated(db: Session) -> None:
                         statement=text,
                         tags=["preference"],
                         metadata={"observation": "preference"},
+                        asserted_by="user",
+                        scope=USER_SCOPE,
                     )
         _clear_raw(db)
     except Exception:
         logger.exception("user memory migration failed")
+
+
+USER_SCOPE = '{"kind": "user", "value": "global"}'
 
 
 def _replace_tagged(ts, tags: list[str], title: str, text: str, observation: str) -> None:
@@ -153,6 +162,8 @@ def _replace_tagged(ts, tags: list[str], title: str, text: str, observation: str
             statement=text,
             tags=list(tags),
             metadata={"observation": observation},
+            asserted_by="user",
+            scope=USER_SCOPE,
         )
 
 
@@ -166,6 +177,8 @@ def _replace_preferences(ts, texts: list[str]) -> None:
             statement=text,
             tags=["preference"],
             metadata={"observation": "preference"},
+            asserted_by="user",
+            scope=USER_SCOPE,
         )
 
 
@@ -263,6 +276,8 @@ def add_preference(db: Session, text: str) -> list[str]:
             statement=text,
             tags=["preference"],
             metadata={"observation": "preference"},
+            asserted_by="user",
+            scope=USER_SCOPE,
         )
     return preferences(db)
 

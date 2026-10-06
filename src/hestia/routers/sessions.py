@@ -192,6 +192,7 @@ def accept_candidate(candidate_id: int, s: Session = Depends(session)):
         tags=tags,
         confidence=row.confidence,
         metadata=_candidate_metadata(row),
+        asserted_by="user",
     )
     row.status = "accepted"
     row.decided_at = datetime.now(timezone.utc)
@@ -235,6 +236,7 @@ def accept_all_candidates(project_id: int, s: Session = Depends(session)):
             tags=tags,
             confidence=row.confidence,
             metadata=_candidate_metadata(row),
+            asserted_by="user",
         )
         row.status = "accepted"
         row.decided_at = datetime.now(timezone.utc)

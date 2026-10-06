@@ -82,9 +82,10 @@ def register(registry: Registry) -> None:
             statement=a["statement"],
             tags=a["tags"],
             details=a.get("details"),
-            confidence=a.get("confidence", 1.0),
+            confidence=a.get("confidence"),
             importance=a.get("importance", 0.5),
             metadata=a.get("metadata"),
+            asserted_by=a.get("asserted_by") or "agent",
         ),
         group="memory",
         effect="write",
@@ -147,6 +148,7 @@ def register_candidates(registry: Registry, db) -> None:
                 tags=tags or ["memory"],
                 confidence=confidence,
                 metadata=metadata,
+                asserted_by="agent",
             )
             return {
                 "accepted": True,

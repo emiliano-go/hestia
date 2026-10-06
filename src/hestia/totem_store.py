@@ -100,18 +100,6 @@ def user_delete(memory_id: str, reason: str) -> dict:
         return memory_delete(conn, memory_id, reason)
 
 
-def user_context() -> str:
-    """Always-on user memory block injected into every prompt."""
-    items = []
-    for item in user_list(limit=300):
-        if set(_tags_of(item)) & USER_TAGS:
-            items.append(item)
-    if not items:
-        return ""
-    lines = [f"- {m.get('title')}: {m.get('statement')}" for m in items]
-    return "## User context\n" + "\n".join(lines)
-
-
 def digest(project_dir: Path, task: str, tags: list[str] | None = None) -> dict:
     """Ranked memory context for a task: user memory, then project memory."""
     with totem(project_dir) as conn:
@@ -121,13 +109,12 @@ def digest(project_dir: Path, task: str, tags: list[str] | None = None) -> dict:
             task=task,
             current_task=task,
         )
+    # Totem already emits USER CONTEXT (from the user DB) and PROJECT CONTEXT
+    # sections; Hestia only appends project-level standing notes.
     blocks = []
-    user = user_context()
-    if user:
-        blocks.append(user)
     context = (result.get("context") or "").strip()
     if context:
-        blocks.append(f"## Project context\n{context}")
+        blocks.append(context)
     always = always_on(project_dir)
     if always:
         block = "\n".join(f"- {m['title']}: {m['statement']}" for m in always)

@@ -159,6 +159,9 @@ export function MemoryView({ projectId, providerId, onStart }) {
             <h3>
               <span className="badge">{m.type}</span>
               {m.title}
+              {m.applicability && <span className="badge">{m.applicability}</span>}
+              {m.assertedBy && <span className="badge">{m.assertedBy}</span>}
+              {(m.warnings || []).length > 0 && <span className="badge err">stale</span>}
             </h3>
             <div className="meta">{m.statement}</div>
             <div className="meta" style={{ marginTop: 6 }}>
@@ -195,6 +198,12 @@ export function MemoryDetailModal({ item, onClose, onStart }) {
         {tags.length > 0 && <DetailRow label="Tags" value={tags.join(', ')} />}
         {item.confidence != null && <DetailRow label="Confidence" value={item.confidence} />}
         {item.importance != null && <DetailRow label="Importance" value={item.importance} />}
+        {item.scope && <DetailRow label="Scope" value={item.scope} />}
+        {item.assertedBy && <DetailRow label="Asserted by" value={item.assertedBy} />}
+        {item.applicability && <DetailRow label="Applicability" value={item.applicability} />}
+        {(item.warnings || []).length > 0 && (
+          <DetailRow label="Warnings" value={item.warnings.join('; ')} />
+        )}
         <DetailRow label="Updated" value={relDate(item.updatedAt || item.updated_at)} />
       </div>
       {onStart && (
