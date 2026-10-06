@@ -1,5 +1,5 @@
 <p align="center">
-  <strong style="font-size: 2.5em;">home</strong>
+  <strong style="font-size: 2.5em;">hestia</strong>
 </p>
 
 <p align="center">
@@ -19,16 +19,16 @@
   <a href="https://www.python.org/downloads/">
     <img src="https://img.shields.io/badge/Python-3.14%2B-3776AB?logo=python&logoColor=white&style=for-the-badge" alt="Python">
   </a>
-  <a href="https://github.com/emiliano-go/home/blob/main/LICENSE">
+  <a href="https://github.com/emiliano-go/hestia/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/License-MIT-10AC84?style=for-the-badge" alt="License">
   </a>
 </p>
 
 ---
 
-## What is home
+## What is hestia
 
-`home` is a self-hosted project cockpit for managing software projects as
+`hestia` is a self-hosted project cockpit for managing software projects as
 persistent, agent-aware workspaces. It is not an IDE and not a coding
 environment; it is the central place to understand what changed, discuss
 features with an agent that knows the project history and architecture, and
@@ -47,7 +47,7 @@ query GitHub, and write workspace files (plans, specs), but they do not modify t
 
 ## Features
 
-- **Project workspaces**: register a project by Git URL; `home` clones it
+- **Project workspaces**: register a project by Git URL; `hestia` clones it
   under the data volume and links the repository, its documentation, and its
   `AGENTS.md` into one workspace. A pull button refreshes the clone and the
   instructions.
@@ -145,17 +145,17 @@ query GitHub, and write workspace files (plans, specs), but they do not modify t
 - **Scheduled agents**: per-project automations (nightly repo digest, daily PR
   review, weekly memory curation, or any action + instruction) run by a
   background worker, with the last report shown on the Automations tab. Set
-  `HOME_DISABLE_SCHEDULER=1` to turn the worker off and
-  `HOME_INBOX_POLL_SECONDS` (default 600) to tune inbox polling.
+  `HESTIA_DISABLE_SCHEDULER=1` to turn the worker off and
+  `HESTIA_INBOX_POLL_SECONDS` (default 600) to tune inbox polling.
 - **Generated docs**: write `ARCHITECTURE.md`, `ONBOARDING.md`, or an ADR into
   the workspace from Totem memory in one click (`docs` action).
 - **Token usage**: every agent run (chat, docs, triage, memory fix, scheduled
   jobs) records prompt/completion tokens; totals show on the Overview tab and a
   per-action/per-session breakdown lives in About. No pricing tables.
-- **Passkey login (opt-in)**: set `HOME_SETUP_TOKEN` and Home gates every API
+- **Passkey login (opt-in)**: set `HESTIA_SETUP_TOKEN` and Hestia gates every API
   call behind a WebAuthn passkey. Register the first passkey from the login
   screen with that token; the token also recovers access if a device is lost.
-  Set `HOME_RP_ID` and `HOME_ORIGIN` when serving behind a reverse proxy.
+  Set `HESTIA_RP_ID` and `HESTIA_ORIGIN` when serving behind a reverse proxy.
 - **Gated git writes (opt-in)**: a per-project switch in About gives the agent
   `write_file`, `git_create_branch`, `git_commit`, `git_push`, and `gh_open_pr`.
   Off by default, so code stays read-only; pushes use `GITHUB_TOKEN` on GitHub
@@ -173,7 +173,7 @@ query GitHub, and write workspace files (plans, specs), but they do not modify t
   `code-reviewer`, so cheap models can do the legwork while a stronger one
   reasons. Subagents cannot spawn further subagents.
 - **MCP server included**: the same toolset is exposed over MCP on stdio
-  (`home-mcp`, with `HOME_PROJECT_DIR` set), so external agents get the
+  (`hestia-mcp`, with `HESTIA_PROJECT_DIR` set), so external agents get the
   exact same read-only project tools and Totem memory.
 - **Single-container self-hosting**: one Docker image, one volume
   (`/data`) holding the registry database, the clones, and the totem
@@ -182,7 +182,7 @@ query GitHub, and write workspace files (plans, specs), but they do not modify t
 ## How it works
 
 1. **Register a project** (Projects page): give it a name and a Git URL.
-   `home` clones the repository into the data volume, snapshots its
+   `hestia` clones the repository into the data volume, snapshots its
    `AGENTS.md`, and initializes the Totem database on first use.
 2. **Configure a provider** (Providers page): pick a preset (Kimi,
    DeepSeek, OpenAI, OpenRouter, Ollama, custom) or enter a base URL and
@@ -229,10 +229,10 @@ docker compose up -d --build
 Or plain Docker:
 
 ```sh
-docker build -t home .
-docker run -p 8080:8080 -v home-data:/data \
+docker build -t hestia .
+docker run -p 8080:8080 -v hestia-data:/data \
   -e KIMI_API_KEY=sk-... \
-  home
+  hestia
 ```
 
 Open http://localhost:8080, register a project by Git URL, configure a
@@ -242,7 +242,7 @@ Local development:
 
 ```sh
 uv sync
-uv run uvicorn home.main:app --reload --port 8080
+uv run uvicorn hestia.main:app --reload --port 8080
 ```
 
 ## Development

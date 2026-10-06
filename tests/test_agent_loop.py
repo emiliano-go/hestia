@@ -4,10 +4,10 @@ import json
 
 import pytest
 
-from home.agent import loop as agent_loop
-from home.providers.base import OpenAIClient
-from home.tools import build_registry
-from home.tools.registry import ProjectContext
+from hestia.agent import loop as agent_loop
+from hestia.providers.base import OpenAIClient
+from hestia.tools import build_registry
+from hestia.tools.registry import ProjectContext
 
 
 class FakeClient(OpenAIClient):
@@ -77,7 +77,7 @@ async def test_usage_event(repo):
 
 @pytest.mark.asyncio
 async def test_agent_pause_ends_turn(repo):
-    from home.tools.registry import Registry, Tool, schema
+    from hestia.tools.registry import Registry, Tool, schema
 
     class PausingClient(FakeClient):
         def __init__(self):

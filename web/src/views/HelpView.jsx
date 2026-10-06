@@ -24,7 +24,7 @@ export function HelpView() {
         </div>
         <div>
           <h1>Help &amp; documentation</h1>
-          <p>Everything Home does, and how to get the most out of it.</p>
+          <p>Everything Hestia does, and how to get the most out of it.</p>
         </div>
       </header>
 
@@ -68,7 +68,7 @@ export function HelpView() {
       <Doc id="quickstart" title="Quick start">
         <ol className="help-steps">
           <li>
-            <strong>Add a project.</strong> Give it a name and a Git URL. Home clones it into the
+            <strong>Add a project.</strong> Give it a name and a Git URL. Hestia clones it into the
             data volume and reads its <code>AGENTS.md</code>.
           </li>
           <li>
@@ -90,17 +90,17 @@ export function HelpView() {
 
       <Doc id="projects" title="Projects">
         <p>
-          A project is a Git repository plus a workspace. Home never modifies your code unless
+          A project is a Git repository plus a workspace. Hestia never modifies your code unless
           you explicitly enable <em>Git writes</em> for the project: the agent can read files and
           git history, and write files to a separate workspace, but not change the repository.
         </p>
         <ul>
           <li>
             <strong>Add</strong> a project with the <code>+</code> next to <em>Projects</em> or the
-            <em>New project</em> button on the Home page.
+            <em>New project</em> button on the dashboard.
           </li>
           <li>
-            <strong>Open</strong> a project from the sidebar or the Home dashboard. Opening updates
+            <strong>Open</strong> a project from the sidebar or the dashboard. Opening updates
             its place in <em>Recent projects</em>.
           </li>
           <li>
@@ -126,7 +126,7 @@ export function HelpView() {
           </li>
           <li>
             <strong>Since your last visit</strong>: a digest of commits, memories, generated files,
-            and GitHub changes since you last opened the project. Home tracks each project’s last
+            and GitHub changes since you last opened the project. Hestia tracks each project’s last
             opened time, so this resets when you leave and come back.
           </li>
           <li>
@@ -136,7 +136,7 @@ export function HelpView() {
             review to the workspace.
           </li>
           <li>
-            <strong>Inbox</strong>: new open PRs/issues and failing CI runs appear on the Home
+            <strong>Inbox</strong>: new open PRs/issues and failing CI runs appear on the Hestia
             dashboard. PR/issue items can be triaged in place; CI failures open a diagnose chat.
           </li>
           <li>
@@ -295,13 +295,13 @@ export function HelpView() {
 
       <Doc id="providers" title="Providers">
         <p>
-          A provider is any OpenAI-compatible endpoint. Home ships presets for popular services and
+          A provider is any OpenAI-compatible endpoint. Hestia ships presets for popular services and
           supports fully custom ones.
         </p>
         <ul>
           <li>
             <strong>API keys are never stored.</strong> You name an environment variable (for
-            example <code>KIMI_API_KEY</code>); Home reads the key from the process environment at
+            example <code>KIMI_API_KEY</code>); Hestia reads the key from the process environment at
             request time.
           </li>
           <li>
@@ -352,14 +352,14 @@ export function HelpView() {
         </div>
         <h3 className="help-sub">Resolution order</h3>
         <p>
-          When an action runs, Home uses: the agent assigned to that action → the main chat agent →
+          When an action runs, Hestia uses: the agent assigned to that action → the main chat agent →
           a profile whose name matches the action. So a single agent truly covers everything.
         </p>
       </Doc>
 
       <Doc id="chat" title="Chat &amp; tools">
         <p>
-          Every message starts a turn. Home builds a system prompt from the project instructions,
+          Every message starts a turn. Hestia builds a system prompt from the project instructions,
           the repository layout, and the most relevant Totem memories, then runs a tool-calling
           loop. Each tool call appears as a live row you can expand:
         </p>
@@ -433,7 +433,7 @@ export function HelpView() {
         </p>
         <ul>
           <li>
-            On completion Home appends a notification to the originating chat and, if that chat is
+            On completion Hestia appends a notification to the originating chat and, if that chat is
             idle, runs a continuation turn that reacts to the result.
           </li>
           <li>
@@ -468,7 +468,7 @@ export function HelpView() {
             <strong>Gallery</strong>: generated files across every project, with a filter.
           </li>
           <li>
-            The Home dashboard lists the newest generated files across all projects.
+            The dashboard lists the newest generated files across all projects.
           </li>
         </ul>
       </Doc>
@@ -481,7 +481,7 @@ export function HelpView() {
             memory browser, the file reader, or the conversation.
           </li>
           <li>
-            <strong>Inbox</strong> (Home dashboard): new open pull requests and issues and failing
+            <strong>Inbox</strong> (dashboard): new open pull requests and issues and failing
             CI runs appear here as they are discovered. The first poll of a project is a silent
             baseline; after that, new items arrive unread. <em>Check now</em> polls immediately,
             <em>Mark all read</em> clears the badge.
@@ -522,7 +522,7 @@ export function HelpView() {
             <strong>Reminders</strong> (Global section): one-shot, daily, or weekly nudges
             that fire a push notification. Add them in the view, or ask the agent
             ("remind me tomorrow at 9"). Snooze 10 minutes or 1 day, mark done, delete.
-            Overdue items show in red and on the Home dashboard.
+            Overdue items show in red and on the dashboard.
           </li>
           <li>
             <strong>Watches</strong> (Global section): monitor without noise. A
@@ -535,7 +535,7 @@ export function HelpView() {
           </li>
           <li>
             <strong>Daily briefing</strong>: enable it under Settings, Assistant and pick
-            a local time. Home sends one deterministic digest (due reminders, ready
+            a local time. Hestia sends one deterministic digest (due reminders, ready
             tasks, unread inbox); optionally the agent adds commentary and writes
             <code>briefings/&lt;date&gt;.md</code>.
           </li>
@@ -558,13 +558,13 @@ export function HelpView() {
 
       <Doc id="auth" title="Passkeys &amp; access">
         <p>
-          Authentication is opt-in. With no <code>HOME_SETUP_TOKEN</code> set, Home behaves as
+          Authentication is opt-in. With no <code>HESTIA_SETUP_TOKEN</code> set, Hestia behaves as
           before: anyone who can reach the port can use it. Set the variable to gate every API
           call behind a WebAuthn passkey.
         </p>
         <ul>
           <li>
-            <strong>First passkey</strong>: open Home, enter the setup token on the login screen,
+            <strong>First passkey</strong>: open Hestia, enter the setup token on the login screen,
             and register a passkey (Touch ID, Windows Hello, security key, or a phone).
           </li>
           <li>
@@ -572,9 +572,9 @@ export function HelpView() {
             same screen with the setup token. Keep that token somewhere safe.
           </li>
           <li>
-            <strong>Behind a proxy</strong>: set <code>HOME_RP_ID</code> to the domain (e.g.{' '}
-            <code>home.example.com</code>) and <code>HOME_ORIGIN</code> to the full origin (e.g.{' '}
-            <code>https://home.example.com</code>); set <code>HOME_COOKIE_SECURE=1</code> if TLS
+            <strong>Behind a proxy</strong>: set <code>HESTIA_RP_ID</code> to the domain (e.g.{' '}
+            <code>home.example.com</code>) and <code>HESTIA_ORIGIN</code> to the full origin (e.g.{' '}
+            <code>https://home.example.com</code>); set <code>HESTIA_COOKIE_SECURE=1</code> if TLS
             terminates upstream.
           </li>
           <li>
@@ -606,7 +606,7 @@ export function HelpView() {
         <ul>
           <li>
             <strong>“No provider configured”</strong>: add one in Settings and make sure the named
-            environment variable is set where Home runs.
+            environment variable is set where Hestia runs.
           </li>
           <li>
             <strong>Test fails</strong>: check the base URL (include the <code>/v1</code>) and that

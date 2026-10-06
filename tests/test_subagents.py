@@ -4,10 +4,10 @@ import os
 
 from sqlmodel import Session
 
-from home.registry.db import engine, init_db
-from home.registry.models import AgentConfig, Provider
-from home.tools.registry import ProjectContext
-from home.tools import subagents
+from hestia.registry.db import engine, init_db
+from hestia.registry.models import AgentConfig, Provider
+from hestia.tools.registry import ProjectContext
+from hestia.tools import subagents
 from tests.test_agent_loop import FakeClient
 
 

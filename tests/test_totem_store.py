@@ -1,6 +1,6 @@
 """Round-trip tests for the Totem wrappers against a real per-project DB."""
 
-from home import totem_store
+from hestia import totem_store
 
 
 def test_create_search_get(tmp_path):

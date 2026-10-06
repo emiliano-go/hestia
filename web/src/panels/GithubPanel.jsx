@@ -46,7 +46,7 @@ export function GithubPanel() {
           <div className="github-account-main">
             <div className="github-login">{account.login || 'connected'}</div>
             <div className="note">
-              {account.source === 'env' ? 'Token from GITHUB_TOKEN (env)' : 'Token stored in Home'}
+              {account.source === 'env' ? 'Token from GITHUB_TOKEN (env)' : 'Token stored in Hestia'}
               {account.scopes?.length ? `, scopes: ${account.scopes.join(', ')}` : ''}
             </div>
           </div>

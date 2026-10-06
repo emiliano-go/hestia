@@ -1,16 +1,16 @@
 services:
-  home:
+  hestia:
     build: .
-    image: home:latest
+    image: hestia:latest
     ports:
       - "8080:8080"
     volumes:
-      - home-data:/data
+      - hestia-data:/data
     # The host pins container DNS to 172.17.0.1 in /etc/docker/daemon.json, which
-    # is unreachable from this user-defined network. Override with HOME_DNS if the
+    # is unreachable from this user-defined network. Override with HESTIA_DNS if the
     # defaults are blocked on your network.
     dns:
-      - ${HOME_DNS:-1.1.1.1}
+      - ${HESTIA_DNS:-1.1.1.1}
       - 8.8.8.8
     environment:
       # At least one provider key, matching the api_key_env you configure:
@@ -23,9 +23,9 @@ services:
       # Optional; raises GitHub REST rate limits and enables private repos:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       # Optional; set to enable passkey login (see README):
-      HOME_SETUP_TOKEN: ${HOME_SETUP_TOKEN:-}
-      HOME_RP_ID: ${HOME_RP_ID:-}
-      HOME_ORIGIN: ${HOME_ORIGIN:-}
+      HESTIA_SETUP_TOKEN: ${HESTIA_SETUP_TOKEN:-}
+      HESTIA_RP_ID: ${HESTIA_RP_ID:-}
+      HESTIA_ORIGIN: ${HESTIA_ORIGIN:-}
       # Optional; push notifications (ntfy and/or Telegram):
       NTFY_URL: ${NTFY_URL:-}
       NTFY_TOPIC: ${NTFY_TOPIC:-}
@@ -41,4 +41,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  home-data:
+  hestia-data:

@@ -73,7 +73,7 @@ export function ThemePanel({ theme, setTheme }) {
               setTheme({ ...theme, themes: { ...theme.themes, dark: {} } })
             }}
           >
-            Home (default)
+            Hestia (default)
           </button>
           <button
             className="btn"

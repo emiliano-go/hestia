@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from home import config, totem_store
+from hestia import config, totem_store
 
 
 @pytest.fixture
@@ -14,11 +14,11 @@ def client(tmp_path, monkeypatch):
     os.environ["DATA_DIR"] = str(tmp_path / "data")
     monkeypatch.setattr(config, "data_dir", lambda: tmp_path / "data")
 
-    import home.registry.db as db
+    import hestia.registry.db as db
 
     monkeypatch.setattr(db, "_engine", None)
 
-    from home.main import create_app
+    from hestia.main import create_app
 
     return TestClient(create_app())
 
@@ -63,7 +63,7 @@ def test_gallery(client):
 
 
 def test_memory_fix(client, monkeypatch):
-    from home.agent import loop as agent_loop
+    from hestia.agent import loop as agent_loop
 
     project = _mk_project(client)
     totem_store.create(
@@ -150,8 +150,8 @@ def test_action_defaults_roundtrip(client):
 def test_action_resolution_falls_back_to_chat(client):
     from sqlmodel import Session as SqlSession
 
-    from home import actions as actions_mod
-    from home.registry.db import engine
+    from hestia import actions as actions_mod
+    from hestia.registry.db import engine
 
     provider = _mk_provider(client)
     solo = client.post("/api/agents", json={
@@ -206,9 +206,9 @@ def test_task_crud(client):
 def test_task_agent_tools(client):
     from sqlmodel import Session as SqlSession
 
-    from home.registry.db import engine
-    from home.tools import tasks as task_tools
-    from home.tools.registry import ProjectContext
+    from hestia.registry.db import engine
+    from hestia.tools import tasks as task_tools
+    from hestia.tools.registry import ProjectContext
 
     project = _mk_project(client)
     ctx = ProjectContext(
@@ -321,9 +321,9 @@ def test_milestone_crud_and_progress(client):
 def test_task_agent_milestone_tools(client):
     from sqlmodel import Session as SqlSession
 
-    from home.registry.db import engine
-    from home.tools import tasks as task_tools
-    from home.tools.registry import ProjectContext
+    from hestia.registry.db import engine
+    from hestia.tools import tasks as task_tools
+    from hestia.tools.registry import ProjectContext
 
     project = _mk_project(client)
     ctx = ProjectContext(
@@ -349,8 +349,8 @@ def test_task_agent_milestone_tools(client):
 
 
 def test_triage_creates_task_and_plan(client, monkeypatch):
-    from home import overview
-    from home.agent import loop as agent_loop
+    from hestia import overview
+    from hestia.agent import loop as agent_loop
 
     project = _mk_project(client)
     provider = _mk_provider(client)
@@ -401,7 +401,7 @@ def test_triage_creates_task_and_plan(client, monkeypatch):
 
 
 def test_docs_generation(client, monkeypatch):
-    from home.agent import loop as agent_loop
+    from hestia.agent import loop as agent_loop
 
     project = _mk_project(client)
     provider = _mk_provider(client)
@@ -447,8 +447,8 @@ def test_docs_generation(client, monkeypatch):
 def test_global_search(client):
     from sqlmodel import Session as SqlSession
 
-    from home.registry.db import engine
-    from home.registry.models import Session as ChatSession
+    from hestia.registry.db import engine
+    from hestia.registry.models import Session as ChatSession
 
     alpha = _mk_project(client, name="alpha")
     beta = _mk_project(client, name="beta")
@@ -480,7 +480,7 @@ def test_global_search(client):
 
 
 def test_inbox_poll_and_read(client, monkeypatch):
-    from home import overview
+    from hestia import overview
 
     project = _mk_project(client)
     prs = [
@@ -535,9 +535,9 @@ def test_auth_disabled_by_default(client):
 
 
 def test_auth_gate_and_session(client, monkeypatch):
-    from home import auth
+    from hestia import auth
 
-    monkeypatch.setenv("HOME_SETUP_TOKEN", "s3cret")
+    monkeypatch.setenv("HESTIA_SETUP_TOKEN", "s3cret")
 
     assert client.get("/api/projects").status_code == 401
     data = client.get("/api/auth/status").json()
@@ -570,8 +570,8 @@ def test_auth_gate_and_session(client, monkeypatch):
 def test_git_writes_gated_and_sandboxed(client):
     import subprocess
 
-    from home.tools import build_registry, gitwrites
-    from home.tools.registry import ProjectContext
+    from hestia.tools import build_registry, gitwrites
+    from hestia.tools.registry import ProjectContext
 
     project = _mk_project(client)
     assert project["allow_git_writes"] is False
@@ -626,8 +626,8 @@ def test_git_push_to_remote(client):
     import subprocess
     import tempfile
 
-    from home.tools import build_registry
-    from home.tools.registry import ProjectContext
+    from hestia.tools import build_registry
+    from hestia.tools.registry import ProjectContext
 
     bare = tempfile.mkdtemp()
     subprocess.run(["git", "init", "--bare", "-q"], cwd=bare, check=True)
@@ -652,9 +652,9 @@ def test_git_push_to_remote(client):
 
 
 def test_open_pr_requires_token_and_payload(client, monkeypatch):
-    from home import config
-    from home.tools import build_registry, gitwrites
-    from home.tools.registry import ProjectContext
+    from hestia import config
+    from hestia.tools import build_registry, gitwrites
+    from hestia.tools.registry import ProjectContext
 
     project = _mk_project(client, name="prtest")
     ctx = ProjectContext(
@@ -753,7 +753,7 @@ def test_goal_crud_and_discuss(client):
 
 
 def test_goal_plan_and_converge(client, monkeypatch):
-    from home.agent import loop as agent_loop
+    from hestia.agent import loop as agent_loop
 
     project = _mk_project(client)
     provider = _mk_provider(client)
@@ -798,7 +798,7 @@ def test_goal_plan_and_converge(client, monkeypatch):
 
 
 def test_chat_goal_action(client, monkeypatch):
-    from home.routers import chat as chat_router
+    from hestia.routers import chat as chat_router
 
     project = _mk_project(client)
     provider = _mk_provider(client)
@@ -864,9 +864,9 @@ def test_task_comments(client):
 def test_task_agent_get_and_comment(client):
     from sqlmodel import Session as SqlSession
 
-    from home.registry.db import engine
-    from home.tools import tasks as task_tools
-    from home.tools.registry import ProjectContext
+    from hestia.registry.db import engine
+    from hestia.tools import tasks as task_tools
+    from hestia.tools.registry import ProjectContext
 
     project = _mk_project(client)
     ctx = ProjectContext(
@@ -894,7 +894,7 @@ def test_task_agent_get_and_comment(client):
 
 
 def test_issue_sync(client, monkeypatch):
-    from home import issuesync
+    from hestia import issuesync
 
     project = _mk_project(client)
     pid = project["id"]
@@ -930,8 +930,8 @@ def test_issue_sync(client, monkeypatch):
 
 
 def test_github_review(client, monkeypatch):
-    from home import overview
-    from home.agent import loop as agent_loop
+    from hestia import overview
+    from hestia.agent import loop as agent_loop
 
     project = _mk_project(client)
     provider = _mk_provider(client)
@@ -976,9 +976,9 @@ def test_token_budget(client):
 
     from sqlmodel import Session as SqlSession
 
-    from home import scheduler
-    from home.registry.db import engine
-    from home.registry.models import Usage
+    from hestia import scheduler
+    from hestia.registry.db import engine
+    from hestia.registry.models import Usage
 
     project = _mk_project(client)
     pid = project["id"]
@@ -1014,7 +1014,7 @@ def test_token_budget(client):
 
 
 def test_notify_status_and_test(client, monkeypatch):
-    from home import notify
+    from hestia import notify
 
     class FakeResp:
         status_code = 200
@@ -1044,13 +1044,13 @@ def test_notify_status_and_test(client, monkeypatch):
     urls = [c[0] for c in calls]
     assert "https://ntfy.example/home" in urls
     assert any("api.telegram.org/bottok/sendMessage" in u for u in urls)
-    assert calls[0][1]["headers"]["Title"] == "Home test notification"
+    assert calls[0][1]["headers"]["Title"] == "Hestia test notification"
 
 
 def test_notify_tool(client, monkeypatch):
-    from home import notify
-    from home.tools import build_registry
-    from home.tools.registry import ProjectContext
+    from hestia import notify
+    from hestia.tools import build_registry
+    from hestia.tools.registry import ProjectContext
 
     class FakeResp:
         status_code = 200
@@ -1070,7 +1070,7 @@ def test_notify_tool(client, monkeypatch):
 
 
 def test_inbox_notifies_new_items(client, monkeypatch):
-    from home import notify, overview
+    from hestia import notify, overview
 
     _mk_project(client)
     prs = [{"number": 1, "title": "one", "user": "eve", "url": "u1"}]
@@ -1100,13 +1100,13 @@ def test_inbox_notifies_new_items(client, monkeypatch):
 def test_ask_user_tool(client, monkeypatch):
     from sqlmodel import Session as SqlSession
 
-    from home import notify
-    from home import questions as questions_mod
-    from home.agent.loop import AgentPause
-    from home.registry.db import engine
-    from home.registry.models import Session as ChatSession
-    from home.tools import questions as question_tools
-    from home.tools.registry import ProjectContext
+    from hestia import notify
+    from hestia import questions as questions_mod
+    from hestia.agent.loop import AgentPause
+    from hestia.registry.db import engine
+    from hestia.registry.models import Session as ChatSession
+    from hestia.tools import questions as question_tools
+    from hestia.tools.registry import ProjectContext
 
     project = _mk_project(client)
     monkeypatch.setenv("NTFY_TOPIC", "home")
@@ -1146,8 +1146,8 @@ def test_ask_user_tool(client, monkeypatch):
 
 
 def test_chat_question_flow(client, monkeypatch):
-    from home.agent import loop as agent_loop
-    from home.agent.loop import AgentPause
+    from hestia.agent import loop as agent_loop
+    from hestia.agent.loop import AgentPause
 
     project = _mk_project(client)
     provider = _mk_provider(client)
@@ -1203,7 +1203,7 @@ def test_chat_question_flow(client, monkeypatch):
 
 
 def test_settings_roundtrip(client, monkeypatch):
-    from home import settings
+    from hestia import settings
 
     data = client.get("/api/settings").json()
     assert data["timezone"] == "UTC" and data["briefing_enabled"] == "0"
@@ -1224,14 +1224,14 @@ def test_settings_roundtrip(client, monkeypatch):
     assert client.put("/api/settings", json={"briefing_time": "25:00"}).status_code == 400
     assert client.put("/api/settings", json={"nope": "x"}).status_code == 400
 
-    monkeypatch.setenv("HOME_ORIGIN", "https://home.example")
+    monkeypatch.setenv("HESTIA_ORIGIN", "https://home.example")
     assert settings.notification_url("/g/reminders") == "https://home.example/#/g/reminders"
-    monkeypatch.delenv("HOME_ORIGIN")
+    monkeypatch.delenv("HESTIA_ORIGIN")
     assert settings.notification_url("/g/reminders") is None
 
 
 def test_prompt_includes_context(client, monkeypatch):
-    from home.routers import chat as chat_router
+    from hestia.routers import chat as chat_router
 
     project = _mk_project(client)
     provider = _mk_provider(client)
@@ -1265,8 +1265,8 @@ def test_reminder_crud_and_fire(client, monkeypatch):
 
     from sqlmodel import Session as SqlSession
 
-    from home import notify, reminders
-    from home.registry.db import engine
+    from hestia import notify, reminders
+    from hestia.registry.db import engine
 
     class FakeResp:
         status_code = 200
@@ -1311,9 +1311,9 @@ def test_reminder_crud_and_fire(client, monkeypatch):
 def test_remind_me_tool(client):
     from sqlmodel import Session as SqlSession
 
-    from home.registry.db import engine
-    from home.tools import reminders as reminder_tools
-    from home.tools.registry import ProjectContext
+    from hestia.registry.db import engine
+    from hestia.tools import reminders as reminder_tools
+    from hestia.tools.registry import ProjectContext
 
     project = _mk_project(client)
     ctx = ProjectContext(
@@ -1339,8 +1339,8 @@ def test_briefing_digest_and_once_per_day(client, monkeypatch):
 
     from sqlmodel import Session as SqlSession
 
-    from home import notify, scheduler
-    from home.registry.db import engine
+    from hestia import notify, scheduler
+    from hestia.registry.db import engine
 
     project = _mk_project(client)
     client.post(
@@ -1373,7 +1373,7 @@ def test_briefing_digest_and_once_per_day(client, monkeypatch):
 
 
 def test_web_fetch_ssrf_guard(client):
-    from home import webfetch
+    from hestia import webfetch
 
     for blocked in (
         "http://127.0.0.1:8000/",
@@ -1386,7 +1386,7 @@ def test_web_fetch_ssrf_guard(client):
 
 
 def test_web_fetch_html_to_text(monkeypatch):
-    from home import webfetch
+    from hestia import webfetch
 
     class FakeResponse:
         status_code = 200
@@ -1423,8 +1423,8 @@ def test_watch_page_change_and_appear(client, monkeypatch):
 
     from sqlmodel import Session as SqlSession
 
-    from home import notify, watchers
-    from home.registry.db import engine
+    from hestia import notify, watchers
+    from hestia.registry.db import engine
 
     class FakeResp:
         status_code = 200
@@ -1475,8 +1475,8 @@ def test_watch_feed_new_items(client, monkeypatch):
 
     from sqlmodel import Session as SqlSession
 
-    from home import notify, watchers
-    from home.registry.db import engine
+    from hestia import notify, watchers
+    from hestia.registry.db import engine
 
     class FakeResp:
         status_code = 200
@@ -1517,9 +1517,9 @@ def test_watch_condition(client, monkeypatch):
 
     from sqlmodel import Session as SqlSession
 
-    from home import notify, watchers
-    from home.agent import loop as agent_loop
-    from home.registry.db import engine
+    from hestia import notify, watchers
+    from hestia.agent import loop as agent_loop
+    from hestia.registry.db import engine
 
     project = _mk_project(client)
     provider = _mk_provider(client)
@@ -1565,14 +1565,14 @@ def test_watches_api(client):
 def test_ask_approval_and_write_gate(client, monkeypatch):
     from sqlmodel import Session as SqlSession
 
-    from home import questions as questions_mod
-    from home.agent.loop import AgentPause
-    from home.registry.db import engine
-    from home.registry.models import Question
-    from home.registry.models import Session as ChatSession
-    from home.tools import gitwrites
-    from home.tools import questions as question_tools
-    from home.tools.registry import ProjectContext
+    from hestia import questions as questions_mod
+    from hestia.agent.loop import AgentPause
+    from hestia.registry.db import engine
+    from hestia.registry.models import Question
+    from hestia.registry.models import Session as ChatSession
+    from hestia.tools import gitwrites
+    from hestia.tools import questions as question_tools
+    from hestia.tools.registry import ProjectContext
 
     project = _mk_project(client)
     pid = project["id"]
@@ -1615,8 +1615,8 @@ def test_ask_approval_and_write_gate(client, monkeypatch):
 
 
 def test_chat_approval_event(client, monkeypatch):
-    from home.agent import loop as agent_loop
-    from home.agent.loop import AgentPause
+    from hestia.agent import loop as agent_loop
+    from hestia.agent.loop import AgentPause
 
     project = _mk_project(client)
     provider = _mk_provider(client)
@@ -1645,7 +1645,7 @@ def test_chat_approval_event(client, monkeypatch):
 
 
 def test_suggest_next_work(client, monkeypatch):
-    from home.agent import loop as agent_loop
+    from hestia.agent import loop as agent_loop
 
     project = _mk_project(client)
     provider = _mk_provider(client)
@@ -1678,7 +1678,7 @@ def test_suggest_next_work(client, monkeypatch):
 
 
 def test_github_token_storage_and_status(client, monkeypatch):
-    from home import github_auth
+    from hestia import github_auth
 
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     assert client.get("/api/github/status").json()["connected"] is False
@@ -1720,7 +1720,7 @@ def test_github_token_storage_and_status(client, monkeypatch):
 def test_github_import_gh(client, monkeypatch):
     from types import SimpleNamespace
 
-    from home import github_auth
+    from hestia import github_auth
 
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
@@ -1753,7 +1753,7 @@ def test_github_import_gh(client, monkeypatch):
 
 
 def test_clone_auth_args(client, monkeypatch):
-    from home.routers import projects
+    from hestia.routers import projects
 
     monkeypatch.setattr(projects.config, "github_token", lambda: "tok")
     assert projects._auth_args("https://github.com/a/b.git") == [
@@ -1770,8 +1770,8 @@ def test_project_delete_cascade(client):
     from sqlmodel import Session as SqlSession
     from sqlmodel import select as sqlselect
 
-    from home.registry.db import engine
-    from home.registry.models import (
+    from hestia.registry.db import engine
+    from hestia.registry.models import (
         Goal,
         InboxItem,
         Message,
@@ -1784,7 +1784,7 @@ def test_project_delete_cascade(client):
         Usage,
         Watch,
     )
-    from home.registry.models import Session as ChatSession
+    from hestia.registry.models import Session as ChatSession
 
     alpha = _mk_project(client, name="alpha")
     beta = _mk_project(client, name="beta")
@@ -1845,9 +1845,9 @@ def test_chat_rejects_foreign_session(client):
     from sqlmodel import Session as SqlSession
     from sqlmodel import select as sqlselect
 
-    from home.registry.db import engine
-    from home.registry.models import Message
-    from home.registry.models import Session as ChatSession
+    from hestia.registry.db import engine
+    from hestia.registry.models import Message
+    from hestia.registry.models import Session as ChatSession
 
     alpha = _mk_project(client, name="aa")
     beta = _mk_project(client, name="bb")
@@ -1871,9 +1871,9 @@ def test_chat_rejects_foreign_session(client):
 def test_goal_action_persists_on_session(client, monkeypatch):
     from sqlmodel import Session as SqlSession
 
-    from home.registry.db import engine
-    from home.registry.models import Session as ChatSession
-    from home.routers import chat as chat_router
+    from hestia.registry.db import engine
+    from hestia.registry.models import Session as ChatSession
+    from hestia.routers import chat as chat_router
 
     project = _mk_project(client)
     provider = _mk_provider(client)
@@ -1908,7 +1908,7 @@ def test_goal_action_persists_on_session(client, monkeypatch):
 def test_chat_persists_tool_history(client, monkeypatch):
     import json as jsonlib
 
-    from home.agent import loop as agent_loop
+    from hestia.agent import loop as agent_loop
 
     project = _mk_project(client)
     provider = _mk_provider(client)
@@ -1974,8 +1974,8 @@ def test_chat_persists_tool_history(client, monkeypatch):
 def test_chat_heartbeat(client, monkeypatch):
     import asyncio
 
-    from home.agent import loop as agent_loop
-    from home.routers import chat as chat_router
+    from hestia.agent import loop as agent_loop
+    from hestia.routers import chat as chat_router
 
     project = _mk_project(client)
     provider = _mk_provider(client)
@@ -1996,7 +1996,7 @@ def test_chat_heartbeat(client, monkeypatch):
 
 
 def test_chat_usage_tracking(client, monkeypatch):
-    from home.routers import chat as chat_router
+    from hestia.routers import chat as chat_router
 
     project = _mk_project(client)
     provider = _mk_provider(client)
@@ -2038,9 +2038,9 @@ def test_schedules_crud_and_run(client, monkeypatch):
 
     from sqlmodel import Session as SqlSession
 
-    from home import scheduler
-    from home.registry.db import engine
-    from home.registry.models import Schedule
+    from hestia import scheduler
+    from hestia.registry.db import engine
+    from hestia.registry.models import Schedule
 
     project = _mk_project(client)
     pid = project["id"]
@@ -2073,7 +2073,7 @@ def test_schedules_crud_and_run(client, monkeypatch):
         db.commit()
         assert [s.id for s in scheduler.due_schedules(db)] == [sched["id"]]
 
-    from home.agent import loop as agent_loop
+    from hestia.agent import loop as agent_loop
 
     seen = {}
 
@@ -2117,7 +2117,7 @@ def test_preferences_crud(client):
 
 
 def test_preferences_in_prompt(client, monkeypatch):
-    from home.routers import chat as chat_router
+    from hestia.routers import chat as chat_router
 
     project = _mk_project(client)
     provider = _mk_provider(client)
@@ -2143,7 +2143,7 @@ def test_preferences_in_prompt(client, monkeypatch):
 
 
 def test_project_preference_memory_always_in_context(client):
-    from home import totem_store
+    from hestia import totem_store
 
     project = _mk_project(client)
     path = Path(project["local_path"])
@@ -2173,10 +2173,10 @@ def test_background_task_lifecycle(client, monkeypatch):
 
     from sqlmodel import Session as SqlSession, select
 
-    from home import jobs
-    from home.registry.db import engine
-    from home.registry.models import BackgroundTask, Message
-    from home.registry.models import Session as ChatSession
+    from hestia import jobs
+    from hestia.registry.db import engine
+    from hestia.registry.models import BackgroundTask, Message
+    from hestia.registry.models import Session as ChatSession
 
     project = _mk_project(client)
     with SqlSession(engine()) as db:
@@ -2219,9 +2219,9 @@ def test_background_task_lifecycle(client, monkeypatch):
 def test_background_stop_and_reconcile(client, monkeypatch):
     from sqlmodel import Session as SqlSession, select
 
-    from home import jobs
-    from home.registry.db import engine
-    from home.registry.models import BackgroundTask
+    from hestia import jobs
+    from hestia.registry.db import engine
+    from hestia.registry.models import BackgroundTask
 
     project = _mk_project(client)
     monkeypatch.setattr(jobs.manager, "enqueue", lambda job_id: None)
@@ -2259,11 +2259,11 @@ def test_background_stop_and_reconcile(client, monkeypatch):
 def test_run_subagent_background_returns_job(client, monkeypatch):
     from sqlmodel import Session as SqlSession, select
 
-    from home import jobs
-    from home.registry.db import engine
-    from home.registry.models import BackgroundTask, Project
-    from home.tools import subagents
-    from home.tools.registry import ProjectContext
+    from hestia import jobs
+    from hestia.registry.db import engine
+    from hestia.registry.models import BackgroundTask, Project
+    from hestia.tools import subagents
+    from hestia.tools.registry import ProjectContext
 
     project = _mk_project(client)
     provider = _mk_provider(client)
@@ -2291,8 +2291,8 @@ def test_task_due_date_roundtrip_and_at_risk(client):
 
     from sqlmodel import Session as SqlSession
 
-    from home import taskboard
-    from home.registry.db import engine
+    from hestia import taskboard
+    from hestia.registry.db import engine
 
     project = _mk_project(client)
     pid = project["id"]
@@ -2319,10 +2319,10 @@ def test_task_due_date_roundtrip_and_at_risk(client):
 def test_schedule_agent_tools(client):
     from sqlmodel import Session as SqlSession, select
 
-    from home.registry.db import engine
-    from home.registry.models import Project, Schedule
-    from home.tools import schedules as schedule_tools
-    from home.tools.registry import ProjectContext
+    from hestia.registry.db import engine
+    from hestia.registry.models import Project, Schedule
+    from hestia.tools import schedules as schedule_tools
+    from hestia.tools.registry import ProjectContext
 
     project = _mk_project(client)
     with SqlSession(engine()) as db:
@@ -2347,9 +2347,9 @@ def test_event_trigger_matching_and_run(client, monkeypatch):
 
     from sqlmodel import Session as SqlSession, select
 
-    from home import events, scheduler
-    from home.registry.db import engine
-    from home.registry.models import Event, Project, Schedule
+    from hestia import events, scheduler
+    from hestia.registry.db import engine
+    from hestia.registry.models import Event, Project, Schedule
 
     project = _mk_project(client)
     pid = project["id"]
@@ -2388,7 +2388,7 @@ def test_event_trigger_matching_and_run(client, monkeypatch):
         assert plan[0][1]["payload"]["title"] == "CI broken"
         assert handle_ids
 
-    from home.agent import loop as agent_loop
+    from hestia.agent import loop as agent_loop
 
     seen = {}
 
@@ -2406,8 +2406,8 @@ def test_event_trigger_matching_and_run(client, monkeypatch):
 def test_task_transition_emits_event(client):
     from sqlmodel import Session as SqlSession, select
 
-    from home.registry.db import engine
-    from home.registry.models import Event
+    from hestia.registry.db import engine
+    from hestia.registry.models import Event
 
     project = _mk_project(client)
     pid = project["id"]
@@ -2423,9 +2423,9 @@ def test_task_transition_emits_event(client):
 def test_inbox_poll_emits_ci_event(client, monkeypatch):
     from sqlmodel import Session as SqlSession, select
 
-    from home import overview
-    from home.registry.db import engine
-    from home.registry.models import Event
+    from hestia import overview
+    from hestia.registry.db import engine
+    from hestia.registry.models import Event
 
     project = _mk_project(client)
     runs = [{"id": 99, "name": "CI", "conclusion": "failure", "url": "u"}]
@@ -2458,8 +2458,8 @@ def test_daily_plan_and_weekly_review_gates(client, monkeypatch):
 
     from sqlmodel import Session as SqlSession
 
-    from home import notify, scheduler, settings
-    from home.registry.db import engine
+    from hestia import notify, scheduler, settings
+    from hestia.registry.db import engine
 
     _mk_project(client)
     calls = []
@@ -2493,7 +2493,7 @@ def test_daily_plan_and_weekly_review_gates(client, monkeypatch):
 
 
 def test_capture_endpoint(client, monkeypatch):
-    from home.routers import capture as capture_router
+    from hestia.routers import capture as capture_router
 
     project = _mk_project(client)
     provider = _mk_provider(client)
@@ -2529,9 +2529,9 @@ def test_run_once_registers_db_tools(client, monkeypatch):
 
     from sqlmodel import Session as SqlSession
 
-    from home.agent import run as run_mod
-    from home.registry.db import engine
-    from home.registry.models import Project, Provider
+    from hestia.agent import run as run_mod
+    from hestia.registry.db import engine
+    from hestia.registry.models import Project, Provider
 
     project = _mk_project(client)
     provider = _mk_provider(client)
@@ -2569,9 +2569,9 @@ def test_implement_requires_git_writes(client):
 def test_run_next_picks_ready_task(client, monkeypatch):
     from sqlmodel import Session as SqlSession, select
 
-    from home import jobs
-    from home.registry.db import engine
-    from home.registry.models import BackgroundTask, Task
+    from hestia import jobs
+    from hestia.registry.db import engine
+    from hestia.registry.models import BackgroundTask, Task
 
     project = _mk_project(client)
     pid = project["id"]
@@ -2616,10 +2616,10 @@ def test_task_pr_url_roundtrip(client):
 def test_user_memory_tools(client):
     from sqlmodel import Session as SqlSession
 
-    from home.registry.db import engine
-    from home.registry.models import Project
-    from home.tools import preferences as pref_tools
-    from home.tools.registry import ProjectContext
+    from hestia.registry.db import engine
+    from hestia.registry.models import Project
+    from hestia.tools import preferences as pref_tools
+    from hestia.tools.registry import ProjectContext
 
     project = _mk_project(client)
     with SqlSession(engine()) as db:
@@ -2637,7 +2637,7 @@ def test_user_memory_tools(client):
 
 
 def test_user_note_in_chat_prompt(client, monkeypatch):
-    from home.routers import chat as chat_router
+    from hestia.routers import chat as chat_router
 
     project = _mk_project(client)
     provider = _mk_provider(client)
@@ -2750,7 +2750,7 @@ def test_skills_invalid_source(client):
 
 
 def test_skill_source_parsing():
-    from home import skills
+    from hestia import skills
 
     assert skills.parse_source("owner/repo") == ("git", "https://github.com/owner/repo", None)
     assert skills.parse_source("owner/repo#skills/pdf") == (
@@ -2769,7 +2769,7 @@ def test_skill_safe_extract_rejects_traversal(tmp_path):
     import io
     import zipfile
 
-    from home import skills
+    from hestia import skills
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as archive:
@@ -2782,7 +2782,7 @@ def test_skill_extract_tarball(tmp_path):
     import io
     import tarfile
 
-    from home import skills
+    from hestia import skills
 
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as archive:
@@ -2802,8 +2802,8 @@ def test_opencode_preset(client):
 
 
 def test_provider_stored_key(client, monkeypatch):
-    from home.providers import base as provider_base
-    from home.registry.models import Provider
+    from hestia.providers import base as provider_base
+    from hestia.registry.models import Provider
 
     p = client.post(
         "/api/providers",
@@ -2827,7 +2827,7 @@ def test_provider_models_endpoint(client, monkeypatch):
         assert api_key == "sk-x"
         return ["deepseek-v4.1-flash", "gpt-5.4-mini"]
 
-    monkeypatch.setattr("home.routers.providers.list_models", fake_list_models)
+    monkeypatch.setattr("hestia.routers.providers.list_models", fake_list_models)
     resp = client.post(
         "/api/providers/models",
         json={"base_url": "https://opencode.ai/zen", "api_key": "sk-x"},

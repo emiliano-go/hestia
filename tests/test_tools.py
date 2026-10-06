@@ -4,8 +4,8 @@ import subprocess
 
 import pytest
 
-from home.tools import build_registry
-from home.tools.registry import ProjectContext
+from hestia.tools import build_registry
+from hestia.tools.registry import ProjectContext
 
 
 @pytest.fixture
@@ -54,7 +54,7 @@ def test_path_escape_blocked(registry, repo):
 
 
 def test_mutating_git_blocked(registry, repo):
-    from home.tools.repo import _git
+    from hestia.tools.repo import _git
 
     with pytest.raises(PermissionError):
         _git(repo, ["push"])
@@ -75,7 +75,7 @@ def test_memory_create_via_tool(registry, repo):
 
 
 def test_workspace_write_read_list_and_escape(registry, repo, tmp_path):
-    from home import config
+    from hestia import config
 
     ws = config.workspace_dir("t")
     ctx = repo.__class__(repo.project_id, repo.name, repo.repo_url, repo.local_path, ws)

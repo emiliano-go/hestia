@@ -29,4 +29,4 @@ ENV DATA_DIR=/data \
 VOLUME /data
 EXPOSE 8080
 
-CMD ["/app/.venv/bin/uvicorn", "home.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["/app/.venv/bin/uvicorn", "hestia.main:app", "--host", "0.0.0.0", "--port", "8080"]

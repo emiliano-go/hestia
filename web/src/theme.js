@@ -1,4 +1,4 @@
-export const THEME_KEY = 'home-theme'
+export const THEME_KEY = 'hestia-theme'
 
 export const DEFAULT_THEME = {
   '--content-bg': '#262624',

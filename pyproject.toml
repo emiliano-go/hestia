@@ -1,5 +1,5 @@
 [project]
-name = "home"
+name = "hestia"
 version = "0.1.0"
 description = "Self-hostable agentic project cockpit with persistent Totem memory"
 readme = "README.md"
@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.scripts]
-home-mcp = "home.tools.mcp_server:main"
+hestia-mcp = "hestia.tools.mcp_server:main"
 
 [build-system]
 requires = ["uv_build>=0.12.22,<0.13.0"]

@@ -280,7 +280,7 @@ export function AboutView({ projectId, onDeleted }) {
         <p className="note">
           No channel configured. Set <code>NTFY_TOPIC</code> (optionally <code>NTFY_URL</code>,{' '}
           <code>NTFY_TOKEN</code>), or <code>TELEGRAM_BOT_TOKEN</code> +{' '}
-          <code>TELEGRAM_CHAT_ID</code>, then restart Home.
+          <code>TELEGRAM_CHAT_ID</code>, then restart Hestia.
         </p>
       )}
       {notifyResult && (

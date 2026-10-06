@@ -65,7 +65,7 @@ export function LoginView({ status, onAuthed }) {
             </button>
           </div>
           <div className="field-hint">
-            The setup token is the <code>HOME_SETUP_TOKEN</code> environment variable.
+            The setup token is the <code>HESTIA_SETUP_TOKEN</code> environment variable.
           </div>
         </div>
       </div>
