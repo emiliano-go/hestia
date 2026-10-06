@@ -47,10 +47,11 @@ query GitHub, and write workspace files (plans, specs), but they do not modify t
 
 ## Features
 
-- **Project workspaces**: register a project by Git URL; `hestia` clones it
-  under the data volume and links the repository, its documentation, and its
-  `AGENTS.md` into one workspace. A pull button refreshes the clone and the
-  instructions.
+- **Project workspaces**: a creation wizard builds a project from one or many
+  Git repositories (each with a short alias) or from nothing at all; `hestia`
+  clones them under the data volume and links the repositories, their
+  documentation, and `AGENTS.md` into one workspace. The Repositories page
+  shows per-repo status, and pull refreshes all clones or a single one.
 - **Totem memory in the agent's tools**: the agent's MCP-style toolset
   includes `memory_search`, `memory_get`, `memory_list`, `memory_create`,
   `memory_update`, and `memory_delete`, backed by a per-project
