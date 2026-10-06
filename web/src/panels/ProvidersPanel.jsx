@@ -3,17 +3,15 @@ import { api } from '../api.js'
 import { Spinner } from '../components/primitives.jsx'
 import { useAsync } from '../lib/hooks.js'
 
+const EMPTY = { name: '', base_url: '', api_key: '', model: '' }
+const STEPS = ['Provider', 'API key', 'Model']
+
 export function ProvidersPanel() {
   const { data: providers, error, loading, reload } = useAsync(api.listProviders, [])
   const presetsReq = useAsync(api.listPresets, [])
-  const [form, setForm] = useState({
-    name: '',
-    base_url: '',
-    api_key: '',
-    api_key_env: '',
-    model: '',
-  })
+  const [step, setStep] = useState(0)
   const [presetKey, setPresetKey] = useState('')
+  const [form, setForm] = useState(EMPTY)
   const [models, setModels] = useState([])
   const [loadingModels, setLoadingModels] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -21,38 +19,50 @@ export function ProvidersPanel() {
   const [testResults, setTestResults] = useState({})
 
   const presets = presetsReq.data || {}
+  const isCustom = presetKey === 'custom'
 
-  const applyPreset = (key) => {
-    setPresetKey(key)
-    const p = presets[key]
-    if (p) {
-      setForm((f) => ({
-        ...f,
-        name: p.name || key,
-        base_url: p.base_url || '',
-        api_key_env: p.api_key_env || '',
-        model: p.model || '',
-      }))
-    }
+  const reset = () => {
+    setStep(0)
+    setPresetKey('')
+    setForm(EMPTY)
+    setModels([])
+    setFormError(null)
   }
 
-  const loadModels = () => {
-    if (!form.base_url.trim()) return
+  const choosePreset = (key) => {
+    const p = presets[key] || {}
+    setPresetKey(key)
+    setForm({
+      name: p.name || key,
+      base_url: p.base_url || '',
+      api_key: '',
+      model: p.model || '',
+    })
+    setModels([])
+    setFormError(null)
+    setStep(1)
+  }
+
+  const loadModels = (advance) => {
+    if (!form.base_url.trim()) {
+      setFormError('Base URL is required.')
+      return
+    }
     setLoadingModels(true)
     setFormError(null)
     api
-      .listProviderModels({
-        base_url: form.base_url,
-        api_key: form.api_key,
-        api_key_env: form.api_key_env,
-      })
+      .listProviderModels({ base_url: form.base_url, api_key: form.api_key })
       .then((r) => {
         const list = r.models || []
         setModels(list)
         if (!form.model && list.length) setForm((f) => ({ ...f, model: list[0] }))
         if (!list.length) setFormError('No models returned for that key.')
+        if (advance) setStep(2)
       })
-      .catch((err) => setFormError(err.message || String(err)))
+      .catch((err) => {
+        setFormError(err.message || String(err))
+        if (advance) setStep(2)
+      })
       .finally(() => setLoadingModels(false))
   }
 
@@ -63,9 +73,7 @@ export function ProvidersPanel() {
     api
       .createProvider(form)
       .then(() => {
-        setForm({ name: '', base_url: '', api_key: '', api_key_env: '', model: '' })
-        setPresetKey('')
-        setModels([])
+        reset()
         reload()
       })
       .catch((err) => setFormError(err.message || String(err)))
@@ -86,54 +94,136 @@ export function ProvidersPanel() {
 
   return (
     <div>
-      <form className="form-col" onSubmit={submit}>
-        <select value={presetKey} onChange={(e) => applyPreset(e.target.value)}>
-          <option value="">Choose a preset...</option>
-          {Object.entries(presets).map(([k, p]) => (
-            <option key={k} value={k}>
-              {p.name || k}
-            </option>
+      <div className="wizard">
+        <div className="wizard-steps">
+          {STEPS.map((label, i) => (
+            <div
+              key={label}
+              className={`wizard-step ${step === i ? 'active' : ''} ${step > i ? 'done' : ''}`}
+            >
+              <span className="wizard-dot">{step > i ? '✓' : i + 1}</span>
+              <span className="wizard-label">{label}</span>
+            </div>
           ))}
-        </select>
-        <input placeholder="Name" value={form.name} onChange={set('name')} required />
-        <input placeholder="Base URL" value={form.base_url} onChange={set('base_url')} required />
-        <input
-          type="password"
-          placeholder="API key (stored) — optional"
-          value={form.api_key}
-          onChange={set('api_key')}
-        />
-        <input
-          placeholder="API key env var (optional)"
-          value={form.api_key_env}
-          onChange={set('api_key_env')}
-        />
-        <div className="row" style={{ marginBottom: 0 }}>
-          <input
-            list="provider-model-options"
-            placeholder="Model"
-            value={form.model}
-            onChange={set('model')}
-          />
-          <button
-            type="button"
-            className="btn"
-            onClick={loadModels}
-            disabled={loadingModels || !form.base_url.trim()}
-          >
-            {loadingModels ? <Spinner size={13} /> : 'Load models'}
-          </button>
         </div>
-        <datalist id="provider-model-options">
-          {models.map((m) => (
-            <option key={m} value={m} />
-          ))}
-        </datalist>
-        <button className="btn primary" disabled={saving}>
-          {saving ? 'Saving...' : 'Add provider'}
-        </button>
-        {formError && <div className="error-text">{formError}</div>}
-      </form>
+
+        {step === 0 && (
+          <div className="wizard-body">
+            <p className="note">Pick a provider to register.</p>
+            <div className="preset-grid">
+              {Object.entries(presets).map(([k, p]) => (
+                <button key={k} type="button" className="preset-card" onClick={() => choosePreset(k)}>
+                  <span className="preset-name">{p.name || k}</span>
+                  <span className="preset-url">{p.base_url}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {step === 1 && (
+          <form
+            className="wizard-body"
+            onSubmit={(e) => {
+              e.preventDefault()
+              loadModels(true)
+            }}
+          >
+            <p className="note">
+              {form.name} · <code>{form.base_url}</code>
+            </p>
+            {isCustom && (
+              <label className="field">
+                <span className="field-label">Base URL</span>
+                <input
+                  value={form.base_url}
+                  onChange={set('base_url')}
+                  placeholder="https://api.example.com"
+                  required
+                />
+              </label>
+            )}
+            <label className="field">
+              <span className="field-label">API key</span>
+              <input
+                type="password"
+                value={form.api_key}
+                onChange={set('api_key')}
+                placeholder="Paste your API key (blank for local endpoints)"
+                autoFocus
+              />
+            </label>
+            {formError && <div className="error-text">{formError}</div>}
+            <div className="row" style={{ marginBottom: 0 }}>
+              <button type="button" className="btn" onClick={() => setStep(0)}>
+                Back
+              </button>
+              <button
+                className="btn primary"
+                disabled={loadingModels || !form.base_url.trim()}
+              >
+                {loadingModels ? (
+                  <>
+                    <Spinner size={13} /> Loading models
+                  </>
+                ) : (
+                  'Continue'
+                )}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {step === 2 && (
+          <form className="wizard-body" onSubmit={submit}>
+            <label className="field">
+              <span className="field-label">Model</span>
+              <div className="row" style={{ marginBottom: 0 }}>
+                <input
+                  list="provider-model-options"
+                  value={form.model}
+                  onChange={set('model')}
+                  placeholder="model id"
+                  required
+                />
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => loadModels(false)}
+                  disabled={loadingModels}
+                >
+                  {loadingModels ? <Spinner size={13} /> : 'Reload'}
+                </button>
+              </div>
+              <datalist id="provider-model-options">
+                {models.map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+              {models.length > 0 && (
+                <span className="field-hint">{models.length} models available</span>
+              )}
+            </label>
+            <label className="field">
+              <span className="field-label">Name</span>
+              <input value={form.name} onChange={set('name')} placeholder="e.g. OpenCode Go" required />
+            </label>
+            {formError && <div className="error-text">{formError}</div>}
+            <div className="row" style={{ marginBottom: 0 }}>
+              <button type="button" className="btn" onClick={() => setStep(1)}>
+                Back
+              </button>
+              <button
+                className="btn primary"
+                disabled={saving || !form.name.trim() || !form.model.trim()}
+              >
+                {saving ? 'Saving...' : 'Add provider'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+
       {loading && <p className="note">Loading...</p>}
       {error && <p className="error-text">{error}</p>}
       {providers && providers.length === 0 && <p className="note">No providers configured.</p>}
@@ -152,8 +242,7 @@ export function ProvidersPanel() {
               </h3>
               <div className="meta">{p.base_url}</div>
               <div className="meta">
-                {p.model} (
-                {p.has_key ? 'key stored' : p.api_key_env ? `env: ${p.api_key_env}` : 'no key'})
+                {p.model} ({p.has_key ? 'key stored' : 'no key'})
               </div>
               {tr && !tr.testing && !tr.ok && tr.error && (
                 <div className="meta error-text">{tr.error}</div>

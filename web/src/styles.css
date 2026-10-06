@@ -1117,6 +1117,108 @@ a:hover {
   text-overflow: ellipsis;
 }
 
+/* ---------- provider wizard ---------- */
+.wizard {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  margin-bottom: 22px;
+}
+.wizard-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.wizard-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  font-size: 12.5px;
+  color: var(--faint);
+}
+.wizard-step:not(:last-child)::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-soft);
+}
+.wizard-dot {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  flex: none;
+}
+.wizard-step.active {
+  color: var(--fg);
+}
+.wizard-step.active .wizard-dot {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.wizard-step.done {
+  color: var(--fg-secondary);
+}
+.wizard-step.done .wizard-dot {
+  border-color: transparent;
+  background: var(--ok);
+  color: #fff;
+}
+.wizard-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.preset-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  color: var(--fg);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+.preset-card:hover {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+}
+.preset-name {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.preset-url {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 620px) {
+  .preset-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* code / pre */
 pre {
   background: var(--surface-2);
