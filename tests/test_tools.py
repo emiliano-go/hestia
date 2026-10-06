@@ -17,7 +17,7 @@ def repo(tmp_path):
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "app.py").write_text("print('hello')\n")
     subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
-    subprocess.run(["git", "commit", "-qm", "init"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "-c", "commit.gpgsign=false", "commit", "-qm", "init"], cwd=tmp_path, check=True)
     return ProjectContext(project_id=1, name="t", repo_url="https://github.com/a/b", local_path=tmp_path)
 
 

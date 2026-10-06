@@ -74,7 +74,6 @@ async def run_turn(
                 messages.append({
                     "role": "tool",
                     "tool_call_id": call["id"],
-                    "name": name,
                     "content": json.dumps(result, default=str)[:20_000],
                 })
         yield {"type": "error", "message": f"stopped after {max_turns} tool-call turns"}

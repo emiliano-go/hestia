@@ -96,7 +96,7 @@ def register(registry: Registry) -> None:
     registry.register(Tool(
         name="read_agents_md",
         description="Read the project's AGENTS.md (or equivalent agent instructions) if present.",
-        parameters=schema({"properties": {}, "required": []}, []),
+        parameters=schema({}, []),
         handler=lambda ctx, a: _read_file(ctx, "AGENTS.md") if (ctx.local_path / "AGENTS.md").exists()
             else {"found": False},
         group="files",
@@ -104,7 +104,7 @@ def register(registry: Registry) -> None:
     registry.register(Tool(
         name="list_docs",
         description="List documentation files (*.md) at the repo root and docs/ directory.",
-        parameters=schema({"properties": {}, "required": []}, []),
+        parameters=schema({}, []),
         handler=lambda ctx, a: sorted(
             f for f in _list_files(ctx, "**/*.md", limit=100)
             if f.count(os.sep) <= 1 or f.startswith("docs" + os.sep)

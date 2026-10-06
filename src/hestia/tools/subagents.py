@@ -60,7 +60,10 @@ def make_tools(db: Session) -> list[Tool]:
         if provider is None:
             raise ValueError(f"agent profile '{config.name}' has no valid provider")
         client = OpenAIClient(
-            provider.base_url, resolve_api_key(provider), provider.model
+            provider.base_url,
+            resolve_api_key(provider),
+            provider.model,
+            session=f"subagent-{ctx.session_id or ctx.project_id}",
         )
         groups = [g.strip() for g in config.tools.split(",") if g.strip()]
         registry = build_registry().filtered(groups)
@@ -135,7 +138,7 @@ def make_tools(db: Session) -> list[Tool]:
         Tool(
             name="agent_list",
             description="List available subagent profiles (name, tool groups, provider).",
-            parameters=schema({"properties": {}, "required": []}, []),
+            parameters=schema({}, []),
             handler=list_handler,
             group="agents",
         ),

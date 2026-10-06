@@ -25,9 +25,11 @@ _MAX_WRITE_BYTES = 1_000_000
 
 _AUTHOR = [
     "-c",
-    "user.name=Home Agent",
+    "user.name=Hestia Agent",
     "-c",
-    "user.email=home@localhost",
+    "user.email=hestia@localhost",
+    "-c",
+    "commit.gpgsign=false",  # agent commits are unsigned; no GPG agent headless
 ]
 
 

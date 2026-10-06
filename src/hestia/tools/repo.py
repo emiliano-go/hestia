@@ -63,7 +63,7 @@ def register(registry: Registry) -> None:
     registry.register(Tool(
         name="git_pull",
         description="Fast-forward pull the project clone from its remote. Read-only with respect to local history.",
-        parameters=schema({"properties": {}, "required": []}, []),
+        parameters=schema({}, []),
         handler=lambda ctx, a: _git(ctx, ["pull", "--ff-only"]),
         group="repo",
     ))
@@ -102,21 +102,21 @@ def register(registry: Registry) -> None:
     registry.register(Tool(
         name="git_status",
         description="Working tree status (git status).",
-        parameters=schema({"properties": {}, "required": []}, []),
+        parameters=schema({}, []),
         handler=lambda ctx, a: _git(ctx, ["status"]),
         group="repo",
     ))
     registry.register(Tool(
         name="git_branches",
         description="List local and remote branches.",
-        parameters=schema({"properties": {}, "required": []}, []),
+        parameters=schema({}, []),
         handler=lambda ctx, a: _git(ctx, ["branch", "-a", "-v"]),
         group="repo",
     ))
     registry.register(Tool(
         name="repo_path",
         description="Absolute path of the project clone on this server.",
-        parameters=schema({"properties": {}, "required": []}, []),
+        parameters=schema({}, []),
         handler=lambda ctx, a: _repo_path(ctx),
         group="repo",
     ))

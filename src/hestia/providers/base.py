@@ -1,9 +1,12 @@
 """OpenAI-compatible chat-completions client (async, streaming, tool calling)."""
 
 import os
+import secrets
 from typing import Any, AsyncIterator
 
 import httpx
+
+USER_AGENT = "hestia-agent/1.0"
 
 
 class ProviderError(RuntimeError):
@@ -11,16 +14,28 @@ class ProviderError(RuntimeError):
 
 
 class OpenAIClient:
-    def __init__(self, base_url: str, api_key: str | None, model: str, timeout: float = 120.0):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str | None,
+        model: str,
+        timeout: float = 120.0,
+        session: str | None = None,
+    ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
         self.timeout = timeout
+        # OpenCode Go wants a stable per-conversation session id for routing;
+        # callers pass the chat/session id when they have one.
+        self.session = session or secrets.token_urlsafe(12)
 
     def _headers(self) -> dict[str, str]:
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", "User-Agent": USER_AGENT}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
+        if "opencode.ai" in self.base_url:
+            headers["x-opencode-session"] = self.session
         return headers
 
     async def stream_chat(

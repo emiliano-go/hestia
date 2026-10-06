@@ -30,7 +30,7 @@ def _mk_project(client, name="demo", repo_url=None):
     subprocess.run(["git", "init", "-q"], cwd=src, check=True)
     (Path(src) / "README.md").write_text("# demo\n")
     subprocess.run(["git", "add", "."], cwd=src, check=True)
-    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "i"], cwd=src, check=True)
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "commit", "-qm", "i"], cwd=src, check=True)
     resp = client.post("/api/projects", json={"name": name, "repo_url": repo_url or src})
     assert resp.status_code == 201, resp.text
     return resp.json()
@@ -2679,7 +2679,7 @@ def test_create_project_stream(client):
     (Path(src) / "README.md").write_text("# demo\n")
     subprocess.run(["git", "add", "."], cwd=src, check=True)
     subprocess.run(
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "i"],
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "commit", "-qm", "i"],
         cwd=src,
         check=True,
     )
@@ -2856,7 +2856,7 @@ def test_pull_pending_and_inbox(client):
     (src / "new.txt").write_text("x")
     subprocess.run(["git", "add", "."], cwd=src, check=True)
     subprocess.run(
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "more"],
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "commit", "-qm", "more"],
         cwd=src,
         check=True,
     )

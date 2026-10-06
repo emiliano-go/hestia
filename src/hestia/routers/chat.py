@@ -119,7 +119,12 @@ def chat(project_id: int, body: dict, s: Session = Depends(session)):
 
     ctx = ProjectContext.from_project(project)
     ctx.session_id = chat_session.id
-    client = OpenAIClient(provider.base_url, resolve_api_key(provider), provider.model)
+    client = OpenAIClient(
+        provider.base_url,
+        resolve_api_key(provider),
+        provider.model,
+        session=f"chat-{chat_session.id}",
+    )
     registry = build_registry(writes=bool(project.allow_git_writes), db=s)
     for tool in subagents.make_tools(s):
         registry.register(tool)
@@ -173,7 +178,6 @@ def chat(project_id: int, body: dict, s: Session = Depends(session)):
                     {
                         "role": "tool",
                         "tool_call_id": m.tool_call_id,
-                        "name": m.name,
                         "content": m.content,
                     }
                 )
