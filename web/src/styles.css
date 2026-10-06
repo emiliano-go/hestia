@@ -384,7 +384,7 @@ a:hover {
   height: 54px;
   padding: 0 20px;
   border-bottom: 1px solid var(--border-soft);
-  background: rgba(38, 38, 36, 0.85);
+  background: color-mix(in srgb, var(--content-bg) 85%, transparent);
   backdrop-filter: blur(12px);
   flex: none;
   z-index: 5;
