@@ -60,7 +60,7 @@ def make_tools(db: Session) -> list[Tool]:
         if provider is None:
             raise ValueError(f"agent profile '{config.name}' has no valid provider")
         client = OpenAIClient(
-            provider.base_url, resolve_api_key(provider.api_key_env), provider.model
+            provider.base_url, resolve_api_key(provider), provider.model
         )
         groups = [g.strip() for g in config.tools.split(",") if g.strip()]
         registry = build_registry().filtered(groups)

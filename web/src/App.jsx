@@ -804,8 +804,16 @@ function AddProjectModal({ onClose, onCreated }) {
 function ProvidersPanel() {
   const { data: providers, error, loading, reload } = useAsync(api.listProviders, [])
   const presetsReq = useAsync(api.listPresets, [])
-  const [form, setForm] = useState({ name: '', base_url: '', api_key_env: '', model: '' })
+  const [form, setForm] = useState({
+    name: '',
+    base_url: '',
+    api_key: '',
+    api_key_env: '',
+    model: '',
+  })
   const [presetKey, setPresetKey] = useState('')
+  const [models, setModels] = useState([])
+  const [loadingModels, setLoadingModels] = useState(false)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState(null)
   const [testResults, setTestResults] = useState({})
@@ -816,13 +824,34 @@ function ProvidersPanel() {
     setPresetKey(key)
     const p = presets[key]
     if (p) {
-      setForm({
+      setForm((f) => ({
+        ...f,
         name: p.name || key,
         base_url: p.base_url || '',
         api_key_env: p.api_key_env || '',
         model: p.model || '',
-      })
+      }))
     }
+  }
+
+  const loadModels = () => {
+    if (!form.base_url.trim()) return
+    setLoadingModels(true)
+    setFormError(null)
+    api
+      .listProviderModels({
+        base_url: form.base_url,
+        api_key: form.api_key,
+        api_key_env: form.api_key_env,
+      })
+      .then((r) => {
+        const list = r.models || []
+        setModels(list)
+        if (!form.model && list.length) setForm((f) => ({ ...f, model: list[0] }))
+        if (!list.length) setFormError('No models returned for that key.')
+      })
+      .catch((err) => setFormError(err.message || String(err)))
+      .finally(() => setLoadingModels(false))
   }
 
   const submit = (e) => {
@@ -832,8 +861,9 @@ function ProvidersPanel() {
     api
       .createProvider(form)
       .then(() => {
-        setForm({ name: '', base_url: '', api_key_env: '', model: '' })
+        setForm({ name: '', base_url: '', api_key: '', api_key_env: '', model: '' })
         setPresetKey('')
+        setModels([])
         reload()
       })
       .catch((err) => setFormError(err.message || String(err)))
@@ -866,12 +896,37 @@ function ProvidersPanel() {
         <input placeholder="Name" value={form.name} onChange={set('name')} required />
         <input placeholder="Base URL" value={form.base_url} onChange={set('base_url')} required />
         <input
-          placeholder="API key env var"
+          type="password"
+          placeholder="API key (stored) — optional"
+          value={form.api_key}
+          onChange={set('api_key')}
+        />
+        <input
+          placeholder="API key env var (optional)"
           value={form.api_key_env}
           onChange={set('api_key_env')}
-          required
         />
-        <input placeholder="Model" value={form.model} onChange={set('model')} required />
+        <div className="row" style={{ marginBottom: 0 }}>
+          <input
+            list="provider-model-options"
+            placeholder="Model"
+            value={form.model}
+            onChange={set('model')}
+          />
+          <button
+            type="button"
+            className="btn"
+            onClick={loadModels}
+            disabled={loadingModels || !form.base_url.trim()}
+          >
+            {loadingModels ? <Spinner size={13} /> : 'Load models'}
+          </button>
+        </div>
+        <datalist id="provider-model-options">
+          {models.map((m) => (
+            <option key={m} value={m} />
+          ))}
+        </datalist>
         <button className="btn primary" disabled={saving}>
           {saving ? 'Saving...' : 'Add provider'}
         </button>
@@ -895,7 +950,8 @@ function ProvidersPanel() {
               </h3>
               <div className="meta">{p.base_url}</div>
               <div className="meta">
-                {p.model} (key: {p.api_key_env})
+                {p.model} (
+                {p.has_key ? 'key stored' : p.api_key_env ? `env: ${p.api_key_env}` : 'no key'})
               </div>
               {tr && !tr.testing && !tr.ok && tr.error && (
                 <div className="meta error-text">{tr.error}</div>
@@ -1859,39 +1915,9 @@ function AssistantPanel() {
 
 function GithubPanel() {
   const { data, loading, reload } = useAsync(api.githubStatus, [])
-  const { data: settings } = useAsync(api.getSettings, [])
   const [token, setToken] = useState('')
-  const [clientId, setClientId] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
-  const [device, setDevice] = useState(null)
-  const [notice, setNotice] = useState(null)
-  const pollRef = useRef(null)
-
-  useEffect(() => {
-    if (settings) setClientId(settings.github_oauth_client_id || '')
-  }, [settings])
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const gh = params.get('github')
-    if (!gh) return
-    setNotice(
-      gh === 'error'
-        ? { error: params.get('reason') || 'GitHub sign-in failed' }
-        : { ok: true }
-    )
-    params.delete('github')
-    params.delete('reason')
-    const qs = params.toString()
-    window.history.replaceState(
-      null,
-      '',
-      window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash
-    )
-  }, [])
-
-  useEffect(() => () => clearInterval(pollRef.current), [])
 
   if (loading) return <p className="note">Loading...</p>
 
@@ -1919,66 +1945,10 @@ function GithubPanel() {
       .finally(() => setBusy(false))
   }
 
-  const startDevice = () => {
-    setBusy(true)
-    setError(null)
-    api
-      .githubDeviceStart()
-      .then((d) => {
-        setDevice(d)
-        clearInterval(pollRef.current)
-        pollRef.current = setInterval(
-          () => {
-            api
-              .githubDevicePoll(d.device_code)
-              .then((r) => {
-                if (r.status === 'connected') {
-                  clearInterval(pollRef.current)
-                  setDevice(null)
-                  reload()
-                }
-              })
-              .catch((err) => {
-                clearInterval(pollRef.current)
-                setDevice(null)
-                setError(err.message || String(err))
-              })
-          },
-          Math.max(5, d.interval || 5) * 1000
-        )
-      })
-      .catch((err) => setError(err.message || String(err)))
-      .finally(() => setBusy(false))
-  }
-
-  const saveClientId = () => {
-    setError(null)
-    api
-      .updateSettings({ github_oauth_client_id: clientId.trim() })
-      .then(() => reload())
-      .catch((err) => setError(err.message || String(err)))
-  }
-
-  const startOAuth = () => {
-    setBusy(true)
-    setError(null)
-    api
-      .githubOAuthStart()
-      .then((r) => {
-        window.location.href = r.url
-      })
-      .catch((err) => {
-        setError(err.message || String(err))
-        setBusy(false)
-      })
-  }
-
   const account = data || {}
 
   return (
     <div className="agent-form">
-      {notice?.ok && <p className="note">Signed in with GitHub.</p>}
-      {notice?.error && <p className="error-text">{notice.error}</p>}
       {account.connected ? (
         <div className="github-account">
           {account.avatar_url && <img src={account.avatar_url} alt="" className="github-avatar" />}
@@ -2028,62 +1998,6 @@ function GithubPanel() {
         >
           <Icon name="git" size={13} /> Import from gh CLI
         </button>
-      </div>
-
-      <div className="field">
-        <span className="field-label">Sign in with GitHub</span>
-        {device ? (
-          <div className="device-flow">
-            <div>
-              Enter this code on GitHub: <code className="device-code">{device.user_code}</code>
-            </div>
-            <a href={device.verification_uri} target="_blank" rel="noreferrer">
-              {device.verification_uri}
-            </a>
-            <div className="note">Waiting for approval...</div>
-          </div>
-        ) : (
-          <>
-            <div className="row" style={{ marginBottom: 0 }}>
-              <input
-                value={clientId}
-                onChange={(e) => setClientId(e.target.value)}
-                placeholder="OAuth app client id"
-              />
-              <button
-                type="button"
-                className="btn"
-                onClick={saveClientId}
-                disabled={!clientId.trim()}
-              >
-                Save
-              </button>
-            </div>
-            <div className="row" style={{ marginBottom: 0 }}>
-              <button
-                type="button"
-                className="btn primary"
-                disabled={busy || !clientId.trim()}
-                onClick={startOAuth}
-              >
-                <Icon name="git" size={13} /> Sign in with GitHub
-              </button>
-              <button
-                type="button"
-                className="btn"
-                disabled={busy || !clientId.trim()}
-                onClick={startDevice}
-              >
-                Use device code
-              </button>
-            </div>
-          </>
-        )}
-        <span className="field-hint">
-          Create an OAuth app and paste its client id. Redirect sign-in also needs{' '}
-          <code>GITHUB_OAUTH_CLIENT_SECRET</code> on the server and the callback URL{' '}
-          <code>&lt;origin&gt;/api/github/oauth/callback</code>; the device code needs only the
-          client id.</span>
       </div>
     </div>
   )
@@ -3624,8 +3538,7 @@ function HelpView() {
         <ul>
           <li>
             <strong>Settings, GitHub</strong>: paste a personal access token (repo scope),
-            import the token from the <code>gh</code> CLI (<code>gh auth login</code> first),
-            sign in with OAuth (redirect or device code) using your own OAuth app client id.
+            or import the token from the <code>gh</code> CLI (<code>gh auth login</code> first).
           </li>
           <li>
             <code>GITHUB_TOKEN</code> in the environment takes precedence over the stored
@@ -7170,14 +7083,6 @@ export default function App() {
     applyHash()
     window.addEventListener('hashchange', applyHash)
     return () => window.removeEventListener('hashchange', applyHash)
-  }, [])
-
-  useEffect(() => {
-    // Return from the GitHub OAuth redirect: land on Settings, GitHub tab.
-    if (new URLSearchParams(window.location.search).get('github')) {
-      setSettingsTab('github')
-      setView({ type: 'settings' })
-    }
   }, [])
 
   const effectiveProjectId = projectId && projects.some((p) => p.id === projectId)

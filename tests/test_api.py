@@ -1752,70 +1752,6 @@ def test_github_import_gh(client, monkeypatch):
     assert client.post("/api/github/import-gh").status_code == 400
 
 
-def test_github_device_flow(client, monkeypatch):
-    from types import SimpleNamespace
-
-    from home import github_auth
-
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-
-    class FakeResp:
-        status_code = 200
-        headers = {}
-
-        def json(self):
-            return {"login": "octocat", "name": None, "avatar_url": None}
-
-        def raise_for_status(self):
-            return None
-
-    monkeypatch.setattr(github_auth.httpx, "get", lambda url, **kw: FakeResp())
-
-    # without a client id the flow is refused
-    assert client.post("/api/github/device/start").status_code == 400
-    client.put("/api/settings", json={"github_oauth_client_id": "cid"})
-
-    def fake_post(url, **kw):
-        if "device/code" in url:
-            return SimpleNamespace(
-                status_code=200,
-                json=lambda: {
-                    "device_code": "dc",
-                    "user_code": "ABCD-1234",
-                    "verification_uri": "https://github.com/login/device",
-                    "interval": 5,
-                    "expires_in": 900,
-                },
-                raise_for_status=lambda: None,
-            )
-        return SimpleNamespace(
-            status_code=200,
-            json=lambda: {"access_token": "ghp_dev"},
-            raise_for_status=lambda: None,
-        )
-
-    monkeypatch.setattr(github_auth.httpx, "post", fake_post)
-    start = client.post("/api/github/device/start").json()
-    assert start["user_code"] == "ABCD-1234"
-
-    monkeypatch.setattr(
-        github_auth.httpx,
-        "post",
-        lambda url, **kw: SimpleNamespace(
-            status_code=200,
-            json=lambda: {"error": "authorization_pending"},
-            raise_for_status=lambda: None,
-        ),
-    )
-    pending = client.post("/api/github/device/poll", json={"device_code": "dc"}).json()
-    assert pending["status"] == "authorization_pending"
-
-    monkeypatch.setattr(github_auth.httpx, "post", fake_post)
-    out = client.post("/api/github/device/poll", json={"device_code": "dc"}).json()
-    assert out["status"] == "connected"
-    assert github_auth.load_token() == "ghp_dev"
-
-
 def test_clone_auth_args(client, monkeypatch):
     from home.routers import projects
 
@@ -2858,56 +2794,42 @@ def test_skill_extract_tarball(tmp_path):
     assert (tmp_path / "out" / "SKILL.md").read_text() == "# hello\n"
 
 
-def test_github_oauth_state_roundtrip():
-    from home import github_auth
-
-    state = github_auth.make_state()
-    assert github_auth.verify_state(state)
-    assert not github_auth.verify_state(state + "x")
-    assert not github_auth.verify_state("nope")
-    assert not github_auth.verify_state(github_auth.make_state(ttl=-1))
+def test_opencode_preset(client):
+    presets = client.get("/api/providers/presets").json()
+    assert "opencode" in presets
+    assert presets["opencode"]["base_url"] == "https://opencode.ai/zen"
 
 
-def test_github_oauth_authorize_url():
-    from home import github_auth
+def test_provider_stored_key(client, monkeypatch):
+    from home.providers import base as provider_base
+    from home.registry.models import Provider
 
-    url = github_auth.oauth_authorize_url(
-        "cid", "http://x/api/github/oauth/callback", "st"
+    p = client.post(
+        "/api/providers",
+        json={"name": "zen", "base_url": "https://opencode.ai/zen", "api_key": "sk-x"},
+    ).json()
+    assert p["has_key"] is True
+    assert "api_key" not in p
+
+    listed = client.get("/api/providers").json()
+    assert listed[0]["has_key"] is True
+    assert "api_key" not in listed[0]
+
+    prov = Provider(name="zen", base_url="https://x", api_key="stored", api_key_env="NOPE")
+    assert provider_base.resolve_api_key(prov) == "stored"
+    assert provider_base.resolve_api_key("NOPE") is None
+
+
+def test_provider_models_endpoint(client, monkeypatch):
+    async def fake_list_models(base_url, api_key):
+        assert base_url == "https://opencode.ai/zen"
+        assert api_key == "sk-x"
+        return ["deepseek-v4.1-flash", "gpt-5.4-mini"]
+
+    monkeypatch.setattr("home.routers.providers.list_models", fake_list_models)
+    resp = client.post(
+        "/api/providers/models",
+        json={"base_url": "https://opencode.ai/zen", "api_key": "sk-x"},
     )
-    assert url.startswith("https://github.com/login/oauth/authorize?")
-    assert "client_id=cid" in url
-    assert "redirect_uri=http%3A%2F%2Fx%2Fapi%2Fgithub%2Foauth%2Fcallback" in url
-    assert "state=st" in url
-    assert "scope=repo" in url
-
-
-def test_github_oauth_start_requires_config(client, monkeypatch):
-    monkeypatch.delenv("GITHUB_OAUTH_CLIENT_ID", raising=False)
-    monkeypatch.delenv("GITHUB_OAUTH_CLIENT_SECRET", raising=False)
-    assert client.get("/api/github/oauth/start").status_code == 400
-
-
-def test_github_oauth_callback_bad_state(client):
-    resp = client.get(
-        "/api/github/oauth/callback",
-        params={"code": "x", "state": "bad"},
-        follow_redirects=False,
-    )
-    assert resp.status_code in (302, 307)
-    assert "github=error" in resp.headers["location"]
-
-
-def test_github_oauth_callback_success(client, monkeypatch):
-    from home import github_auth
-
-    monkeypatch.setenv("GITHUB_OAUTH_CLIENT_ID", "cid")
-    monkeypatch.setenv("GITHUB_OAUTH_CLIENT_SECRET", "secret")
-    monkeypatch.setattr(github_auth, "oauth_exchange", lambda *a, **k: {"login": "octocat"})
-    state = github_auth.make_state()
-    resp = client.get(
-        "/api/github/oauth/callback",
-        params={"code": "c", "state": state},
-        follow_redirects=False,
-    )
-    assert resp.status_code in (302, 307)
-    assert "github=connected" in resp.headers["location"]
+    assert resp.status_code == 200
+    assert resp.json()["models"] == ["deepseek-v4.1-flash", "gpt-5.4-mini"]

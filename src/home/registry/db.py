@@ -74,6 +74,10 @@ def _migrate() -> None:
         if session_columns and "action" not in session_columns:
             conn.exec_driver_sql("ALTER TABLE session ADD COLUMN action TEXT DEFAULT 'chat'")
 
+        provider_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(provider)")}
+        if provider_columns and "api_key" not in provider_columns:
+            conn.exec_driver_sql("ALTER TABLE provider ADD COLUMN api_key TEXT")
+
         message_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(message)")}
         if message_columns and "tool_call_id" not in message_columns:
             conn.exec_driver_sql("ALTER TABLE message ADD COLUMN tool_call_id TEXT")

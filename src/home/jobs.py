@@ -397,7 +397,7 @@ async def _continue(session_id: int, project_id: int) -> None:
             system += "\n\n" + BACKGROUND_NOTE
             registry = build_registry(writes=bool(project.allow_git_writes), db=db)
             client = OpenAIClient(
-                provider.base_url, resolve_api_key(provider.api_key_env), provider.model
+                provider.base_url, resolve_api_key(provider), provider.model
             )
             messages = _replay(db, session_id, system)
             final = ""

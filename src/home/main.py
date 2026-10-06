@@ -67,7 +67,6 @@ def create_app() -> FastAPI:
             auth.enabled()
             and path.startswith("/api/")
             and not path.startswith("/api/auth/")
-            and not path.startswith("/api/github/oauth/callback")
             and not auth.verify_session(request.cookies.get(auth.SESSION_COOKIE))
         ):
             return JSONResponse({"detail": "authentication required"}, status_code=401)

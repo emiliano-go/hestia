@@ -108,11 +108,8 @@ query GitHub, and write workspace files (plans, specs), but they do not modify t
   `NTFY_URL`/`NTFY_TOKEN`) or `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`; test
   from About. Email is deliberately not implemented (SMTP setup for little gain
   over the other two).
-- **GitHub account connection**: paste a token, import from the `gh` CLI
-  (`gh auth login`), or sign in with OAuth using your own OAuth app. The
-  redirect flow needs `GITHUB_OAUTH_CLIENT_ID` + `GITHUB_OAUTH_CLIENT_SECRET`
-  and the callback URL `<HOME_ORIGIN>/api/github/oauth/callback` registered on
-  the app; the device flow needs only the client id. Stored at
+- **GitHub account connection**: paste a personal access token (repo scope), or
+  import the token from the `gh` CLI (`gh auth login`). Stored at
   `<DATA_DIR>/github_token` (0600); `GITHUB_TOKEN` env takes precedence. Enables
   private clones, higher rate limits, and issue/PR writes.
 - **Agent questions**: the agent can ask you a blocking question with `ask_user`

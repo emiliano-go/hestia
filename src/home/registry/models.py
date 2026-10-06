@@ -54,8 +54,9 @@ class Provider(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
     base_url: str
-    api_key_env: str  # name of the env var holding the key, never the key itself
-    model: str
+    api_key_env: str = ""  # optional env var name holding the key
+    api_key: Optional[str] = Field(default=None)  # key stored from the UI (optional)
+    model: str = ""
     created_at: datetime = Field(default_factory=_now)
 
 

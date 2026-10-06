@@ -136,7 +136,7 @@ def suggest_tasks(project_id: int, body: dict, s: Session = Depends(session)):
         system += f"\n\n## Agent instructions\n{agent.system_prompt}"
     system += "\n\n" + SUGGEST_PROMPT
     client = OpenAIClient(
-        provider.base_url, resolve_api_key(provider.api_key_env), provider.model
+        provider.base_url, resolve_api_key(provider), provider.model
     )
     messages = [
         {"role": "system", "content": system},

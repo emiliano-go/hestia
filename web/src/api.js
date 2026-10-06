@@ -150,6 +150,8 @@ export const api = {
 
   listPresets: () => request('/providers/presets'),
   listProviders: () => request('/providers'),
+  listProviderModels: (body) =>
+    request('/providers/models', { method: 'POST', body: JSON.stringify(body) }),
   createProvider: (body) => request('/providers', { method: 'POST', body: JSON.stringify(body) }),
   deleteProvider: (id) => request(`/providers/${id}`, { method: 'DELETE' }),
   testProvider: (id) => request(`/providers/${id}/test`, { method: 'POST' }),
@@ -202,13 +204,6 @@ export const api = {
     request('/github/token', { method: 'POST', body: JSON.stringify({ token }) }),
   githubDisconnect: () => request('/github/token', { method: 'DELETE' }),
   githubImportGh: () => request('/github/import-gh', { method: 'POST', body: '{}' }),
-  githubDeviceStart: () => request('/github/device/start', { method: 'POST', body: '{}' }),
-  githubDevicePoll: (deviceCode) =>
-    request('/github/device/poll', {
-      method: 'POST',
-      body: JSON.stringify({ device_code: deviceCode }),
-    }),
-  githubOAuthStart: () => request('/github/oauth/start'),
 
   listReminders: (includeDone = false) =>
     request(`/reminders?include_done=${includeDone ? 'true' : 'false'}`),

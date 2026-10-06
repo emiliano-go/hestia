@@ -1,6 +1,12 @@
 """Provider presets for common OpenAI-compatible endpoints."""
 
 PRESETS = {
+    "opencode": {
+        "name": "OpenCode Zen",
+        "base_url": "https://opencode.ai/zen",
+        "api_key_env": "OPENCODE_API_KEY",
+        "model": "deepseek-v4.1-flash",
+    },
     "kimi": {
         "name": "Kimi (Moonshot)",
         "base_url": "https://api.moonshot.ai",

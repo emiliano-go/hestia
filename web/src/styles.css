@@ -3694,20 +3694,6 @@ pre {
 .github-login {
   font-weight: 600;
 }
-.device-flow {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  background: var(--surface);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  padding: 12px 14px;
-}
-.device-code {
-  font-size: 16px;
-  letter-spacing: 0.08em;
-  color: var(--accent);
-}
 
 /* ---------- theme controls ---------- */
 

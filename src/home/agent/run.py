@@ -53,7 +53,7 @@ async def run_once(
                 for tool in builder(tasks_db):
                     registry.register(tool)
     client = OpenAIClient(
-        provider.base_url, resolve_api_key(provider.api_key_env), provider.model
+        provider.base_url, resolve_api_key(provider), provider.model
     )
     messages = [
         {"role": "system", "content": system},

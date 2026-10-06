@@ -70,5 +70,30 @@ class OpenAIClient:
         return chunks[0] if chunks else {}
 
 
-def resolve_api_key(api_key_env: str) -> str | None:
-    return os.environ.get(api_key_env) or None
+def resolve_api_key(provider) -> str | None:
+    """Key from the stored provider row if present, else its env var.
+
+    Accepts a Provider or a bare env var name (backwards compatible).
+    """
+    if isinstance(provider, str):
+        return os.environ.get(provider) or None
+    stored = getattr(provider, "api_key", None)
+    if stored:
+        return stored
+    env = getattr(provider, "api_key_env", "") or ""
+    return os.environ.get(env) if env else None
+
+
+async def list_models(base_url: str, api_key: str | None) -> list[str]:
+    """Fetch model ids from an OpenAI-compatible /v1/models endpoint."""
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(f"{base_url.rstrip('/')}/v1/models", headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+    ids = {
+        m.get("id")
+        for m in (data.get("data") or [])
+        if isinstance(m, dict) and m.get("id")
+    }
+    return sorted(ids)

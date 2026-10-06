@@ -31,7 +31,6 @@ DEFAULTS: dict[str, str] = {
     "weekly_review_time": "16:00",
     "weekly_review_last_sent": "",
     "web_fetch_enabled": "1",
-    "github_oauth_client_id": "",
 }
 
 _TRUE = {"1", "true", "yes", "on"}
