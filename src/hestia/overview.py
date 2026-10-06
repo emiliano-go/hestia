@@ -15,7 +15,7 @@ from pathlib import Path
 import httpx
 from sqlmodel import Session, select
 
-from hestia import config, repos, totem_store
+from hestia import config, repos, totem_store, urls
 from hestia.registry.models import Session as ChatSession
 
 GITHUB_API = "https://api.github.com"
@@ -189,12 +189,8 @@ def workspace_files(project) -> list[dict]:
 # --------------------------------------------------------------------------
 
 def repo_slug(repo_url: str) -> str | None:
-    """Extract owner/repo from a GitHub remote URL, or None."""
-    url = (repo_url or "").removesuffix(".git")
-    if "github.com" not in url:
-        return None
-    parts = url.split("github.com")[-1].strip("/").split("/")
-    return "/".join(parts[-2:]) if len(parts) >= 2 and all(parts[-2:]) else None
+    """Extract owner/repo from a real GitHub remote URL, or None."""
+    return urls.github_slug(repo_url)
 
 
 def gh_get(slug: str, path: str, params: dict | None = None):

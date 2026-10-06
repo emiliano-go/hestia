@@ -226,3 +226,26 @@ def test_session_id_migration_rebuilds_integer_pk(tmp_path, monkeypatch):
         assert still
     with Session(engine()) as db:
         assert db.get(ChatSession, "7") is not None
+
+
+def test_github_host_credential_boundary():
+    from hestia import urls
+
+    assert urls.github_host("https://github.com/a/b")
+    assert not urls.github_host("https://github.com.attacker.example/a/b")
+    assert not urls.github_host("https://evil.com/github.com/a/b")
+    assert not urls.github_host("http://github.com/a/b")  # token only over https
+    assert not urls.github_host("https://api.github.com/repos/a/b")
+    assert urls.github_slug("https://github.com/a/b.git") == "a/b"
+    assert urls.github_slug("https://github.com.attacker.example/a/b") is None
+    assert urls.github_slug("https://evil.com/github.com/a/b") is None
+
+    from hestia import repos as repos_mod
+
+    original = repos_mod.config.github_token
+    repos_mod.config.github_token = lambda: "tok"
+    try:
+        assert repos_mod.auth_args("https://github.com.attacker.example/a/b") == []
+        assert repos_mod.auth_args("https://github.com/a/b") != []
+    finally:
+        repos_mod.config.github_token = original

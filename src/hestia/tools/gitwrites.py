@@ -17,7 +17,7 @@ from pathlib import Path
 import httpx
 from sqlmodel import Session, select
 
-from hestia import config, overview
+from hestia import config, overview, urls
 from hestia.tools.registry import ProjectContext, Registry, Tool, schema
 
 GITHUB_API = "https://api.github.com"
@@ -178,7 +178,7 @@ def _push(ctx: ProjectContext, args: dict, db: Session | None = None) -> dict:
     )
     extra: list[str] = []
     token = config.github_token()
-    if token and "github.com" in ctx.repo_url_for(repo):
+    if token and urls.github_host(ctx.repo_url_for(repo)):
         extra = ["-c", f"http.extraheader=Authorization: Bearer {token}"]
     output = _git(ctx, ["push", "-u", "origin", branch], extra=extra, timeout=300, repo=repo)
     return {"branch": branch, "repo": ctx.repo(repo).alias, "output": output[-2000:]}

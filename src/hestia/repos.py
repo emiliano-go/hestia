@@ -13,7 +13,7 @@ from pathlib import Path
 
 from sqlmodel import Session, select
 
-from hestia import config
+from hestia import config, urls
 from hestia.registry.models import Project, ProjectRepo
 
 _ALIAS_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
@@ -78,7 +78,7 @@ def clone_dir(project_name: str, alias: str) -> Path:
 def auth_args(repo_url: str) -> list[str]:
     """git -c flags for authenticated GitHub HTTPS remotes (token from env or UI)."""
     token = config.github_token()
-    if token and "github.com" in (repo_url or ""):
+    if token and urls.github_host(repo_url):
         return ["-c", f"http.extraheader=Authorization: Bearer {token}"]
     return []
 
