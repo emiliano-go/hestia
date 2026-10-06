@@ -9,7 +9,9 @@ export function Skeleton({ className = '', style }) {
   return <div className={`skeleton ${className}`} style={style} aria-hidden="true" />
 }
 
-export function Composer({ onSend, busy, placeholder }) {
+const isBtw = (msg) => /^\/btw(\s|$)/i.test(msg)
+
+export function Composer({ onSend, busy, placeholder, hint }) {
   const [value, setValue] = useState('')
   const ref = useRef(null)
 
@@ -23,7 +25,8 @@ export function Composer({ onSend, busy, placeholder }) {
 
   const submit = () => {
     const msg = value.trim()
-    if (!msg || busy) return
+    if (!msg) return
+    if (busy && !isBtw(msg)) return
     setValue('')
     onSend(msg)
   }
@@ -44,11 +47,13 @@ export function Composer({ onSend, busy, placeholder }) {
         }}
       />
       <div className="composer-foot">
-        <span className="composer-hint">Enter to send, Shift+Enter for a new line</span>
+        <span className="composer-hint">
+          {hint || 'Enter to send, Shift+Enter for a new line'}
+        </span>
         <button
           className="send-btn"
           onClick={submit}
-          disabled={busy || !value.trim()}
+          disabled={!value.trim() || (busy && !isBtw(value.trim()))}
           title="Send"
         >
           <Icon name="arrowUp" size={18} />

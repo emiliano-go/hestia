@@ -31,6 +31,7 @@ export const TOOL_ICONS = {
   workspace_list: 'folder',
   run_subagent: 'agents',
   agent_list: 'agents',
+  generate_image: 'gallery',
 }
 
 export const TOOL_TITLES = {
@@ -61,6 +62,19 @@ export const TOOL_TITLES = {
   workspace_list: 'List workspace files',
   run_subagent: 'Delegate to a subagent',
   agent_list: 'List agent profiles',
+  generate_image: 'Generate an image',
+}
+
+function resultImage(result) {
+  if (!result?.ok) return null
+  try {
+    const data = JSON.parse(result.preview)
+
+    const url = typeof data?.markdown === 'string' && data.markdown.match(/\]\(([^)]+)\)/)
+    return url ? url[1] : null
+  } catch (e) {
+    return null
+  }
 }
 
 export function ToolRun({ name, args, result }) {
@@ -68,6 +82,7 @@ export function ToolRun({ name, args, result }) {
   const status = !result ? 'running' : result.ok ? 'ok' : 'error'
   const label = status === 'running' ? 'Running' : status === 'ok' ? 'Done' : 'Failed'
   const summary = result ? result.preview : JSON.stringify(args)
+  const image = resultImage(result)
   return (
     <div className={`tool-run ${status}`}>
       <button className="tool-run-head" onClick={() => setOpen((o) => !o)}>
@@ -88,6 +103,7 @@ export function ToolRun({ name, args, result }) {
           <Icon name="chevronDown" size={14} />
         </span>
       </button>
+      {image && <img className="tool-run-image" src={image} alt={name} loading="lazy" />}
       {open && (
         <div className="tool-run-body">
           <div className="tool-run-section">

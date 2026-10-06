@@ -42,6 +42,12 @@ export const TOOL_GROUPS = [
     delegable: true,
   },
   {
+    key: 'images',
+    label: 'Images',
+    desc: 'Generate images from prompts. Principal agent only.',
+    delegable: false,
+  },
+  {
     key: 'tasks',
     label: 'Task board',
     desc: 'Create and move tasks on the project kanban. Principal agent only.',

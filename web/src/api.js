@@ -267,42 +267,56 @@ export const api = {
 
   // SSE chat: POST stream of `data: {json}` lines. Calls handlers as events arrive.
   async chat(projectId, { message, session_id, provider_id, agent_id, action }, handlers) {
-    const res = await fetch(`${BASE}/projects/${projectId}/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, session_id, provider_id, agent_id, action }),
-    })
-    if (!res.ok) {
-      let detail = res.statusText
-      try {
-        const data = await res.json()
-        detail = data.detail || JSON.stringify(data)
-      } catch (e) {
-        // keep statusText
-      }
-      throw new Error(detail)
-    }
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      let idx
-      while ((idx = buffer.indexOf('\n')) >= 0) {
-        const line = buffer.slice(0, idx)
-        buffer = buffer.slice(idx + 1)
-        const trimmed = line.trim()
-        if (!trimmed.startsWith('data:')) continue
-        let evt
-        try {
-          evt = JSON.parse(trimmed.slice(5).trim())
-        } catch (e) {
-          continue
-        }
-        handlers.onEvent(evt)
-      }
-    }
+    return streamPost(
+      `/projects/${projectId}/chat`,
+      { message, session_id, provider_id, agent_id, action },
+      handlers.onEvent
+    )
   },
+
+  // Side question while a task runs: same agent, compacted context, read-only.
+  async btw(projectId, body, handlers) {
+    return streamPost(`/projects/${projectId}/btw`, body, handlers.onEvent)
+  },
+}
+
+// POST an SSE endpoint and invoke onEvent for every `data: {json}` line.
+async function streamPost(path, body, onEvent) {
+  const res = await fetch(BASE + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    let detail = res.statusText
+    try {
+      const data = await res.json()
+      detail = data.detail || JSON.stringify(data)
+    } catch (e) {
+      // keep statusText
+    }
+    throw new Error(detail)
+  }
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    let idx
+    while ((idx = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, idx)
+      buffer = buffer.slice(idx + 1)
+      const trimmed = line.trim()
+      if (!trimmed.startsWith('data:')) continue
+      let evt
+      try {
+        evt = JSON.parse(trimmed.slice(5).trim())
+      } catch (e) {
+        continue
+      }
+      onEvent(evt)
+    }
+  }
 }

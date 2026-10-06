@@ -12,6 +12,7 @@ def test_agent_presets_expose_modes(client):
     assert presets["memory-keeper"]["mode"] == "write"
     assert presets["bulk-editor"]["mode"] == "write"
     assert "writes" in presets["bulk-editor"]["tools"]
+    assert presets["image"]["tools"] == "images,workspace"
 
 
 def test_agent_mode_roundtrip_and_validation(client):

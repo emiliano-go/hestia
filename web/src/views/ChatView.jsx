@@ -6,6 +6,26 @@ import { Icon } from '../icons.jsx'
 import { useAsync } from '../lib/hooks.js'
 import { mdToHtml } from '../lib/markdown.js'
 
+const BTW_RE = /^\/btw(?:\s+|$)/i
+
+// Last few messages plus whatever the main agent is streaming right now,
+// truncated so the side question gets a compact, cheap context.
+function btwContext(messages, streamingText) {
+  const rows = []
+  for (const m of messages.slice(-8)) {
+    if ((m.role === 'user' || m.role === 'assistant') && m.content) {
+      rows.push({ role: m.role, content: String(m.content).slice(0, 1200) })
+    }
+  }
+  if (streamingText) {
+    rows.push({
+      role: 'assistant',
+      content: `[working on it right now] ${streamingText.slice(0, 4000)}`,
+    })
+  }
+  return rows
+}
+
 export function ChatView({ projectId, sessionId, agentId, providerId, onSessionCreated, initialMessage, action }) {
   const sessionsReq = useAsync(() => api.listSessions(projectId), [projectId])
   const [messages, setMessages] = useState([])
@@ -16,6 +36,7 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
   const [answers, setAnswers] = useState({})
   const [streamingText, setStreamingText] = useState('')
   const [rememberedId, setRememberedId] = useState(null)
+  const [btw, setBtw] = useState(null) // {question, answer, error, pending}
   const sessionRef = useRef(sessionId)
   const busyRef = useRef(false)
   const initialSentRef = useRef(false)
@@ -41,6 +62,7 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
     setQuestions([])
     setAnswers({})
     setStreamingText('')
+    setBtw(null)
     if (sessionId) {
       api
         .listMessages(sessionId)
@@ -54,10 +76,57 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
     scrollRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages, liveEvents, pending, streamingText])
 
+  const askBtw = useCallback(
+    (question) => {
+      setBtw({ question, answer: '', error: null, pending: true })
+      api
+        .btw(
+          projectId,
+          {
+            question,
+            session_id: sessionRef.current || undefined,
+            context: btwContext(messages, streamingText),
+            ...(agentId
+              ? { agent_id: agentId }
+              : { provider_id: providerId || undefined }),
+          },
+          {
+            onEvent: (evt) => {
+              if (evt.event === 'token') {
+                setBtw((b) => b && { ...b, answer: b.answer + (evt.text || '') })
+              } else if (evt.event === 'error') {
+                setBtw((b) => b && { ...b, error: evt.message || 'btw error', pending: false })
+              } else if (evt.event === 'done') {
+                setBtw((b) => b && { ...b, pending: false })
+              }
+            },
+          }
+        )
+        .catch((e) =>
+          setBtw((b) => b && { ...b, error: e.message || String(e), pending: false })
+        )
+    },
+    [projectId, agentId, providerId, messages, streamingText]
+  )
+
+  useEffect(() => {
+    if (!btw) return
+    const onKey = (e) => {
+      if (e.key === 'Escape') setBtw(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [btw])
+
   const send = useCallback(
     (text) => {
+      const trimmed = text.trim()
+      if (BTW_RE.test(trimmed)) {
+        const question = trimmed.replace(BTW_RE, '').trim()
+        if (question) askBtw(question)
+        return
+      }
       if (busyRef.current) return
-      busyRef.current = true
       setError(null)
       setLiveEvents([])
       setPending('working')
@@ -130,7 +199,7 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
           }
         })
     },
-    [projectId, agentId, providerId, onSessionCreated, action] // eslint-disable-line react-hooks/exhaustive-deps
+    [projectId, agentId, providerId, onSessionCreated, action, askBtw] // eslint-disable-line react-hooks/exhaustive-deps
   )
 
   useEffect(() => {
@@ -280,8 +349,51 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
         </div>
       </div>
       <div className="composer-wrap">
+        {btw && (
+          <div className="btw-box">
+            <div className="btw-head">
+              <span className="btw-prompt">$</span>
+              <span className="btw-question" title={btw.question}>
+                {btw.question}
+              </span>
+              <button className="btw-close" onClick={() => setBtw(null)} title="Close (Esc)">
+                <Icon name="x" size={13} />
+              </button>
+            </div>
+            <div className="btw-body">
+              {btw.error ? (
+                <div className="btw-error">{btw.error}</div>
+              ) : btw.answer ? (
+                <div className="btw-answer">
+                  {btw.answer}
+                  {btw.pending && <span className="btw-cursor" />}
+                </div>
+              ) : (
+                <span className="btw-dim">
+                  {btw.pending ? (
+                    <>
+                      reading context
+                      <span className="working-dots">
+                        <i />
+                        <i />
+                        <i />
+                      </span>
+                    </>
+                  ) : (
+                    'no answer'
+                  )}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
         {error && <div className="error-banner">{error}</div>}
-        <Composer busy={!!pending} placeholder="Message..." onSend={send} />
+        <Composer
+          busy={!!pending}
+          placeholder="Message... (use /btw for a side question)"
+          hint="Enter to send · /btw asks a side question without stopping the task"
+          onSend={send}
+        />
       </div>
     </div>
   )

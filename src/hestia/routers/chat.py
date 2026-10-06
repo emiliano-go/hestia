@@ -12,12 +12,13 @@ from sqlmodel import Session, select
 
 from hestia import actions, jobs, memory_ingest, questions, settings, skills, totem_store, usage
 from hestia.agent import loop as agent_loop
-from hestia.agent.prompt import build_system_prompt
+from hestia.agent.prompt import build_system_prompt, compact_messages
 from hestia.providers.base import OpenAIClient, resolve_api_key
 from hestia.registry.db import session
 from hestia.registry.models import AgentConfig, Message, Project, Provider, Session as ChatSession
 from hestia.tools import build_registry, subagents
 from hestia.tools import goals as goal_tools
+from hestia.tools import images as image_tools
 from hestia.tools import questions as question_tools
 from hestia.tools import reminders as reminder_tools
 from hestia.tools import tasks as task_tools
@@ -38,7 +39,7 @@ code-reviewer, bulk-edit) so the app uses the agent assigned to that role;
 list profiles with agent_list. Send large mechanical edits to a cheap
 bulk-edit agent, then review the diff and commit/push/open the PR yourself:
 subagents can edit files but never run mutating git commands. Images, the
-task board, automations, and notifications are yours alone too."""
+browser, the task board, automations, and notifications are yours alone too."""
 
 _GOAL_NOTE = """\
 ## Goal mode
@@ -131,6 +132,8 @@ def chat(project_id: int, body: dict, s: Session = Depends(session)):
         session=f"chat-{chat_session.id}",
     )
     registry = build_registry(writes=bool(project.allow_git_writes), db=s)
+    for tool in image_tools.make_tools(provider):
+        registry.register(tool)
     for tool in subagents.make_tools(s):
         registry.register(tool)
     for tool in task_tools.make_tools(s):
@@ -307,3 +310,131 @@ def chat(project_id: int, body: dict, s: Session = Depends(session)):
             jobs.mark_idle(chat_session.id)
 
     return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+_BTW_PROMPT = """\
+You are the project agent for '{name}', answering a quick side question while
+the main task keeps running. You get a compacted excerpt of the conversation,
+not the full history; you can read the repository with your read-only tools
+when you need to. Reply briefly and directly (a few sentences or a short
+list). Do not take actions or change anything. If the excerpt is not enough,
+say what you would need.
+
+## Compacted context
+{context}
+"""
+
+_BTW_MAX_TURNS = 4
+_BTW_GROUPS = ["repo", "files", "github"]
+
+
+@router.post("/projects/{project_id}/btw")
+def btw(project_id: int, body: dict, s: Session = Depends(session)):
+    """Side question while the main task keeps running: SSE token stream.
+
+    The same agent answers with read-only tools, primed with the compacted
+    context the client sends (falling back to the session transcript).
+    """
+    project = s.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "project not found")
+    question = (body.get("question") or "").strip()
+    if not question:
+        raise HTTPException(400, "question is required")
+
+    chat_session = None
+    if body.get("session_id"):
+        chat_session = s.get(ChatSession, body["session_id"])
+        if chat_session and chat_session.project_id != project.id:
+            raise HTTPException(404, "session not found")
+    action_key = (chat_session.action if chat_session else "chat") or "chat"
+    if action_key not in actions.ACTIONS_BY_KEY:
+        action_key = "chat"
+    agent_config = None
+    if body.get("agent_id"):
+        agent_config = s.get(AgentConfig, body["agent_id"])
+        if not agent_config:
+            raise HTTPException(404, "agent profile not found")
+    else:
+        agent_config = actions.resolve_action(s, action_key)
+    if agent_config:
+        provider = s.get(Provider, agent_config.provider_id)
+    else:
+        provider_id = body.get("provider_id") or project.default_provider_id
+        provider = s.get(Provider, provider_id) if provider_id else None
+    provider = actions.effective_provider(agent_config, provider)
+    if not provider:
+        raise HTTPException(400, "no provider configured for this project")
+
+    context = ""
+    if isinstance(body.get("context"), list):
+        context = compact_messages(body["context"])
+    if not context and chat_session:
+        rows = s.exec(
+            select(Message)
+            .where(Message.session_id == chat_session.id)
+            .order_by(Message.id)
+        ).all()
+        context = compact_messages(rows)
+    system = _BTW_PROMPT.format(name=project.name, context=context or "(no context yet)")
+
+    ctx = ProjectContext.from_project(project)
+    ctx.session_id = chat_session.id if chat_session else None
+    client = OpenAIClient(
+        provider.base_url,
+        resolve_api_key(provider),
+        provider.model,
+        session=f"btw-{chat_session.id if chat_session else project.id}",
+    )
+    registry = build_registry().filtered(_BTW_GROUPS).readonly()
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": question},
+    ]
+
+    async def _stream_impl():
+        tokens: dict = {}
+        queue: asyncio.Queue = asyncio.Queue()
+
+        async def pump():
+            try:
+                async for event in agent_loop.run_turn(
+                    ctx, client, registry, messages, max_turns=_BTW_MAX_TURNS
+                ):
+                    await queue.put(event)
+            finally:
+                await queue.put(None)
+
+        task = asyncio.create_task(pump())
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_SECONDS)
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+                    continue
+                if event is None:
+                    break
+                etype = event["type"]
+                if etype == "usage":
+                    usage.merge(tokens, event.get("usage"))
+                elif etype == "token":
+                    yield _sse({"event": "token", "text": event.get("text", "")})
+                elif etype == "error":
+                    yield _sse({"event": "error", "message": event.get("message", "")})
+        finally:
+            if not task.done():
+                task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        usage.record(
+            s,
+            project.id,
+            session_id=chat_session.id if chat_session else None,
+            action="btw",
+            model=provider.model,
+            usage=tokens,
+        )
+        yield _sse({"event": "done"})
+
+    return StreamingResponse(_stream_impl(), media_type="text/event-stream")

@@ -80,6 +80,18 @@ PRESETS = {
         "mode": "read",
         "max_turns": 8,
     },
+    "image": {
+        "name": "image",
+        "system_prompt": (
+            "You are an image generation agent. Turn the owner's request into "
+            "vivid, detailed image prompts and call generate_image for each "
+            "image. Keep the reply short and always include the returned "
+            "markdown image links."
+        ),
+        "tools": "images,workspace",
+        "mode": "write",
+        "max_turns": 4,
+    },
 }
 
 

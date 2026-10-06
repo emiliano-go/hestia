@@ -29,3 +29,22 @@ def test_gallery(client):
     assert entries == [
         {"project_id": project["id"], "project": "demo", "path": "spec.md", "bytes": 5}
     ]
+
+
+def test_workspace_raw_serves_images(client):
+    project = _mk_project(client)
+    ws = config.workspace_dir(project["name"])
+    (ws / "images").mkdir(parents=True)
+    (ws / "images" / "fox.png").write_bytes(b"\x89PNG\r\n\x1a\nx")
+
+    resp = client.get(
+        f"/api/projects/{project['id']}/workspace/raw", params={"path": "images/fox.png"}
+    )
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/png"
+    assert resp.content.startswith(b"\x89PNG")
+
+    resp = client.get(
+        f"/api/projects/{project['id']}/workspace/raw", params={"path": "../x"}
+    )
+    assert resp.status_code == 404

@@ -61,6 +61,12 @@ ACTIONS: list[dict] = [
         "tools": "repo,files,github,memory,workspace,tasks,agents,background,automations",
     },
     {
+        "key": "image",
+        "label": "Generate images",
+        "description": "Turn text prompts into images saved in the project workspace.",
+        "tools": "images,workspace",
+    },
+    {
         "key": "docs",
         "label": "Generate documentation",
         "description": (

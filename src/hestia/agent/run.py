@@ -48,6 +48,11 @@ async def run_once(
         wanted = [g for g in (groups or "").split(",") if g]
         if wanted:
             registry = registry.filtered(wanted)
+        if "images" in wanted:
+            from hestia.tools import images as image_tools
+
+            for tool in image_tools.make_tools(provider):
+                registry.register(tool)
         if tasks_db is not None:
             from hestia.tools import jobs as job_tools
             from hestia.tools import preferences as pref_tools

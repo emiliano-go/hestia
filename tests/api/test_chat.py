@@ -433,3 +433,43 @@ def test_user_note_in_chat_prompt(client, monkeypatch):
     assert "About the owner" in seen["system"]
     assert "set_owner_name" in seen["system"]
     assert "remember_preference" in seen["system"]
+
+
+def test_btw_streams_answer_with_compacted_context(client, monkeypatch):
+    from hestia.agent import loop as agent_loop
+
+    project = _mk_project(client)
+    provider = client.post(
+        "/api/providers",
+        json={"name": "fake-btw", "base_url": "http://x", "api_key_env": "NOPE", "model": "m"},
+    ).json()
+
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=10):
+        assert messages[0]["content"].startswith("You are the project agent for 'demo'")
+        assert "user: what changed?" in messages[0]["content"]
+        assert messages[-1] == {"role": "user", "content": "why blue?"}
+        # read-only: no writes, no delegation, no image generation
+        assert "workspace_write" not in registry._tools
+        assert "run_subagent" not in registry._tools
+        assert "generate_image" not in registry._tools
+        yield {"type": "token", "text": "Rayleigh "}
+        yield {"type": "token", "text": "scattering."}
+        yield {"type": "message", "content": "Rayleigh scattering.", "tool_calls": []}
+        yield {"type": "usage", "usage": {"prompt_tokens": 5, "completion_tokens": 3}}
+
+    monkeypatch.setattr(agent_loop, "run_turn", fake_run_turn)
+    resp = client.post(
+        f"/api/projects/{project['id']}/btw",
+        json={
+            "question": "why blue?",
+            "provider_id": provider["id"],
+            "context": [
+                {"role": "user", "content": "what changed?"},
+                {"role": "assistant", "content": "a lot"},
+            ],
+        },
+    )
+    assert resp.status_code == 200
+    assert '"event": "token"' in resp.text
+    assert "Rayleigh " in resp.text
+    assert '"event": "done"' in resp.text

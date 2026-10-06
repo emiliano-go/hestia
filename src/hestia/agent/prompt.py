@@ -46,6 +46,25 @@ and pull request you created. When in doubt, explain the change instead.
 """
 
 
+def compact_messages(
+    rows, limit: int = 8, per_message: int = 1200, total: int = 8000
+) -> str:
+    """Last few user/assistant messages, truncated, as plain text.
+
+    Used for side questions (/btw) and for the image-reader agent, which get a
+    compact excerpt instead of the full transcript.
+    """
+    parts = []
+    for row in rows[-limit:]:
+        if isinstance(row, dict):
+            role, content = row.get("role"), row.get("content")
+        else:
+            role, content = row.role, row.content
+        if role in ("user", "assistant") and content:
+            parts.append(f"{role}: {str(content)[:per_message]}")
+    return "\n\n".join(parts)[-total:]
+
+
 def _repo_map(local_path: Path, max_entries: int = 40) -> str:
     entries = []
     for p in sorted(local_path.iterdir(), key=lambda p: (p.is_file(), p.name)):
