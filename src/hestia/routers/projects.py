@@ -278,6 +278,12 @@ def pull_project(project_id: int, s: Session = Depends(session)):
     agents = Path(project.local_path) / "AGENTS.md"
     project.agents_md = agents.read_text()[:20_000] if agents.exists() else None
     s.add(project)
+    # the pull is done: clear any "Pull pending" inbox item
+    s.exec(
+        delete(InboxItem).where(
+            InboxItem.project_id == project_id, InboxItem.kind == "pull"
+        )
+    )
     s.commit()
     return {"output": result.stdout.strip()}
 

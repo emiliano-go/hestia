@@ -119,6 +119,19 @@ export function InboxCard({ onOpenProject, onStartChat }) {
     )
   }
 
+  const pull = (item) => {
+    setBusy(item.id)
+    setActionError(null)
+    api
+      .pullProject(item.project_id)
+      .then(() => {
+        if (!item.read) api.markInboxRead(item.id).catch(() => {})
+        reload()
+      })
+      .catch((e) => setActionError(e.message || String(e)))
+      .finally(() => setBusy(null))
+  }
+
   return (
     <section className="inbox-card">
       <div className="inbox-head">
@@ -146,7 +159,18 @@ export function InboxCard({ onOpenProject, onStartChat }) {
               onClick={() => open(item)}
             >
               <span className="home-row-icon">
-                <Icon name={item.kind === 'run' ? 'play' : item.kind === 'issue' ? 'chat' : 'git'} size={15} />
+                <Icon
+                  name={
+                    item.kind === 'run'
+                      ? 'play'
+                      : item.kind === 'issue'
+                        ? 'chat'
+                        : item.kind === 'pull'
+                          ? 'refresh'
+                          : 'git'
+                  }
+                  size={15}
+                />
               </span>
               <span className="home-row-main">
                 <span className="home-row-title">{item.title}</span>
@@ -157,7 +181,19 @@ export function InboxCard({ onOpenProject, onStartChat }) {
               <span className="home-row-time">{relDate(item.created_at)}</span>
             </button>
             <div className="inbox-actions">
-              {item.kind === 'run' ? (
+              {item.kind === 'pull' ? (
+                <button className="btn primary" disabled={busy === item.id} onClick={() => pull(item)}>
+                  {busy === item.id ? (
+                    <>
+                      <Spinner size={13} /> Pulling
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="refresh" size={13} /> Pull
+                    </>
+                  )}
+                </button>
+              ) : item.kind === 'run' ? (
                 <button className="btn" onClick={() => diagnose(item)}>
                   <Icon name="sparkles" size={13} /> Diagnose
                 </button>

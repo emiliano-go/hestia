@@ -88,12 +88,13 @@ def _last_commit(cwd: Path) -> dict | None:
 
 
 def _ahead_behind(cwd: Path) -> tuple[int, int]:
+    # `@{u}...HEAD` with --left-right prints "<behind>\t<ahead>".
     out = _git(cwd, ["rev-list", "--left-right", "--count", "@{u}...HEAD"])
     if not out:
         return 0, 0
-    left, _, right = out.partition("\t")
+    behind, _, ahead = out.partition("\t")
     try:
-        return int(left), int(right)
+        return int(ahead), int(behind)
     except ValueError:
         return 0, 0
 
@@ -139,6 +140,23 @@ def git_summary(path: Path) -> dict:
         "ahead": ahead,
         "behind": behind,
         "dirty": bool(_git(path, ["status", "--porcelain"])),
+    }
+
+
+def pending_pull(path: Path, do_fetch: bool = False) -> dict | None:
+    """Commits available to pull, or None when up to date / no upstream.
+
+    ``do_fetch`` runs ``git fetch`` first (network); otherwise it uses the
+    last-known remote refs, which is cheap enough to call per agent turn.
+    """
+    if do_fetch:
+        _git(path, ["fetch", "--quiet"], timeout=60)
+    _, behind = _ahead_behind(path)
+    if behind <= 0:
+        return None
+    return {
+        "branch": _git(path, ["rev-parse", "--abbrev-ref", "HEAD"]) or "HEAD",
+        "behind": behind,
     }
 
 

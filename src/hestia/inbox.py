@@ -6,6 +6,8 @@ already read) so enabling the poller does not flood the inbox.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from sqlmodel import Session, select
 
 from hestia import events, notify, overview
@@ -157,7 +159,51 @@ def poll_all(db: Session) -> int:
         total += created
         if new_unread:
             _notify_new_items(project, new_unread)
+    total += check_pulls(db)
     return total
+
+
+def check_pulls(db: Session) -> int:
+    """Surface a "Pull pending" inbox item per project behind its remote.
+
+    Fetches first, so it reflects the real remote state. The item is removed
+    once the clone catches up (or after a pull).
+    """
+    count = 0
+    for project in db.exec(select(Project)).all():
+        try:
+            pending = overview.pending_pull(Path(project.local_path), do_fetch=True)
+        except Exception:
+            continue  # missing path, no upstream, no network
+        item = db.exec(
+            select(InboxItem).where(
+                InboxItem.project_id == project.id, InboxItem.kind == "pull"
+            )
+        ).first()
+        if pending:
+            subtitle = f"{pending['behind']} commit(s) behind origin/{pending['branch']}"
+            if item is None:
+                item = InboxItem(
+                    project_id=project.id,
+                    kind="pull",
+                    external_id="pull",
+                    title="Pull pending",
+                    subtitle=subtitle,
+                    read=False,
+                )
+                db.add(item)
+                db.commit()
+                db.refresh(item)
+                count += 1
+                notify.send(f"Pull pending · {project.name}", subtitle, tags=["arrow_down"])
+            elif item.subtitle != subtitle:
+                item.subtitle = subtitle
+                db.add(item)
+                db.commit()
+        elif item is not None:
+            db.delete(item)
+            db.commit()
+    return count
 
 
 def list_items(db: Session, unread_only: bool = False) -> dict:

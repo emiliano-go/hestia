@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from hestia import overview
 from hestia.tools.registry import ProjectContext
 
 POLICY = """\
@@ -78,6 +79,15 @@ def build_system_prompt(
         _repo_map(ctx.local_path),
         "```",
     ]
+    pending = overview.pending_pull(ctx.local_path)
+    if pending:
+        sections += [
+            "",
+            "## Pull pending",
+            f"The local clone is {pending['behind']} commit(s) behind "
+            f"origin/{pending['branch']}. The checkout is stale: tell the user a "
+            "pull is pending and recommend pulling before relying on the code.",
+        ]
     if agents_md:
         sections += ["", "## Project instructions (AGENTS.md)", agents_md]
     if memory_context:

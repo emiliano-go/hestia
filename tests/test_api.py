@@ -2834,3 +2834,50 @@ def test_provider_models_endpoint(client, monkeypatch):
     )
     assert resp.status_code == 200
     assert resp.json()["models"] == ["deepseek-v4.1-flash", "gpt-5.4-mini"]
+
+
+def test_pull_pending_and_inbox(client):
+    import subprocess
+    from pathlib import Path
+
+    from sqlmodel import Session
+
+    from hestia import inbox, overview
+    from hestia.registry.db import engine
+
+    project = _mk_project(client, name="pulltest")
+    clone = Path(project["local_path"])
+    src = Path(project["repo_url"])
+
+    # up to date: nothing pending, ahead/behind both zero
+    assert overview.pending_pull(clone, do_fetch=True) is None
+
+    # a new upstream commit makes the clone behind by one
+    (src / "new.txt").write_text("x")
+    subprocess.run(["git", "add", "."], cwd=src, check=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "more"],
+        cwd=src,
+        check=True,
+    )
+
+    pending = overview.pending_pull(clone, do_fetch=True)
+    assert pending and pending["behind"] == 1
+
+    # ahead/behind must not be swapped
+    summary = overview.git_summary(clone)
+    assert summary["behind"] == 1
+    assert summary["ahead"] == 0
+
+    # polling surfaces a "Pull pending" inbox item
+    with Session(engine()) as db:
+        inbox.check_pulls(db)
+    items = client.get("/api/inbox").json()["items"]
+    pulls = [i for i in items if i["kind"] == "pull"]
+    assert pulls and pulls[0]["title"] == "Pull pending"
+    assert "behind origin/" in pulls[0]["subtitle"]
+
+    # pulling clears the item
+    assert client.post(f"/api/projects/{project['id']}/pull").status_code == 200
+    items = client.get("/api/inbox").json()["items"]
+    assert not [i for i in items if i["kind"] == "pull"]
