@@ -1,11 +1,14 @@
 """Project CRUD + clone + repo status."""
 
+import json
+import re
 import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy import delete
 from sqlmodel import Session, select
 
@@ -56,6 +59,111 @@ def _clone(repo_url: str, dest: Path) -> None:
 def _git_out(args: list[str], cwd: Path) -> str:
     result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=30)
     return result.stdout.strip() if result.returncode == 0 else ""
+
+
+_PROGRESS_RE = re.compile(r"(Receiving objects|Resolving deltas):\s+(\d+)%")
+
+
+def _sse(event: dict) -> str:
+    return f"data: {json.dumps(event, default=str)}\n\n"
+
+
+def _clone_output(repo_url: str, dest: Path):
+    """Run `git clone --progress`, yielding each output line as it arrives."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.Popen(
+        ["git", *_auth_args(repo_url), "clone", "--progress", "--", repo_url, str(dest)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    lines: list[str] = []
+    buf = ""
+    while True:
+        ch = proc.stdout.read(1)
+        if not ch:
+            break
+        if ch in "\r\n":
+            line = buf.strip()
+            buf = ""
+            if line:
+                lines.append(line)
+                yield line
+        else:
+            buf += ch
+    proc.wait()
+    yield {"exit": proc.returncode, "lines": lines}
+
+
+def _create_project_events(name: str, repo_url: str, s: Session):
+    """Yield SSE events for each real step of creating a project."""
+    dest = _clone_dir(name)
+    if dest.exists():
+        yield _sse({"event": "error", "detail": f"clone directory already exists: {dest}"})
+        return
+
+    yield _sse(
+        {"event": "step", "step": "clone", "label": "Cloning repository", "status": "running"}
+    )
+    returncode = None
+    lines: list[str] = []
+    for item in _clone_output(repo_url, dest):
+        if isinstance(item, dict):
+            returncode, lines = item["exit"], item["lines"]
+            continue
+        m = _PROGRESS_RE.search(item)
+        if m:
+            yield _sse(
+                {
+                    "event": "progress",
+                    "step": "clone",
+                    "percent": int(m.group(2)),
+                    "detail": item,
+                }
+            )
+    if returncode != 0:
+        detail = "\n".join(lines[-8:]) or f"git clone exited {returncode}"
+        yield _sse({"event": "error", "detail": f"git clone failed: {detail[:500]}"})
+        return
+    yield _sse({"event": "step", "step": "clone", "status": "done"})
+
+    yield _sse(
+        {"event": "step", "step": "agents", "label": "Reading AGENTS.md", "status": "running"}
+    )
+    agents = dest / "AGENTS.md"
+    agents_md = agents.read_text()[:20_000] if agents.exists() else None
+    yield _sse({"event": "step", "step": "agents", "status": "done"})
+
+    yield _sse(
+        {
+            "event": "step",
+            "step": "memory",
+            "label": "Initializing project memory",
+            "status": "running",
+        }
+    )
+    project = Project(
+        name=name, repo_url=repo_url, local_path=str(dest), agents_md=agents_md
+    )
+    s.add(project)
+    s.commit()
+    s.refresh(project)
+    totem_store.recent(dest)  # opens + inits the Totem DB on first use
+    yield _sse({"event": "step", "step": "memory", "status": "done"})
+    yield _sse({"event": "done", "project": project.model_dump(mode="json")})
+
+
+@router.post("/stream")
+def create_project_stream(body: dict, s: Session = Depends(session)):
+    """Create a project while streaming clone/init progress as SSE."""
+    name = (body.get("name") or "").strip()
+    repo_url = (body.get("repo_url") or "").strip()
+    if not name or not repo_url:
+        raise HTTPException(400, "name and repo_url are required")
+    return StreamingResponse(
+        _create_project_events(name, repo_url, s), media_type="text/event-stream"
+    )
 
 
 @router.get("")

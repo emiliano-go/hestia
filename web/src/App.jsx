@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from './api.js'
 import { loginWithPasskey, passkeysSupported, registerPasskey } from './auth.js'
 
@@ -111,6 +112,8 @@ function useAsync(fn, deps) {
 
 const ICON_PATHS = {
   home: 'M3 10.5 12 3l9 7.5M5 9.7V21h5.5v-6h3v6H19V9.7',
+  flame:
+    'M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z',
   plus: 'M12 5v14M5 12h14',
   chat: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
   files: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6',
@@ -138,6 +141,7 @@ const ICON_PATHS = {
   tasks: 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01',
   flag: 'M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7',
   chevronDown: 'M6 9l6 6 6-6',
+  chevronRight: 'M9 6l6 6-6 6',
   play: 'M6 4l14 8-14 8z',
   alert: 'M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z',
 }
@@ -209,6 +213,21 @@ const THEME_MODES = [
   ['light', 'Light'],
   ['dark', 'Dark'],
 ]
+
+// Optional dark palettes; "Home" is the built-in warm default (no overrides).
+const THEME_PRESETS = {
+  'titan-black': {
+    '--content-bg': '#101018',
+    '--sidebar-bg': '#0c0c14',
+    '--surface': '#1b1b28',
+    '--border': '#2a2a3c',
+    '--fg': '#d4d4e0',
+    '--muted': '#9a9aac',
+    '--accent': '#6ab0cf',
+    '--ok': '#70b090',
+    '--err': '#d06060',
+  },
+}
 
 function hexToRgb(hex) {
   const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim())
@@ -609,8 +628,22 @@ function messageItems(rows) {
   return items
 }
 
+function clickable(onClick) {
+  return {
+    role: 'button',
+    tabIndex: 0,
+    onClick,
+    onKeyDown: (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        onClick(e)
+      }
+    },
+  }
+}
+
 function Modal({ title, onClose, children }) {
-  return (
+  return createPortal(
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <button className="icon-btn modal-close" onClick={onClose} title="Close">
@@ -619,7 +652,8 @@ function Modal({ title, onClose, children }) {
         <h2>{title}</h2>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 
@@ -679,16 +713,44 @@ function AddProjectModal({ onClose, onCreated }) {
   const [repoUrl, setRepoUrl] = useState('')
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState(null)
+  const [steps, setSteps] = useState([])
+  const [percent, setPercent] = useState(null)
+  const [detail, setDetail] = useState('')
 
   const submit = (e) => {
     e.preventDefault()
     setCreating(true)
     setError(null)
+    setSteps([])
+    setPercent(null)
+    setDetail('')
     api
-      .createProject({ name, repo_url: repoUrl })
-      .then((p) => {
-        onCreated(p)
-      })
+      .createProjectStream(
+        { name, repo_url: repoUrl },
+        {
+          onEvent: (evt) => {
+            if (evt.event === 'step') {
+              setSteps((prev) => {
+                const next = prev.filter((s) => s.step !== evt.step)
+                const existing = prev.find((s) => s.step === evt.step)
+                next.push({
+                  step: evt.step,
+                  label: evt.label || existing?.label || evt.step,
+                  status: evt.status,
+                })
+                return next
+              })
+            } else if (evt.event === 'progress') {
+              setPercent(evt.percent)
+              if (evt.detail) setDetail(evt.detail)
+            } else if (evt.event === 'error') {
+              setError(evt.detail || 'Clone failed')
+            } else if (evt.event === 'done') {
+              onCreated(evt.project)
+            }
+          },
+        }
+      )
       .catch((err) => setError(err.message || String(err)))
       .finally(() => setCreating(false))
   }
@@ -711,8 +773,26 @@ function AddProjectModal({ onClose, onCreated }) {
           disabled={creating}
         />
         <button className="btn primary" disabled={creating}>
-          {creating ? 'Cloning repository, this may take a while...' : 'Add project'}
+          {creating ? 'Adding project…' : 'Add project'}
         </button>
+
+        {creating && (
+          <div className="clone-steps">
+            {steps.map((s) => (
+              <div key={s.step} className={`clone-step ${s.status}`}>
+                <span className="clone-step-icon">
+                  {s.status === 'done' ? '✓' : <Spinner size={12} />}
+                </span>
+                <span className="clone-step-label">{s.label}</span>
+                {s.step === 'clone' && s.status === 'running' && percent != null && (
+                  <span className="clone-step-pct">{percent}%</span>
+                )}
+              </div>
+            ))}
+            {detail && <div className="clone-detail">{detail}</div>}
+          </div>
+        )}
+
         {error && <div className="error-text">{error}</div>}
       </form>
     </Modal>
@@ -2017,6 +2097,33 @@ function ThemePanel({ theme, setTheme }) {
       </div>
 
       <div className="field">
+        <span className="field-label">Presets</span>
+        <div className="row" style={{ marginBottom: 0 }}>
+          <button
+            className="btn"
+            onClick={() => {
+              setEditMode('dark')
+              setTheme({ ...theme, themes: { ...theme.themes, dark: {} } })
+            }}
+          >
+            Home (default)
+          </button>
+          <button
+            className="btn"
+            onClick={() => {
+              setEditMode('dark')
+              setTheme({
+                ...theme,
+                themes: { ...theme.themes, dark: { ...THEME_PRESETS['titan-black'] } },
+              })
+            }}
+          >
+            Titan Black
+          </button>
+        </div>
+      </div>
+
+      <div className="field">
         <span className="field-label">Customize palette</span>
         <div className="segmented">
           {['light', 'dark'].map((mode) => (
@@ -2050,6 +2157,170 @@ function ThemePanel({ theme, setTheme }) {
           Reset all
         </button>
       </div>
+    </div>
+  )
+}
+
+// ---------- skills page ----------
+
+function SkillsView() {
+  const { data, loading, error, reload } = useAsync(api.listSkills, [])
+  const [source, setSource] = useState('')
+  const [subpath, setSubpath] = useState('')
+  const [installing, setInstalling] = useState(false)
+  const [formError, setFormError] = useState(null)
+  const [notice, setNotice] = useState(null)
+  const [viewing, setViewing] = useState(null)
+
+  const skills = data || []
+
+  const install = (e) => {
+    e.preventDefault()
+    if (!source.trim() || installing) return
+    setInstalling(true)
+    setFormError(null)
+    setNotice(null)
+    api
+      .installSkill({ source: source.trim(), subpath: subpath.trim() || undefined })
+      .then((installed) => {
+        setSource('')
+        setSubpath('')
+        setNotice(`Installed ${installed.map((s) => s.name).join(', ')}`)
+        reload()
+      })
+      .catch((err) => setFormError(err.message || String(err)))
+      .finally(() => setInstalling(false))
+  }
+
+  const remove = (slug) => {
+    api.deleteSkill(slug).then(reload).catch((err) => setFormError(err.message || String(err)))
+  }
+
+  const open = (slug) => {
+    api
+      .getSkill(slug)
+      .then(setViewing)
+      .catch((err) => setFormError(err.message || String(err)))
+  }
+
+  return (
+    <div className="center-col wide">
+      <div className="page-head">
+        <h2>Skills</h2>
+        <span className="muted">installable instruction packages for your agents</span>
+      </div>
+      {error && <p className="error-text">{error}</p>}
+      {formError && <p className="error-text">{formError}</p>}
+      {notice && <p className="muted">{notice}</p>}
+
+      {loading ? (
+        <div className="home-list">
+          {[0, 1].map((i) => (
+            <Skeleton key={i} className="row-skeleton" />
+          ))}
+        </div>
+      ) : skills.length === 0 ? (
+        <SectionEmpty
+          icon="sparkles"
+          title="No skills installed"
+          hint="Install a SKILL.md package from GitHub, npm, or an archive URL below."
+        />
+      ) : (
+        <div className="home-list">
+          {skills.map((s) => (
+            <div key={s.slug} className="skill-row">
+              <span className="home-row-main">
+                <span className="home-row-title">{s.name}</span>
+                <span className="home-row-sub">{s.description}</span>
+                <span className="home-row-sub skill-source">{s.source}</span>
+              </span>
+              <button className="btn" onClick={() => open(s.slug)}>
+                View
+              </button>
+              <button className="btn danger" title="Remove" onClick={() => remove(s.slug)}>
+                <Icon name="x" size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <form className="docs-card" onSubmit={install}>
+        <div className="docs-head">
+          <Icon name="plus" size={15} />
+          <span>Install a skill</span>
+        </div>
+        <div className="field-row">
+          <label className="field" style={{ flex: 1 }}>
+            <span className="field-label">Source</span>
+            <input
+              placeholder="owner/repo, npm:package, or https://…tar.gz"
+              value={source}
+              onChange={(e) => setSource(e.target.value)}
+              disabled={installing}
+            />
+          </label>
+          <label className="field">
+            <span className="field-label">Subpath (optional)</span>
+            <input
+              placeholder="skills/pdf"
+              value={subpath}
+              onChange={(e) => setSubpath(e.target.value)}
+              disabled={installing}
+            />
+          </label>
+        </div>
+        <div className="row" style={{ marginBottom: 0 }}>
+          <button className="btn primary" disabled={installing || !source.trim()}>
+            {installing ? (
+              <>
+                <Spinner size={13} /> Installing…
+              </>
+            ) : (
+              'Install'
+            )}
+          </button>
+          <span className="muted skill-hint">
+            GitHub <code>owner/repo</code> · npm <code>npm:pkg</code> · archive URL
+          </span>
+        </div>
+      </form>
+
+      {viewing && (
+        <Modal title={viewing.name} onClose={() => setViewing(null)}>
+          <pre className="skill-body">{viewing.body}</pre>
+        </Modal>
+      )}
+    </div>
+  )
+}
+
+// ---------- settings page ----------
+
+const SETTINGS_TABS = [
+  ['providers', 'Providers'],
+  ['assistant', 'Assistant'],
+  ['github', 'GitHub'],
+  ['theme', 'Theme'],
+]
+
+function SettingsView({ tab, setTab, theme, setTheme }) {
+  return (
+    <div className="center-col">
+      <div className="page-head">
+        <h2>Settings</h2>
+        <div className="segmented">
+          {SETTINGS_TABS.map(([id, label]) => (
+            <button key={id} className={tab === id ? 'on' : ''} onClick={() => setTab(id)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {tab === 'providers' && <ProvidersPanel />}
+      {tab === 'assistant' && <AssistantPanel />}
+      {tab === 'github' && <GithubPanel />}
+      {tab === 'theme' && <ThemePanel theme={theme} setTheme={setTheme} />}
     </div>
   )
 }
@@ -2195,9 +2466,10 @@ function CaptureView({ projectId }) {
 
 // ---------- memory ----------
 
-function MemoryView({ projectId, providerId }) {
+function MemoryView({ projectId, providerId, onStart }) {
   const [q, setQ] = useState('')
   const [items, setItems] = useState(null)
+  const [selected, setSelected] = useState(null)
   const [error, setError] = useState(null)
   const [searching, setSearching] = useState(false)
   const [instruction, setInstruction] = useState('')
@@ -2282,7 +2554,7 @@ function MemoryView({ projectId, providerId }) {
       )}
       <div className="cards">
         {(items || []).map((m) => (
-          <div key={m.id} className="card">
+          <div key={m.id} className="card clickable" {...clickable(() => setSelected(m))}>
             <h3>
               <span className="badge">{m.type}</span>
               {m.title}
@@ -2299,7 +2571,47 @@ function MemoryView({ projectId, providerId }) {
           </div>
         ))}
       </div>
+
+      {selected && (
+        <MemoryDetailModal
+          item={selected}
+          onClose={() => setSelected(null)}
+          onStart={onStart}
+        />
+      )}
     </div>
+  )
+}
+
+function MemoryDetailModal({ item, onClose, onStart }) {
+  const tags = item.tags || []
+  return (
+    <Modal title={item.title} onClose={onClose}>
+      <div className="detail-rows">
+        <DetailRow label="Type" value={item.type} />
+        <DetailRow label="Statement" value={item.statement} />
+        {item.details && <DetailRow label="Details" value={item.details} />}
+        {tags.length > 0 && <DetailRow label="Tags" value={tags.join(', ')} />}
+        {item.confidence != null && <DetailRow label="Confidence" value={item.confidence} />}
+        {item.importance != null && <DetailRow label="Importance" value={item.importance} />}
+        <DetailRow label="Updated" value={relDate(item.updatedAt || item.updated_at)} />
+      </div>
+      {onStart && (
+        <div className="row" style={{ marginTop: 16, marginBottom: 0 }}>
+          <button
+            className="btn primary"
+            onClick={() => {
+              onClose()
+              onStart(
+                `Let's revisit this project memory: "${item.title}". ${item.statement}`
+              )
+            }}
+          >
+            <Icon name="chat" size={13} /> Ask about this
+          </button>
+        </div>
+      )}
+    </Modal>
   )
 }
 
@@ -2637,9 +2949,9 @@ function LoginView({ status, onAuthed }) {
     <div className="login">
       <div className="login-card">
         <div className="login-logo">
-          <Icon name="home" size={22} />
+          <Icon name="flame" size={22} />
         </div>
-        <h1>Home</h1>
+        <h1>Hestia</h1>
         <p className="note">Sign in with a passkey to continue.</p>
         {!supported && (
           <p className="error-text">This browser does not support passkeys (WebAuthn).</p>
@@ -3031,13 +3343,13 @@ function HelpView() {
 
       <Doc id="overview" title="Overview">
         <p>
-          <strong>Home</strong> is a self-hosted cockpit for software projects. Each project is a
+          <strong>Hestia</strong> is a self-hosted cockpit for software projects. Each project is a
           persistent, agent-aware workspace linked to a Git repository. An agent reads the repo,
           answers questions, and writes what it learns into <strong>Totem</strong>, a durable
           project memory that every future conversation starts from.
         </p>
         <p>
-          The <strong>Home</strong> page (the one you land on) shows your most recently opened
+          The <strong>Dashboard</strong> (the page you land on) shows your most recently opened
           projects, the latest conversations across all projects, and the newest files agents have
           generated.
         </p>
@@ -3050,7 +3362,7 @@ function HelpView() {
             data volume and reads its <code>AGENTS.md</code>.
           </li>
           <li>
-            <strong>Configure a provider.</strong> Open <em>Settings</em> (gear icon) and pick a
+            <strong>Configure a provider.</strong> Open <em>Settings</em> from the sidebar and pick a
             preset or enter a base URL, model, and the environment variable holding your API key.
             Use <em>Test</em> to verify it works.
           </li>
@@ -3564,7 +3876,7 @@ function HelpView() {
 
       <Doc id="settings" title="Settings &amp; theme">
         <p>
-          Open <em>Settings</em> from the gear icon in the top bar.
+          Open <em>Settings</em> from the sidebar.
         </p>
         <ul>
           <li>
@@ -3615,16 +3927,21 @@ const WELCOME_SUGGESTIONS = [
   'Draft a plan for a new feature',
 ]
 
-function Stat({ icon, label, value, hint, tone }) {
+function Stat({ icon, label, value, tone, onClick }) {
+  const Tag = onClick ? 'button' : 'div'
   return (
-    <div className={`stat ${tone || ''}`}>
-      <div className="stat-top">
+    <Tag
+      type={onClick ? 'button' : undefined}
+      className={`stat ${tone || ''} ${onClick ? 'clickable' : ''}`}
+      onClick={onClick}
+    >
+      <span className="stat-top">
         <Icon name={icon} size={14} className="stat-icon" />
         <span className="stat-label">{label}</span>
-      </div>
-      <div className="stat-value">{value}</div>
-      {hint && <div className="stat-hint">{hint}</div>}
-    </div>
+      </span>
+      <span className="stat-value">{value}</span>
+      {onClick && <Icon name="chevronRight" size={14} className="stat-arrow" />}
+    </Tag>
   )
 }
 
@@ -3701,7 +4018,168 @@ function DocsSection({ projectId }) {
   )
 }
 
-function ProjectOverviewView({ project, since, onStart, onNavigate }) {
+// ---------- overview card details ----------
+
+function DetailRow({ label, value }) {
+  if (value === null || value === undefined || value === '') return null
+  return (
+    <div className="detail-row">
+      <span className="detail-label">{label}</span>
+      <span className="detail-value">{value}</span>
+    </div>
+  )
+}
+
+function GitDetail({ id, git }) {
+  if (!git) return <p className="muted">No repository data.</p>
+  if (id === 'commit') {
+    const c = git.last_commit
+    if (!c) return <p className="muted">No commits yet.</p>
+    return (
+      <>
+        <DetailRow label="Subject" value={c.subject} />
+        <DetailRow label="SHA" value={c.sha} />
+        <DetailRow label="Author" value={c.author} />
+        <DetailRow label="Date" value={relDate(c.date)} />
+      </>
+    )
+  }
+  return (
+    <>
+      {id === 'branch' && <DetailRow label="Branch" value={git.branch} />}
+      {id === 'branch' && <DetailRow label="HEAD" value={git.head} />}
+      <DetailRow label="Ahead" value={`${git.ahead} commit(s)`} />
+      <DetailRow label="Behind" value={`${git.behind} commit(s)`} />
+      <DetailRow label="Working tree" value={git.dirty ? 'Uncommitted changes' : 'Clean'} />
+    </>
+  )
+}
+
+function UsageDetail({ usage }) {
+  if (!usage) return <p className="muted">No usage recorded yet.</p>
+  return (
+    <>
+      <DetailRow label="Total tokens" value={fmtTokens(usage.total.tokens)} />
+      <DetailRow label="Agent runs" value={usage.total.runs} />
+      <DetailRow label="This month" value={fmtTokens(usage.month.tokens)} />
+      {usage.budget?.budget ? (
+        <DetailRow
+          label="Monthly budget"
+          value={`${fmtTokens(usage.budget.budget)} (${usage.budget.percent}%)`}
+        />
+      ) : null}
+    </>
+  )
+}
+
+function DetailItem({ title, sub, onChat, url, chatLabel = 'Chat' }) {
+  return (
+    <div className="detail-item">
+      <div className="detail-item-main">
+        <span className="detail-item-title">{title}</span>
+        {sub && <span className="detail-item-sub">{sub}</span>}
+      </div>
+      <div className="detail-item-actions">
+        {url && (
+          <a className="btn" href={url} target="_blank" rel="noreferrer">
+            Open
+          </a>
+        )}
+        {onChat && (
+          <button className="btn" onClick={onChat}>
+            <Icon name="chat" size={13} /> {chatLabel}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function TasksDetail({ projectId, onStart }) {
+  const { data, loading, error } = useAsync(() => api.listTasks(projectId), [projectId])
+  if (loading) return <Skeleton className="row-skeleton" />
+  if (error) return <p className="error-text">{error}</p>
+  const tasks = (data || []).filter((t) => t.status !== 'done')
+  if (!tasks.length) return <p className="muted">No open tasks.</p>
+  return (
+    <div className="detail-list">
+      {tasks.map((t) => (
+        <DetailItem
+          key={t.id}
+          title={t.title}
+          sub={`${t.status}${t.priority ? ` · ${t.priority}` : ''}`}
+          onChat={() => onStart(`Let's work on the task "${t.title}"`)}
+        />
+      ))}
+    </div>
+  )
+}
+
+function GithubDetail({ projectId, kind, state = 'open', max, onStart }) {
+  const { data, loading, error } = useAsync(
+    () => api.projectGithub(projectId, kind, state),
+    [projectId, kind, state]
+  )
+  if (loading) return <Skeleton className="row-skeleton" />
+  if (error) return <p className="error-text">{error}</p>
+  if (data && data.available === false)
+    return <p className="muted">{data.error || 'GitHub is unavailable for this project.'}</p>
+  let items = (data && data.items) || []
+  if (max) items = items.slice(0, max)
+  if (!items.length) return <p className="muted">Nothing to show.</p>
+  const noun = kind === 'prs' ? 'PR' : kind === 'issues' ? 'issue' : 'run'
+  return (
+    <div className="detail-list">
+      {items.map((it) => {
+        const key = it.number ?? it.id
+        const name = it.title || it.name || `${noun} ${key}`
+        return (
+          <DetailItem
+            key={key}
+            title={it.number ? `#${it.number} ${name}` : name}
+            sub={[it.state || it.conclusion || it.status, it.user, it.branch]
+              .filter(Boolean)
+              .join(' · ')}
+            url={it.url}
+            onChat={() => onStart(`Let's discuss ${noun} ${it.number ? `#${it.number}` : ''}: ${name}`)}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
+function OverviewDetailModal({ detail, project, git, usage, github, onStart, onClose, onOpenSettings }) {
+  return (
+    <Modal title={detail.title} onClose={onClose}>
+      {['branch', 'commit', 'sync'].includes(detail.id) && (
+        <GitDetail id={detail.id} git={git} />
+      )}
+      {detail.id === 'tasks' && <TasksDetail projectId={project.id} onStart={onStart} />}
+      {detail.id === 'tokens' && <UsageDetail usage={usage} />}
+      {['prs', 'issues', 'runs', 'ci'].includes(detail.id) && (
+        <GithubDetail
+          projectId={project.id}
+          kind={detail.id === 'ci' ? 'runs' : detail.id}
+          max={detail.id === 'ci' ? 1 : undefined}
+          onStart={onStart}
+        />
+      )}
+      {detail.id === 'github' && (
+        <>
+          <p className="muted">{github?.reason || 'GitHub is not connected for this project.'}</p>
+          <div className="row" style={{ marginTop: 14, marginBottom: 0 }}>
+            <button className="btn primary" onClick={() => onOpenSettings('github')}>
+              Open GitHub settings
+            </button>
+          </div>
+        </>
+      )}
+    </Modal>
+  )
+}
+
+function ProjectOverviewView({ project, since, onStart, onNavigate, onOpenSettings }) {
   const ready = since !== undefined
   const { data, error, loading } = useAsync(
     () => (ready ? api.projectStatus(project.id, since || undefined) : Promise.resolve(null)),
@@ -3714,6 +4192,7 @@ function ProjectOverviewView({ project, since, onStart, onNavigate }) {
   const github = data?.github
   const tasks = data?.tasks
   const changes = data?.changes
+  const [detail, setDetail] = useState(null)
 
   const runTone = (run) => {
     if (!run) return ''
@@ -3725,20 +4204,25 @@ function ProjectOverviewView({ project, since, onStart, onNavigate }) {
   return (
     <div className="overview">
       {!firstVisit && changes && changes.total > 0 && (
-        <div className="digest">
-          <div className="digest-head">
+        <button
+          type="button"
+          className="digest clickable"
+          onClick={() => onNavigate({ type: 'activity' })}
+        >
+          <span className="digest-head">
             <Icon name="sparkles" size={16} />
             <span>Since your last visit</span>
-          </div>
-          <div className="digest-chips">
+          </span>
+          <span className="digest-chips">
             {CHANGE_FIELDS.filter((f) => changes.counts[f.key] > 0).map((f) => (
               <span key={f.key} className="digest-chip">
                 <Icon name={f.icon} size={12} />
                 {changes.counts[f.key]} {f.label}
               </span>
             ))}
-          </div>
-        </div>
+          </span>
+          <Icon name="chevronRight" size={16} className="digest-arrow" />
+        </button>
       )}
       {!firstVisit && changes && changes.total === 0 && (
         <div className="digest caught-up">
@@ -3747,12 +4231,16 @@ function ProjectOverviewView({ project, since, onStart, onNavigate }) {
       )}
 
       {usage?.budget?.budget && (
-        <div className={`digest ${usage.budget.percent >= 80 ? 'budget-alert' : ''}`}>
-          <div className="digest-head">
+        <button
+          type="button"
+          className={`digest clickable ${usage.budget.percent >= 80 ? 'budget-alert' : ''}`}
+          onClick={() => setDetail({ id: 'tokens', title: 'Token usage' })}
+        >
+          <span className="digest-head">
             <Icon name="alert" size={16} />
             <span>Token budget</span>
-          </div>
-          <div className="digest-chips">
+          </span>
+          <span className="digest-chips">
             <span className="digest-chip">
               {fmtTokens(usage.month.tokens)} / {fmtTokens(usage.budget.budget)} this month (
               {usage.budget.percent}%)
@@ -3762,8 +4250,9 @@ function ProjectOverviewView({ project, since, onStart, onNavigate }) {
                 scheduled runs {usage.budget.over ? 'paused' : 'allowed'}
               </span>
             )}
-          </div>
-        </div>
+          </span>
+          <Icon name="chevronRight" size={16} className="digest-arrow" />
+        </button>
       )}
 
       <div className="overview-hero">
@@ -3793,13 +4282,13 @@ function ProjectOverviewView({ project, since, onStart, onNavigate }) {
             icon="git"
             label="Branch"
             value={git?.branch || 'unknown'}
-            hint={git?.head ? `at ${git.head}` : null}
+            onClick={() => setDetail({ id: 'branch', title: 'Branch' })}
           />
           <Stat
             icon="git"
             label="Last commit"
             value={truncate(git?.last_commit?.subject, 42) || 'none'}
-            hint={git?.last_commit ? `${git.last_commit.short} · ${relDate(git.last_commit.date)}` : null}
+            onClick={() => setDetail({ id: 'commit', title: 'Last commit' })}
           />
           <Stat
             icon="refresh"
@@ -3811,29 +4300,40 @@ function ProjectOverviewView({ project, since, onStart, onNavigate }) {
                   ? 'Local changes'
                   : 'Up to date'
             }
-            hint={git?.dirty ? 'uncommitted changes' : null}
+            onClick={() => setDetail({ id: 'sync', title: 'Sync status' })}
           />
           <Stat
             icon="tasks"
             label="Open tasks"
             value={tasks ? tasks.open : '-'}
-            hint={tasks && tasks.total ? `${tasks.total} total` : 'board is empty'}
+            onClick={() => setDetail({ id: 'tasks', title: 'Open tasks' })}
           />
           <Stat
             icon="sparkles"
             label="Tokens used"
             value={usage ? fmtTokens(usage.total.tokens) : '-'}
-            hint={usage && usage.total.runs ? `${usage.total.runs} agent runs` : 'no usage yet'}
+            onClick={() => setDetail({ id: 'tokens', title: 'Token usage' })}
           />
           {github?.available ? (
             <>
-              <Stat icon="git" label="Open PRs" value={github.open_prs} />
-              <Stat icon="chat" label="Open issues" value={github.open_issues} />
+              <Stat
+                icon="git"
+                label="Open PRs"
+                value={github.open_prs}
+                onClick={() => setDetail({ id: 'prs', title: 'Open pull requests' })}
+              />
+              <Stat
+                icon="chat"
+                label="Open issues"
+                value={github.open_issues}
+                onClick={() => setDetail({ id: 'issues', title: 'Open issues' })}
+              />
               <Stat
                 icon="alert"
                 label="Failing runs"
                 value={github.failing_runs}
                 tone={github.failing_runs ? 'err' : ''}
+                onClick={() => setDetail({ id: 'runs', title: 'CI runs' })}
               />
               <Stat
                 icon="play"
@@ -3843,8 +4343,8 @@ function ProjectOverviewView({ project, since, onStart, onNavigate }) {
                     ? github.latest_run.conclusion || github.latest_run.status
                     : 'none'
                 }
-                hint={github.latest_run?.name}
                 tone={runTone(github.latest_run)}
+                onClick={() => setDetail({ id: 'ci', title: 'Latest CI run' })}
               />
             </>
           ) : (
@@ -3852,10 +4352,23 @@ function ProjectOverviewView({ project, since, onStart, onNavigate }) {
               icon="alert"
               label="GitHub"
               value="Not connected"
-              hint={github?.reason || 'add a GitHub token or use a GitHub remote'}
+              onClick={() => setDetail({ id: 'github', title: 'GitHub' })}
             />
           )}
         </div>
+      )}
+
+      {detail && (
+        <OverviewDetailModal
+          detail={detail}
+          project={project}
+          git={git}
+          usage={usage}
+          github={github}
+          onStart={onStart}
+          onClose={() => setDetail(null)}
+          onOpenSettings={onOpenSettings}
+        />
       )}
 
       <DocsSection projectId={project.id} />
@@ -3881,9 +4394,73 @@ function ProjectOverviewView({ project, since, onStart, onNavigate }) {
 
 // ---------- github ----------
 
+function GithubItemModal({ item, kind, triaging, reviewing, onClose, onChat, onTriage, onReview }) {
+  const noun = kind === 'prs' ? 'pull request' : kind === 'issues' ? 'issue' : 'run'
+  const name = item.title || item.name || `${noun}`
+  const label = item.number != null ? `#${item.number} ${name}` : name
+  return (
+    <Modal title={label} onClose={onClose}>
+      <div className="detail-rows">
+        <DetailRow label="Type" value={noun} />
+        <DetailRow label="State" value={item.conclusion || item.state || item.status} />
+        {item.user && <DetailRow label="Author" value={item.user} />}
+        {item.branch && <DetailRow label="Branch" value={item.branch} />}
+        {item.event && <DetailRow label="Event" value={item.event} />}
+        {item.labels?.length > 0 && <DetailRow label="Labels" value={item.labels.join(', ')} />}
+        {item.updated_at && <DetailRow label="Updated" value={relDate(item.updated_at)} />}
+      </div>
+      <div className="row" style={{ marginTop: 16, marginBottom: 0, flexWrap: 'wrap' }}>
+        {onChat && kind !== 'runs' && (
+          <button
+            className="btn primary"
+            onClick={() => {
+              onClose()
+              onChat(
+                `Let's discuss ${noun} #${item.number}: "${name}". Explain the context and what should happen next.`
+              )
+            }}
+          >
+            <Icon name="chat" size={13} /> Chat about this
+          </button>
+        )}
+        {onTriage && kind !== 'runs' && (
+          <button
+            className="btn"
+            disabled={triaging === item.number}
+            onClick={() => {
+              onClose()
+              onTriage(item)
+            }}
+          >
+            <Icon name="tasks" size={13} /> Triage
+          </button>
+        )}
+        {onReview && kind !== 'runs' && (
+          <button
+            className="btn"
+            disabled={reviewing === item.number}
+            onClick={() => {
+              onClose()
+              onReview(item)
+            }}
+          >
+            <Icon name="check" size={13} /> Review
+          </button>
+        )}
+        {item.url && (
+          <a className="btn" href={item.url} target="_blank" rel="noreferrer">
+            Open on GitHub
+          </a>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
 function GithubView({ projectId, onSummarize, onOpenTasks }) {
   const [kind, setKind] = useState('prs')
   const [state, setState] = useState('open')
+  const [selected, setSelected] = useState(null)
   const [triaging, setTriaging] = useState(null)
   const [triageReport, setTriageReport] = useState(null)
   const [reviewing, setReviewing] = useState(null)
@@ -3969,7 +4546,11 @@ function GithubView({ projectId, onSummarize, onOpenTasks }) {
       )}
       <div className="gh-list">
         {items.map((it) => (
-          <div key={it.number ?? it.id} className="gh-row">
+          <div
+            key={it.number ?? it.id}
+            className="gh-row clickable"
+            {...clickable(() => setSelected(it))}
+          >
             <Icon
               name={kind === 'runs' ? 'play' : kind === 'issues' ? 'chat' : 'git'}
               size={15}
@@ -3991,63 +4572,78 @@ function GithubView({ projectId, onSummarize, onOpenTasks }) {
             <span className={`badge ${badgeTone(it.conclusion || it.state)}`}>
               {it.conclusion || it.state}
             </span>
-            {kind !== 'runs' && (
-              <button
-                className="btn primary"
-                title="Turn into a plan + tasks"
-                disabled={triaging === it.number}
-                onClick={() => runTriage(it)}
-              >
-                {triaging === it.number ? (
-                  <>
-                    <Spinner size={13} /> Triaging
-                  </>
-                ) : (
-                  <>
-                    <Icon name="tasks" size={13} /> Triage
-                  </>
-                )}
-              </button>
-            )}
-            {kind !== 'runs' && (
-              <button
-                className="btn"
-                title="Review with the code-reviewer agent"
-                disabled={reviewing === it.number}
-                onClick={() => runReview(it)}
-              >
-                {reviewing === it.number ? (
-                  <>
-                    <Spinner size={13} /> Reviewing
-                  </>
-                ) : (
-                  <>
-                    <Icon name="check" size={13} /> Review
-                  </>
-                )}
-              </button>
-            )}
-            {onSummarize && kind !== 'runs' && (
-              <button
-                className="btn"
-                title="Summarize with the agent"
-                onClick={() =>
-                  onSummarize(
-                    `Summarize ${kind === 'prs' ? 'pull request' : 'issue'} #${it.number}: "${it.title}". Explain what it is, what changed or is requested, and anything notable.`
-                  )
-                }
-              >
-                <Icon name="sparkles" size={13} />
-              </button>
-            )}
-            {it.url && (
-              <a className="btn" href={it.url} target="_blank" rel="noreferrer">
-                Open
-              </a>
-            )}
+            <div className="gh-row-actions" onClick={(e) => e.stopPropagation()}>
+              {kind !== 'runs' && (
+                <button
+                  className="btn primary"
+                  title="Turn into a plan + tasks"
+                  disabled={triaging === it.number}
+                  onClick={() => runTriage(it)}
+                >
+                  {triaging === it.number ? (
+                    <>
+                      <Spinner size={13} /> Triaging
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="tasks" size={13} /> Triage
+                    </>
+                  )}
+                </button>
+              )}
+              {kind !== 'runs' && (
+                <button
+                  className="btn"
+                  title="Review with the code-reviewer agent"
+                  disabled={reviewing === it.number}
+                  onClick={() => runReview(it)}
+                >
+                  {reviewing === it.number ? (
+                    <>
+                      <Spinner size={13} /> Reviewing
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="check" size={13} /> Review
+                    </>
+                  )}
+                </button>
+              )}
+              {onSummarize && kind !== 'runs' && (
+                <button
+                  className="btn"
+                  title="Summarize with the agent"
+                  onClick={() =>
+                    onSummarize(
+                      `Summarize ${kind === 'prs' ? 'pull request' : 'issue'} #${it.number}: "${it.title}". Explain what it is, what changed or is requested, and anything notable.`
+                    )
+                  }
+                >
+                  <Icon name="sparkles" size={13} />
+                </button>
+              )}
+              {it.url && (
+                <a className="btn" href={it.url} target="_blank" rel="noreferrer">
+                  Open
+                </a>
+              )}
+            </div>
           </div>
         ))}
       </div>
+
+      {selected && (
+        <GithubItemModal
+          item={selected}
+          kind={kind}
+          triaging={triaging}
+          reviewing={reviewing}
+          onClose={() => setSelected(null)}
+          onChat={onSummarize}
+          onTriage={runTriage}
+          onReview={runReview}
+        />
+      )}
 
       {reviewReport && (
         <Modal title={`Review · ${reviewReport.item.title}`} onClose={() => setReviewReport(null)}>
@@ -4997,7 +5593,11 @@ function RoadmapView({ projectId, onOpenTasks }) {
           {milestones.map((m) => {
             const list = byMilestone[m.id] || []
             return (
-              <div key={m.id} className={`milestone ${m.status}`}>
+              <div
+                key={m.id}
+                className={`milestone ${m.status} clickable`}
+                {...clickable(() => setEditor(m))}
+              >
                 <div className="milestone-head">
                   <div className="milestone-title-row">
                     <span className="milestone-title">{m.title}</span>
@@ -5008,7 +5608,14 @@ function RoadmapView({ projectId, onOpenTasks }) {
                       </span>
                     )}
                   </div>
-                  <button className="icon-btn small" onClick={() => setEditor(m)} title="Edit">
+                  <button
+                    className="icon-btn small"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setEditor(m)
+                    }}
+                    title="Edit"
+                  >
                     <Icon name="settings" size={15} />
                   </button>
                 </div>
@@ -6034,12 +6641,17 @@ function GoalsView({ projectId, onDiscuss, onOpenTasks, onOpenFile }) {
       ) : (
         <div className="goal-list">
           {goals.map((goal) => (
-            <div key={goal.id} className="goal-card">
+            <div
+              key={goal.id}
+              className="goal-card clickable"
+              {...clickable(() => setEditor(goal))}
+            >
               <div className="goal-head">
                 <span className="goal-title">{goal.title}</span>
                 <select
                   className="goal-status"
                   value={goal.status}
+                  onClick={(e) => e.stopPropagation()}
                   onChange={(e) => setStatus(goal, e.target.value)}
                 >
                   {Object.entries(GOAL_STATUS_LABEL).map(([k, v]) => (
@@ -6063,7 +6675,7 @@ function GoalsView({ projectId, onDiscuss, onOpenTasks, onOpenFile }) {
                   </span>
                 </div>
               )}
-              <div className="row goal-actions">
+              <div className="row goal-actions" onClick={(e) => e.stopPropagation()}>
                 <button className="btn" onClick={() => discuss(goal)}>
                   <Icon name="chat" size={13} /> Discuss
                 </button>
@@ -6451,7 +7063,6 @@ export default function App() {
   const [initialMessage, setInitialMessage] = useState(null)
   const [chatKey, setChatKey] = useState(0)
   const [showAddProject, setShowAddProject] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
   const [agentId, setAgentId] = useState('')
   const [providerId, setProviderId] = useState('')
   const [settingsTab, setSettingsTab] = useState('providers')
@@ -6642,9 +7253,9 @@ export default function App() {
       >
         <button className="sidebar-brand" onClick={() => setView({ type: 'home' })}>
           <span className="logo">
-            <Icon name="home" size={15} />
+            <Icon name="flame" size={15} />
           </span>
-          <span className="brand-name">Home</span>
+          <span className="brand-name">Hestia</span>
         </button>
         <div className="sidebar-scroll">
           <button
@@ -6842,6 +7453,13 @@ export default function App() {
               Agents
             </button>
             <button
+              className={`sidebar-item ${view.type === 'skills' ? 'active' : ''}`}
+              onClick={() => setView({ type: 'skills' })}
+            >
+              <Icon name="sparkles" size={16} className="si-icon" />
+              Skills
+            </button>
+            <button
               className={`sidebar-item ${view.type === 'gallery' ? 'active' : ''}`}
               onClick={() => setView({ type: 'gallery' })}
             >
@@ -6855,27 +7473,13 @@ export default function App() {
               <Icon name="help" size={16} className="si-icon" />
               Help
             </button>
-          </div>
-
-          <div className="sidebar-section">
-            <div className="sidebar-label">
-              <span>Theme</span>
-            </div>
-            <div className="segmented theme-seg">
-              {[
-                ['system', 'Auto'],
-                ['light', 'Light'],
-                ['dark', 'Dark'],
-              ].map(([mode, label]) => (
-                <button
-                  key={mode}
-                  className={theme.mode === mode ? 'on' : ''}
-                  onClick={() => setTheme({ ...theme, mode })}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            <button
+              className={`sidebar-item ${view.type === 'settings' ? 'active' : ''}`}
+              onClick={() => setView({ type: 'settings' })}
+            >
+              <Icon name="settings" size={16} className="si-icon" />
+              Settings
+            </button>
           </div>
 
           {authState?.enabled && (
@@ -6919,12 +7523,9 @@ export default function App() {
             'about',
           ].includes(view.type) && (
           <header className="topbar">
-            <div className="topbar-title">
+            <div className="topbar-title" title={project.repo_url}>
+              <span className="proj-avatar">{project.name.slice(0, 1)}</span>
               <span className="name">{project.name}</span>
-              <span className="repo">
-                <Icon name="git" size={12} />
-                {project.repo_url}
-              </span>
               {project.allow_git_writes && (
                 <span className="badge err" title="Agent may modify the clone">
                   writes on
@@ -6953,7 +7554,7 @@ export default function App() {
               <button
                 className="icon-btn"
                 title="Settings"
-                onClick={() => setShowSettings(true)}
+                onClick={() => setView({ type: 'settings' })}
               >
                 <Icon name="settings" size={17} />
               </button>
@@ -6982,17 +7583,23 @@ export default function App() {
           )}
           {view.type === 'reminders' && <RemindersView projects={projects} />}
           {view.type === 'watches' && <WatchesView projects={projects} />}
-          {!project && !projectsReq.loading && view.type !== 'home' && view.type !== 'help' && (
-            <div className="empty">
-              No projects yet. Click + next to Projects to add one.
-            </div>
-          )}
+          {!project &&
+            !projectsReq.loading &&
+            !['home', 'help', 'settings', 'skills'].includes(view.type) && (
+              <div className="empty">
+                No projects yet. Click + next to Projects to add one.
+              </div>
+            )}
           {project && view.type === 'welcome' && (
             <ProjectOverviewView
               project={project}
               since={prevOpenedAt}
               onStart={startChatWith}
               onNavigate={setView}
+              onOpenSettings={(tab) => {
+                setSettingsTab(tab || 'providers')
+                setView({ type: 'settings' })
+              }}
             />
           )}
           {project && view.type === 'chat' && (
@@ -7049,7 +7656,7 @@ export default function App() {
           )}
           {project && view.type === 'files' && <FilesView projectId={project.id} />}
           {project && view.type === 'memory' && (
-            <MemoryView projectId={project.id} providerId={providerId} />
+            <MemoryView projectId={project.id} providerId={providerId} onStart={startChatWith} />
           )}
           {project && view.type === 'background' && (
             <BackgroundView projectId={project.id} />
@@ -7066,9 +7673,18 @@ export default function App() {
             />
           )}
           {view.type === 'agents' && (
-            <AgentsPage onOpenSettings={() => setShowSettings(true)} />
+            <AgentsPage onOpenSettings={() => setView({ type: 'settings' })} />
           )}
+          {view.type === 'skills' && <SkillsView />}
           {view.type === 'gallery' && <GalleryView />}
+          {view.type === 'settings' && (
+            <SettingsView
+              tab={settingsTab}
+              setTab={setSettingsTab}
+              theme={theme}
+              setTheme={setTheme}
+            />
+          )}
         </div>
       </div>
 
@@ -7094,40 +7710,6 @@ export default function App() {
             selectProject(p.id)
           }}
         />
-      )}
-      {showSettings && (
-        <Modal title="Settings" onClose={() => setShowSettings(false)}>
-          <div className="modal-tabs">
-            <button
-              className={settingsTab === 'providers' ? 'active' : ''}
-              onClick={() => setSettingsTab('providers')}
-            >
-              Providers
-            </button>
-            <button
-              className={settingsTab === 'assistant' ? 'active' : ''}
-              onClick={() => setSettingsTab('assistant')}
-            >
-              Assistant
-            </button>
-            <button
-              className={settingsTab === 'github' ? 'active' : ''}
-              onClick={() => setSettingsTab('github')}
-            >
-              GitHub
-            </button>
-            <button
-              className={settingsTab === 'theme' ? 'active' : ''}
-              onClick={() => setSettingsTab('theme')}
-            >
-              Theme
-            </button>
-          </div>
-          {settingsTab === 'providers' && <ProvidersPanel />}
-          {settingsTab === 'assistant' && <AssistantPanel />}
-          {settingsTab === 'github' && <GithubPanel />}
-          {settingsTab === 'theme' && <ThemePanel theme={theme} setTheme={setTheme} />}
-        </Modal>
       )}
     </div>
   )

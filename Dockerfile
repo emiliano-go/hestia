@@ -16,7 +16,7 @@ RUN apt-get update \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
-COPY pyproject.toml uv.lock README.md ./
+COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src ./src
 # Drop the dev-only editable path override for totem; uv then resolves it
 # from the git URL in the dependency spec.

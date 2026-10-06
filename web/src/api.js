@@ -22,6 +22,46 @@ async function request(path, options = {}) {
 export const api = {
   listProjects: () => request('/projects'),
   createProject: (body) => request('/projects', { method: 'POST', body: JSON.stringify(body) }),
+  // SSE: POST stream of `data: {json}` events while cloning + initializing.
+  async createProjectStream(body, handlers) {
+    const res = await fetch(`${BASE}/projects/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      let detail = res.statusText
+      try {
+        const data = await res.json()
+        detail = data.detail || JSON.stringify(data)
+      } catch (e) {
+        // keep statusText
+      }
+      throw new Error(detail)
+    }
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      let idx
+      while ((idx = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, idx)
+        buffer = buffer.slice(idx + 1)
+        const trimmed = line.trim()
+        if (!trimmed.startsWith('data:')) continue
+        let evt
+        try {
+          evt = JSON.parse(trimmed.slice(5).trim())
+        } catch (e) {
+          continue
+        }
+        handlers.onEvent(evt)
+      }
+    }
+  },
   getProject: (id) => request(`/projects/${id}`),
   openProject: (id) => request(`/projects/${id}/open`, { method: 'POST' }),
   pullProject: (id) => request(`/projects/${id}/pull`, { method: 'POST' }),
@@ -184,6 +224,12 @@ export const api = {
     request(`/watches/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteWatch: (id) => request(`/watches/${id}`, { method: 'DELETE' }),
   checkWatch: (id) => request(`/watches/${id}/check`, { method: 'POST', body: '{}' }),
+
+  listSkills: () => request('/skills'),
+  installSkill: (body) =>
+    request('/skills/install', { method: 'POST', body: JSON.stringify(body) }),
+  getSkill: (slug) => request(`/skills/${slug}`),
+  deleteSkill: (slug) => request(`/skills/${slug}`, { method: 'DELETE' }),
 
   authStatus: () => request('/auth/status'),
   authRegisterBegin: (setupToken) =>

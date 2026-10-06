@@ -33,6 +33,7 @@ from home.routers import (
     search,
     sessions,
     settings as settings_router,
+    skills,
     tasks,
     triage,
     watches,
@@ -97,6 +98,7 @@ def create_app() -> FastAPI:
     app.include_router(notify_router.router)
     app.include_router(settings_router.router)
     app.include_router(github.router)
+    app.include_router(skills.router)
 
     dist = find_web_dist()
     if dist:

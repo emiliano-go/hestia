@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
-from home import actions, jobs, memory_ingest, questions, settings, totem_store, usage
+from home import actions, jobs, memory_ingest, questions, settings, skills, totem_store, usage
 from home.agent import loop as agent_loop
 from home.agent.prompt import build_system_prompt
 from home.providers.base import OpenAIClient, resolve_api_key
@@ -142,6 +142,7 @@ def chat(project_id: int, body: dict, s: Session = Depends(session)):
         user_task=user_text,
         writes_enabled=bool(project.allow_git_writes),
         extra_context=settings.prompt_context(s),
+        skills_context=skills.summary(),
     )
     if agent_config and agent_config.system_prompt:
         system += f"\n\n## Agent instructions\n{agent_config.system_prompt}"

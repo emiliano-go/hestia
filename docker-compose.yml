@@ -6,6 +6,12 @@ services:
       - "8080:8080"
     volumes:
       - home-data:/data
+    # The host pins container DNS to 172.17.0.1 in /etc/docker/daemon.json, which
+    # is unreachable from this user-defined network. Override with HOME_DNS if the
+    # defaults are blocked on your network.
+    dns:
+      - ${HOME_DNS:-1.1.1.1}
+      - 8.8.8.8
     environment:
       # At least one provider key, matching the api_key_env you configure:
       KIMI_API_KEY: ${KIMI_API_KEY:-}

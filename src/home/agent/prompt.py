@@ -63,6 +63,7 @@ def build_system_prompt(
     user_task: str,
     writes_enabled: bool = False,
     extra_context: str = "",
+    skills_context: str = "",
 ) -> str:
     policy = POLICY + (WRITE_POLICY if writes_enabled else "")
     sections = [
@@ -81,6 +82,8 @@ def build_system_prompt(
         sections += ["", "## Project instructions (AGENTS.md)", agents_md]
     if memory_context:
         sections += ["", "## Project memory (Totem)", memory_context]
+    if skills_context:
+        sections += ["", skills_context]
     if extra_context:
         sections += ["", "## Context", extra_context]
     sections += ["", f'## Current user request\n"{user_task}"']
