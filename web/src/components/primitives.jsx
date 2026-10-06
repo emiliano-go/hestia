@@ -29,22 +29,27 @@ export function Composer({ onSend, busy, placeholder }) {
   }
 
   return (
-    <div className="composer">
-      <textarea
-        ref={ref}
-        rows={1}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault()
-            submit()
-          }
-        }}
-      />
-      <div className="composer-foot">
-        <span className="composer-hint">Enter to send, Shift+Enter for a new line</span>
+    <div
+      className="composer"
+      onClick={(e) => {
+        if (e.target.closest('button')) return
+        ref.current?.focus()
+      }}
+    >
+      <div className="composer-row">
+        <textarea
+          ref={ref}
+          rows={1}
+          value={value}
+          placeholder={placeholder}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              submit()
+            }
+          }}
+        />
         <button
           className="send-btn"
           onClick={submit}
@@ -53,6 +58,9 @@ export function Composer({ onSend, busy, placeholder }) {
         >
           <Icon name="arrowUp" size={18} />
         </button>
+      </div>
+      <div className="composer-foot">
+        <span className="composer-hint">Enter to send, Shift+Enter for a new line</span>
       </div>
     </div>
   )

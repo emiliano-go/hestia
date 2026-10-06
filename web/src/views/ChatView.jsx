@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api.js'
-import { Composer } from '../components/primitives.jsx'
+import { Composer, SectionEmpty } from '../components/primitives.jsx'
 import { ToolRun, messageItems, pairToolRuns } from '../chat/tools.jsx'
 import { Icon } from '../icons.jsx'
 import { useAsync } from '../lib/hooks.js'
@@ -166,6 +166,16 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
       )}
       <div className="chat-scroll">
         <div className="chat-inner">
+          {messages.length === 0 &&
+            liveEvents.length === 0 &&
+            !streamingText &&
+            !pending && (
+              <SectionEmpty
+                icon="chat"
+                title="New conversation"
+                hint="Ask anything about this project, or describe a task to get started."
+              />
+            )}
           {messageItems(messages).map((item) =>
             item.kind === 'user' ? (
               <div key={`u-${item.id}`} className="msg user">
