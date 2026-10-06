@@ -13,6 +13,7 @@ export function ProvidersPanel() {
   const [presetKey, setPresetKey] = useState('')
   const [form, setForm] = useState(EMPTY)
   const [models, setModels] = useState([])
+  const [customModel, setCustomModel] = useState(false)
   const [loadingModels, setLoadingModels] = useState(false)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState(null)
@@ -26,6 +27,7 @@ export function ProvidersPanel() {
     setPresetKey('')
     setForm(EMPTY)
     setModels([])
+    setCustomModel(false)
     setFormError(null)
   }
 
@@ -39,6 +41,7 @@ export function ProvidersPanel() {
       model: p.model || '',
     })
     setModels([])
+    setCustomModel(false)
     setFormError(null)
     setStep(1)
   }
@@ -178,28 +181,59 @@ export function ProvidersPanel() {
           <form className="wizard-body" onSubmit={submit}>
             <label className="field">
               <span className="field-label">Model</span>
-              <div className="row" style={{ marginBottom: 0 }}>
-                <input
-                  list="provider-model-options"
-                  value={form.model}
-                  onChange={set('model')}
-                  placeholder="model id"
-                  required
-                />
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => loadModels(false)}
-                  disabled={loadingModels}
-                >
-                  {loadingModels ? <Spinner size={13} /> : 'Reload'}
-                </button>
-              </div>
-              <datalist id="provider-model-options">
-                {models.map((m) => (
-                  <option key={m} value={m} />
-                ))}
-              </datalist>
+              {models.length > 0 && !customModel ? (
+                <div className="row" style={{ marginBottom: 0 }}>
+                  <select
+                    value={form.model}
+                    onChange={(e) => {
+                      if (e.target.value === '__custom__') {
+                        setCustomModel(true)
+                        setForm((f) => ({ ...f, model: '' }))
+                      } else {
+                        setForm((f) => ({ ...f, model: e.target.value }))
+                      }
+                    }}
+                    required
+                  >
+                    <option value="">Choose a model...</option>
+                    {form.model && !models.includes(form.model) && (
+                      <option value={form.model}>{form.model}</option>
+                    )}
+                    {models.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                    <option value="__custom__">Custom…</option>
+                  </select>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => loadModels(false)}
+                    disabled={loadingModels}
+                  >
+                    {loadingModels ? <Spinner size={13} /> : 'Reload'}
+                  </button>
+                </div>
+              ) : (
+                <div className="row" style={{ marginBottom: 0 }}>
+                  <input
+                    value={form.model}
+                    onChange={set('model')}
+                    placeholder="model id"
+                    required
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => loadModels(false)}
+                    disabled={loadingModels}
+                  >
+                    {loadingModels ? <Spinner size={13} /> : 'Load models'}
+                  </button>
+                </div>
+              )}
               {models.length > 0 && (
                 <span className="field-hint">{models.length} models available</span>
               )}
