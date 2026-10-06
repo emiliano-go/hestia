@@ -21,6 +21,7 @@ import { GoalsView } from './views/GoalsView.jsx'
 import { HelpView } from './views/HelpView.jsx'
 import { NewProjectView } from './views/NewProjectView.jsx'
 import { ReposView } from './views/ReposView.jsx'
+import { RunsView } from './views/RunsView.jsx'
 import { HomeView, LoginView } from './views/HomeView.jsx'
 import { MemoryView } from './views/MemoryView.jsx'
 import { ProjectOverviewView } from './views/ProjectOverviewView.jsx'
@@ -40,6 +41,7 @@ export default function App() {
   const [projectId, setProjectId] = useState(null)
   // home | help | welcome(overview) | chat | tasks | github | activity | files | memory | about | agents | gallery
   const [view, setView] = useState({ type: 'home' })
+  const [activeRuns, setActiveRuns] = useState(0)
   const [chatSessionId, setChatSessionId] = useState(null)
   const [initialMessage, setInitialMessage] = useState(null)
   const [chatKey, setChatKey] = useState(0)
@@ -161,6 +163,21 @@ export default function App() {
   const openNewProject = () => {
     setView({ type: 'new-project' })
   }
+
+  useEffect(() => {
+    let alive = true
+    const tick = () =>
+      api
+        .listRuns(true)
+        .then((rows) => alive && setActiveRuns(rows.length))
+        .catch(() => {})
+    tick()
+    const timer = setInterval(tick, 6000)
+    return () => {
+      alive = false
+      clearInterval(timer)
+    }
+  }, [])
 
   const startNewChat = () => {
     setView({ type: 'chat' })
@@ -444,6 +461,14 @@ export default function App() {
               Agents
             </button>
             <button
+              className={`sidebar-item ${view.type === 'runs' ? 'active' : ''}`}
+              onClick={() => setView({ type: 'runs' })}
+            >
+              <Icon name="play" size={16} className="si-icon" />
+              Runs
+              {activeRuns > 0 && <span className="sub">{activeRuns}</span>}
+            </button>
+            <button
               className={`sidebar-item ${view.type === 'skills' ? 'active' : ''}`}
               onClick={() => setView({ type: 'skills' })}
             >
@@ -565,6 +590,9 @@ export default function App() {
             />
           )}
           {view.type === 'help' && <HelpView />}
+          {view.type === 'runs' && (
+            <RunsView projects={projects} onOpenSession={openSessionFromLanding} />
+          )}
           {view.type === 'new-project' && (
             <NewProjectView
               onCancel={() => setView({ type: 'home' })}
@@ -596,6 +624,7 @@ export default function App() {
               since={prevOpenedAt}
               onStart={startChatWith}
               onNavigate={setView}
+              onOpenSession={(sid) => openSessionFromLanding(project.id, sid)}
               onOpenSettings={(tab) => {
                 setSettingsTab(tab || 'providers')
                 setView({ type: 'settings' })

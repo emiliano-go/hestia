@@ -232,7 +232,7 @@ export function OverviewDetailModal({ detail, project, git, usage, github, onSta
   )
 }
 
-export function ProjectOverviewView({ project, since, onStart, onNavigate, onOpenSettings }) {
+export function ProjectOverviewView({ project, since, onStart, onNavigate, onOpenSettings, onOpenSession }) {
   const ready = since !== undefined
   const { data, error, loading } = useAsync(
     () => (ready ? api.projectStatus(project.id, since || undefined) : Promise.resolve(null)),
@@ -240,6 +240,10 @@ export function ProjectOverviewView({ project, since, onStart, onNavigate, onOpe
   )
   const usageReq = useAsync(() => api.projectUsage(project.id), [project.id])
   const usage = usageReq.data
+  const sessionsReq = useAsync(() => api.listSessions(project.id), [project.id])
+  const lastSession = (sessionsReq.data || [])
+    .slice()
+    .sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0))[0]
   const firstVisit = since === null
   const git = data?.git
   const github = data?.github
@@ -442,6 +446,25 @@ export function ProjectOverviewView({ project, since, onStart, onNavigate, onOpe
           )}
         </div>
       )}
+
+      <button
+        type="button"
+        className={`digest clickable conversation-card ${lastSession ? '' : 'empty'}`}
+        onClick={() => lastSession && onOpenSession && onOpenSession(lastSession.id)}
+        disabled={!lastSession}
+      >
+        <span className="digest-head">
+          <Icon name="chat" size={16} />
+          <span>Last conversation</span>
+        </span>
+        <span className="digest-chips">
+          <span className="digest-chip">
+            {lastSession ? truncate(lastSession.title, 60) : 'No conversations yet'}
+          </span>
+          {lastSession && <span className="digest-chip">{relDate(lastSession.updated_at)}</span>}
+        </span>
+        {lastSession && <Icon name="chevronRight" size={16} className="digest-arrow" />}
+      </button>
 
       {multi && (
         <div className="repo-table">

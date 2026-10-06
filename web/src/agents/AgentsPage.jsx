@@ -228,10 +228,6 @@ export function AgentForm({ providers, presets, initial, onSubmit, onCancel, sav
           Images, the task board, and delegation belong to the principal agent only.
         </span>
       </div>
-      <label className="field narrow">
-        <span className="field-label">Max tool turns</span>
-        <input type="number" min="1" value={form.max_turns} onChange={set('max_turns')} />
-      </label>
       <label className="field">
         <span className="field-label">System prompt (optional)</span>
         <textarea
@@ -538,8 +534,7 @@ export function AgentsPage({ onOpenSettings }) {
                       </div>
                       <div className="agent-card-meta">
                         {providerName(a.provider_id)} · {providerModel(a.provider_id) || 'model'} ·{' '}
-                        {a.mode || 'read'} mode · {toTools(a.tools).length} tool groups ·{' '}
-                        {a.max_turns} turns
+                        {a.mode || 'read'} mode · {toTools(a.tools).length} tool groups
                       </div>
                     </div>
                     <div className="agent-card-actions">

@@ -130,6 +130,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  mergePr: (projectId, body) =>
+    request(`/projects/${projectId}/github/merge`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   generateDoc: (projectId, body) =>
     request(`/projects/${projectId}/docs`, { method: 'POST', body: JSON.stringify(body) }),
 
@@ -262,6 +267,17 @@ export const api = {
     request(`/questions/${id}/dismiss`, { method: 'POST', body: '{}' }),
   searchMemory: (projectId, q) =>
     request(`/projects/${projectId}/memory?q=${encodeURIComponent(q)}`),
+  listCandidates: (projectId, status = 'pending') =>
+    request(`/projects/${projectId}/memory/candidates?status=${status}`),
+  acceptCandidate: (id) =>
+    request(`/candidates/${id}/accept`, { method: 'POST', body: '{}' }),
+  rejectCandidate: (id) =>
+    request(`/candidates/${id}/reject`, { method: 'POST', body: '{}' }),
+  acceptAllCandidates: (projectId) =>
+    request(`/projects/${projectId}/memory/candidates/accept-all`, {
+      method: 'POST',
+      body: '{}',
+    }),
 
   listWorkspace: (projectId, pattern = '*') =>
     request(`/projects/${projectId}/workspace?pattern=${encodeURIComponent(pattern)}`),
@@ -276,19 +292,102 @@ export const api = {
   fixMemory: (projectId, body) =>
     request(`/projects/${projectId}/memory/fix`, { method: 'POST', body: JSON.stringify(body) }),
 
-  // SSE chat: POST stream of `data: {json}` lines. Calls handlers as events arrive.
-  async chat(projectId, { message, session_id, provider_id, agent_id, action }, handlers) {
-    return streamPost(
-      `/projects/${projectId}/chat`,
-      { message, session_id, provider_id, agent_id, action },
-      handlers.onEvent
-    )
+  // Chat as a run: streams events, auto-reconnects and resumes on drops.
+  chatStream(projectId, body, handlers = {}) {
+    return streamRun(`/projects/${projectId}/chat`, {
+      method: 'POST',
+      body,
+      ...handlers,
+    })
   },
+
+  // Re-attach to a run already in flight (Wi-Fi drop, tab reload).
+  resumeRun(runId, after, handlers = {}) {
+    return streamRun(`/runs/${runId}/events`, { method: 'GET', after, ...handlers })
+  },
+
+  stopRun: (runId) => request(`/runs/${runId}/stop`, { method: 'POST', body: '{}' }),
+  listRuns: (activeOnly = false) =>
+    request(`/runs${activeOnly ? '?active_only=true' : ''}`),
+  getRun: (runId) => request(`/runs/${runId}`),
 
   // Side question while a task runs: same agent, compacted context, read-only.
   async btw(projectId, body, handlers) {
     return streamPost(`/projects/${projectId}/btw`, body, handlers.onEvent)
   },
+}
+
+const TERMINAL_EVENTS = new Set(['done', 'error', 'stopped', 'timed_out'])
+
+// Stream a run (POST to start, GET to resume) with replay + auto-reconnect.
+async function streamRun(path, { method = 'POST', body, after = 0, onEvent, onStatus, signal }) {
+  let runId = null
+  let last = after
+  let attempt = 0
+  for (;;) {
+    const url = runId ? `/runs/${runId}/events` : path
+    const headers = {}
+    if (runId && last) headers['Last-Event-ID'] = String(last)
+    if (body && !runId) headers['Content-Type'] = 'application/json'
+    let finished = false
+    try {
+      const res = await fetch(BASE + url, {
+        method: runId ? 'GET' : method,
+        headers,
+        body: runId ? undefined : body ? JSON.stringify(body) : undefined,
+        signal,
+      })
+      if (!res.ok) {
+        let detail = res.statusText
+        try {
+          const data = await res.json()
+          detail = data.detail || JSON.stringify(data)
+        } catch (e) {
+          // keep statusText
+        }
+        throw new Error(detail)
+      }
+      onStatus?.('streaming')
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        let idx
+        while ((idx = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, idx)
+          buffer = buffer.slice(idx + 1)
+          const trimmed = line.trim()
+          if (trimmed.startsWith('id:')) {
+            const n = parseInt(trimmed.slice(3).trim(), 10)
+            if (!Number.isNaN(n)) last = n
+            continue
+          }
+          if (!trimmed.startsWith('data:')) continue
+          let evt
+          try {
+            evt = JSON.parse(trimmed.slice(5).trim())
+          } catch (e) {
+            continue
+          }
+          if (evt.run_id) runId = evt.run_id
+          if (typeof evt.seq === 'number') last = evt.seq
+          onEvent?.(evt)
+          if (TERMINAL_EVENTS.has(evt.event)) finished = true
+        }
+      }
+      if (finished) return
+    } catch (err) {
+      if (signal?.aborted) throw err
+      if (!runId) throw err
+    }
+    if (!runId) return
+    attempt += 1
+    onStatus?.('reconnecting')
+    await new Promise((r) => setTimeout(r, Math.min(1000 * attempt, 8000)))
+  }
 }
 
 // POST an SSE endpoint and invoke onEvent for every `data: {json}` line.

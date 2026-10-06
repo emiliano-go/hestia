@@ -17,6 +17,8 @@ export function MemoryView({ projectId, providerId, onStart }) {
   const [fixing, setFixing] = useState(false)
   const [fixReport, setFixReport] = useState(null)
   const [fixError, setFixError] = useState(null)
+  const [candidates, setCandidates] = useState([])
+  const [candError, setCandError] = useState(null)
 
   const search = (e) => {
     e?.preventDefault()
@@ -29,10 +31,31 @@ export function MemoryView({ projectId, providerId, onStart }) {
       .finally(() => setSearching(false))
   }
 
+  const loadCandidates = () =>
+    api
+      .listCandidates(projectId)
+      .then(setCandidates)
+      .catch((err) => setCandError(err.message || String(err)))
+
   useEffect(() => {
     search()
+    loadCandidates()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
+
+  const decideCandidate = (id, accept) => {
+    const req = accept ? api.acceptCandidate(id) : api.rejectCandidate(id)
+    req.then(loadCandidates).catch((err) => setCandError(err.message || String(err)))
+  }
+
+  const acceptAll = () =>
+    api
+      .acceptAllCandidates(projectId)
+      .then(() => {
+        loadCandidates()
+        search()
+      })
+      .catch((err) => setCandError(err.message || String(err)))
 
   const runFix = (e) => {
     e?.preventDefault()
@@ -58,6 +81,43 @@ export function MemoryView({ projectId, providerId, onStart }) {
       <div className="page-head">
         <h2>Memory</h2>
       </div>
+      {candidates.length > 0 && (
+        <section className="panel candidate-panel">
+          <div className="panel-head row-between">
+            <div>
+              <h3>Memory candidates</h3>
+              <p>Proposed by the memory writer or checkpoint; accept to store them in Totem.</p>
+            </div>
+            <button className="btn" onClick={acceptAll}>
+              <Icon name="check" size={14} /> Accept all
+            </button>
+          </div>
+          {candError && <p className="error-text">{candError}</p>}
+          <div className="candidate-list">
+            {candidates.map((c) => (
+              <div key={c.id} className="candidate-row">
+                <div className="candidate-main">
+                  <div className="candidate-title">
+                    <span className="badge accent">{c.type}</span>
+                    {c.title}
+                    <span className="badge">{Math.round((c.confidence || 0) * 100)}%</span>
+                    {c.source && c.source !== 'agent' && <span className="badge">{c.source}</span>}
+                  </div>
+                  <div className="meta">{c.statement}</div>
+                </div>
+                <div className="row" style={{ marginBottom: 0, flex: 'none' }}>
+                  <button className="btn primary" onClick={() => decideCandidate(c.id, true)}>
+                    Accept
+                  </button>
+                  <button className="btn" onClick={() => decideCandidate(c.id, false)}>
+                    Reject
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
       <div className="fix-panel">
         <form className="fix-row" onSubmit={runFix}>
           <input

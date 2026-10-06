@@ -304,6 +304,14 @@ export function AssistantPanel() {
           logins. Leave empty to use the bundled headless browser.
         </span>
       </label>
+      <label className="dep-item" style={{ flex: 'none' }}>
+        <input
+          type="checkbox"
+          checked={form.show_thinking !== '0'}
+          onChange={(e) => field('show_thinking', e.target.checked ? '1' : '0')}
+        />
+        Show the model's thinking when the provider returns it
+      </label>
       <div className="row" style={{ marginBottom: 0 }}>
         <button className="btn primary" disabled={saving}>
           {saving ? (

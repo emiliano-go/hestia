@@ -5,6 +5,7 @@ import { ToolRun, messageItems, pairToolRuns } from '../chat/tools.jsx'
 import { Icon } from '../icons.jsx'
 import { useAsync } from '../lib/hooks.js'
 import { mdToHtml } from '../lib/markdown.js'
+import { randomPhrase } from '../lib/statusPhrases.js'
 
 const BTW_RE = /^\/btw(?:\s+|$)/i
 
@@ -37,6 +38,14 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
   const [streamingText, setStreamingText] = useState('')
   const [rememberedId, setRememberedId] = useState(null)
   const [btw, setBtw] = useState(null) // {question, answer, error, pending}
+  const [phrase, setPhrase] = useState(() => randomPhrase())
+  const [thinkingText, setThinkingText] = useState('')
+  const [thinkingOpen, setThinkingOpen] = useState(true)
+  const [runId, setRunId] = useState(null)
+  const [reconnecting, setReconnecting] = useState(false)
+  const [stopped, setStopped] = useState(false)
+  const [btwMinimized, setBtwMinimized] = useState(false)
+  const [memoryNote, setMemoryNote] = useState(null)
   const sessionRef = useRef(sessionId)
   const busyRef = useRef(false)
   const initialSentRef = useRef(false)
@@ -63,6 +72,14 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
     setAnswers({})
     setStreamingText('')
     setBtw(null)
+    setThinkingText('')
+    setThinkingOpen(true)
+    setRunId(null)
+    setReconnecting(false)
+    setStopped(false)
+    setBtwMinimized(false)
+    setMemoryNote(null)
+    setPhrase(randomPhrase())
     if (sessionId) {
       api
         .listMessages(sessionId)
@@ -78,7 +95,8 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
 
   const askBtw = useCallback(
     (question) => {
-      setBtw({ question, answer: '', error: null, pending: true })
+      setBtwMinimized(false)
+      setBtw({ question, answer: '', error: null, pending: true, unread: false })
       api
         .btw(
           projectId,
@@ -97,7 +115,7 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
               } else if (evt.event === 'error') {
                 setBtw((b) => b && { ...b, error: evt.message || 'btw error', pending: false })
               } else if (evt.event === 'done') {
-                setBtw((b) => b && { ...b, pending: false })
+                setBtw((b) => b && { ...b, pending: false, unread: true })
               }
             },
           }
@@ -112,11 +130,16 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
   useEffect(() => {
     if (!btw) return
     const onKey = (e) => {
-      if (e.key === 'Escape') setBtw(null)
+      if (e.key === 'Escape') setBtwMinimized(true)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [btw])
+
+  const stopRun = useCallback(() => {
+    if (!runId) return
+    api.stopRun(runId).catch((e) => setError(e.message || String(e)))
+  }, [runId])
 
   const send = useCallback(
     (text) => {
@@ -130,9 +153,16 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
       setError(null)
       setLiveEvents([])
       setPending('working')
+      setPhrase(randomPhrase())
+      setThinkingText('')
+      setThinkingOpen(true)
+      setRunId(null)
+      setReconnecting(false)
+      setStopped(false)
+      setMemoryNote(null)
       setMessages((prev) => [...prev, { id: `u-${Date.now()}`, role: 'user', content: text }])
       api
-        .chat(
+        .chatStream(
           projectId,
           {
             message: text,
@@ -141,7 +171,9 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
             ...(agentId ? { agent_id: agentId } : { provider_id: providerId || undefined }),
           },
           {
+            onStatus: (s) => setReconnecting(s === 'reconnecting'),
             onEvent: (evt) => {
+              if (evt.run_id) setRunId(evt.run_id)
               if (evt.event === 'session') {
                 sessionRef.current = evt.session_id
                 setStreamingText('')
@@ -149,6 +181,7 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
               } else if (evt.event === 'message') {
                 setPending(null)
                 setStreamingText('')
+                setThinkingOpen(false)
                 if (evt.content && evt.content.trim()) {
                   setMessages((prev) => [
                     ...prev,
@@ -158,18 +191,41 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
               } else if (evt.event === 'error') {
                 setPending(null)
                 setStreamingText('')
+                setReconnecting(false)
                 setError(evt.message || 'Chat error')
+              } else if (evt.event === 'stopped' || evt.event === 'timed_out') {
+                setPending(null)
+                setReconnecting(false)
+                if (evt.event === 'stopped') setStopped(true)
+                else setError(evt.message || 'Run timed out')
               } else if (evt.event === 'question') {
                 setPending(null)
                 setStreamingText('')
                 setQuestions((prev) => [...prev, { ...evt, status: 'open' }])
+              } else if (evt.event === 'thinking') {
+                setPending('streaming')
+                setThinkingText((prev) => prev + (evt.text || ''))
               } else if (evt.event === 'token') {
                 setPending('streaming')
                 setStreamingText((prev) => prev + (evt.text || ''))
-              } else {
+              } else if (evt.event === 'memory') {
+                if (evt.writer) setMemoryNote('Memory writer dispatched in the background')
+                else if (evt.written)
+                  setMemoryNote(`Memory: ${evt.written} written`)
+                else if (evt.candidates)
+                  setMemoryNote(
+                    `Memory: ${evt.candidates} candidate${evt.candidates > 1 ? 's' : ''} to review`
+                  )
+                else setMemoryNote('Memory checkpoint: nothing durable')
+              } else if (
+                evt.event === 'tool_call' ||
+                evt.event === 'tool_result' ||
+                evt.event === 'tool_progress'
+              ) {
                 setPending('streaming')
                 setLiveEvents((prev) => [...prev, evt])
               }
+              // usage / ping / done are ignored here
             },
           }
         )
@@ -277,9 +333,25 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
           )}
           {pairToolRuns(liveEvents).map((r, i) => (
             <div key={i} className="tool-run-wrap">
-              <ToolRun name={r.name} args={r.args} result={r.result} />
+              <ToolRun name={r.name} args={r.args} result={r.result} progress={r.progress} />
             </div>
           ))}
+          {thinkingText && (
+            <div className="thinking-block">
+              <button
+                type="button"
+                className="thinking-head"
+                onClick={() => setThinkingOpen((o) => !o)}
+              >
+                <Icon name="sparkles" size={13} />
+                <span>Thinking</span>
+                <span className={`thinking-chevron ${thinkingOpen ? 'open' : ''}`}>
+                  <Icon name="chevronDown" size={13} />
+                </span>
+              </button>
+              {thinkingOpen && <div className="thinking-body">{thinkingText}</div>}
+            </div>
+          )}
           {streamingText && (
             <div className="msg assistant">
               <div className="avatar">
@@ -294,7 +366,7 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
           {pending && (
             <div className="working">
               <span className="pulse" />
-              <span>{pending === 'working' ? 'Thinking' : 'Responding'}</span>
+              <span>{phrase}</span>
               <span className="working-dots">
                 <i />
                 <i />
@@ -349,14 +421,31 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
         </div>
       </div>
       <div className="composer-wrap">
-        {btw && (
+        {reconnecting && <div className="chat-note">Reconnecting…</div>}
+        {memoryNote && <div className="chat-note">{memoryNote}</div>}
+        {stopped && !pending && <div className="chat-note">Stopped by you.</div>}
+        {btw && !btwMinimized && (
           <div className="btw-box">
             <div className="btw-head">
               <span className="btw-prompt">$</span>
               <span className="btw-question" title={btw.question}>
                 {btw.question}
               </span>
-              <button className="btw-close" onClick={() => setBtw(null)} title="Close (Esc)">
+              <button
+                className="btw-close"
+                onClick={() => setBtwMinimized(true)}
+                title="Minimize (Esc)"
+              >
+                <Icon name="chevronDown" size={13} />
+              </button>
+              <button
+                className="btw-close"
+                onClick={() => {
+                  setBtw(null)
+                  setBtwMinimized(false)
+                }}
+                title="Discard"
+              >
                 <Icon name="x" size={13} />
               </button>
             </div>
@@ -393,6 +482,23 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
           placeholder="Message... (use /btw for a side question)"
           hint="Enter to send · /btw asks a side question without stopping the task"
           onSend={send}
+          onStop={stopRun}
+          trailing={
+            btw && btwMinimized ? (
+              <button
+                type="button"
+                className="btw-icon"
+                title="Reopen the side question"
+                onClick={() => {
+                  setBtwMinimized(false)
+                  setBtw((b) => b && { ...b, unread: false })
+                }}
+              >
+                <Icon name="chat" size={15} />
+                {btw.unread && <span className="btw-dot" />}
+              </button>
+            ) : null
+          }
         />
       </div>
     </div>

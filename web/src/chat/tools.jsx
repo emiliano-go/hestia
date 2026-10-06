@@ -98,11 +98,11 @@ function resultImage(result) {
   }
 }
 
-export function ToolRun({ name, args, result }) {
+export function ToolRun({ name, args, result, progress }) {
   const [open, setOpen] = useState(false)
   const status = !result ? 'running' : result.ok ? 'ok' : 'error'
   const label = status === 'running' ? 'Running' : status === 'ok' ? 'Done' : 'Failed'
-  const summary = result ? result.preview : JSON.stringify(args)
+  const summary = status === 'running' && progress ? progress : result ? result.preview : JSON.stringify(args)
   const image = resultImage(result)
   return (
     <div className={`tool-run ${status}`}>
@@ -147,11 +147,18 @@ export function pairToolRuns(events) {
   const runs = []
   for (const evt of events) {
     if (evt.event === 'tool_call') {
-      runs.push({ name: evt.name, args: evt.arguments, result: null })
+      runs.push({ id: evt.id, name: evt.name, args: evt.arguments, result: null, progress: '' })
     } else if (evt.event === 'tool_result') {
       for (let i = runs.length - 1; i >= 0; i--) {
         if (runs[i].name === evt.name && !runs[i].result) {
           runs[i].result = evt
+          break
+        }
+      }
+    } else if (evt.event === 'tool_progress') {
+      for (let i = runs.length - 1; i >= 0; i--) {
+        if (!runs[i].result && (!evt.tool_call_id || runs[i].id === evt.tool_call_id)) {
+          runs[i].progress = evt.text
           break
         }
       }

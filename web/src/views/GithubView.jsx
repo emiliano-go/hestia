@@ -9,7 +9,7 @@ import { useAsync } from '../lib/hooks.js'
 import { mdToHtml } from '../lib/markdown.js'
 import { clickable } from '../lib/ui.js'
 
-export function GithubItemModal({ item, kind, triaging, reviewing, onClose, onChat, onTriage, onReview }) {
+export function GithubItemModal({ item, kind, triaging, reviewing, onClose, onChat, onTriage, onReview, onMerge, mergeMethod, onMergeMethod, merging }) {
   const noun = kind === 'prs' ? 'pull request' : kind === 'issues' ? 'issue' : 'run'
   const name = item.title || item.name || `${noun}`
   const label = item.number != null ? `#${item.number} ${name}` : name
@@ -62,6 +62,23 @@ export function GithubItemModal({ item, kind, triaging, reviewing, onClose, onCh
             <Icon name="check" size={13} /> Review
           </button>
         )}
+        {onMerge && kind === 'prs' && (
+          <>
+            <select value={mergeMethod} onChange={(e) => onMergeMethod(e.target.value)}>
+              <option value="squash">Squash</option>
+              <option value="merge">Merge commit</option>
+              <option value="rebase">Rebase</option>
+            </select>
+            <button
+              className="btn danger"
+              disabled={merging === item.number}
+              onClick={() => onMerge(item)}
+            >
+              <Icon name="git" size={13} />
+              {merging === item.number ? 'Merging…' : 'Merge PR'}
+            </button>
+          </>
+        )}
         {item.url && (
           <a className="btn" href={item.url} target="_blank" rel="noreferrer">
             Open on GitHub
@@ -80,6 +97,8 @@ export function GithubView({ projectId, onSummarize, onOpenTasks }) {
   const [triageReport, setTriageReport] = useState(null)
   const [reviewing, setReviewing] = useState(null)
   const [reviewReport, setReviewReport] = useState(null)
+  const [merging, setMerging] = useState(null)
+  const [mergeMethod, setMergeMethod] = useState('squash')
   const [repo, setRepo] = useState('')
   const reposReq = useAsync(() => api.listProjectRepos(projectId), [projectId])
   const repoRows = reposReq.data || []
@@ -119,6 +138,22 @@ export function GithubView({ projectId, onSummarize, onOpenTasks }) {
       .then((r) => setReviewReport({ ...r, item: it }))
       .catch((e) => setReviewReport({ error: e.message || String(e), item: it }))
       .finally(() => setReviewing(null))
+  }
+
+  const runMerge = (it) => {
+    setMerging(it.number)
+    api
+      .mergePr(projectId, {
+        number: it.number,
+        method: mergeMethod,
+        repo: repo || undefined,
+      })
+      .then(() => {
+        setSelected(null)
+        reload()
+      })
+      .catch((e) => alert(e.message || String(e)))
+      .finally(() => setMerging(null))
   }
 
   return (
@@ -280,6 +315,10 @@ export function GithubView({ projectId, onSummarize, onOpenTasks }) {
           onChat={onSummarize}
           onTriage={runTriage}
           onReview={runReview}
+          onMerge={runMerge}
+          mergeMethod={mergeMethod}
+          onMergeMethod={setMergeMethod}
+          merging={merging}
         />
       )}
 
