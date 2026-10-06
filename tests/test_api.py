@@ -2797,7 +2797,8 @@ def test_skill_extract_tarball(tmp_path):
 def test_opencode_preset(client):
     presets = client.get("/api/providers/presets").json()
     assert "opencode" in presets
-    assert presets["opencode"]["base_url"] == "https://opencode.ai/zen"
+    assert presets["opencode"]["name"] == "OpenCode Go"
+    assert presets["opencode"]["base_url"] == "https://opencode.ai/zen/go"
 
 
 def test_provider_stored_key(client, monkeypatch):

@@ -2,8 +2,8 @@
 
 PRESETS = {
     "opencode": {
-        "name": "OpenCode Zen",
-        "base_url": "https://opencode.ai/zen",
+        "name": "OpenCode Go",
+        "base_url": "https://opencode.ai/zen/go",
         "api_key_env": "OPENCODE_API_KEY",
         "model": "deepseek-v4.1-flash",
     },
