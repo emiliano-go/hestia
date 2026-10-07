@@ -237,6 +237,19 @@ export function AboutView({ projectId, onDeleted }) {
             />
             Require your approval before push or PR
           </label>
+          <label className="dep-item" style={{ flex: 'none' }}>
+            <input
+              type="checkbox"
+              checked={!!project.require_plan}
+              onChange={(e) =>
+                api
+                  .updateProject(project.id, { require_plan: e.target.checked })
+                  .then(reload)
+                  .catch((err) => setActionError(err.message))
+              }
+            />
+            Require a written plan, with a drift check after each step
+          </label>
           <div className="row">
             <button className="btn danger" onClick={() => setWrites(false)}>
               Disable git writes

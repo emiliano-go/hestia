@@ -36,6 +36,7 @@ export default function App() {
   const projectsReq = useAsync(api.listProjects, [])
   const providersReq = useAsync(api.listProviders, [])
   const agentsReq = useAsync(api.listAgents, [])
+  const actionsReq = useAsync(api.listActions, [])
 
   const projects = projectsReq.data || []
   const [projectId, setProjectId] = useState(null)
@@ -221,6 +222,14 @@ export default function App() {
   const agents = agentsReq.data || []
   const providers = providersReq.data || []
   const project = projects.find((p) => p.id === effectiveProjectId)
+  const actions = actionsReq.data || []
+  const chatDefaultAgentId = actions.find((a) => a.key === 'chat')?.agent_id
+  const chatDefaultAgent = agents.find((a) => a.id === chatDefaultAgentId) || null
+  const agentLabel = (a) => {
+    const model = a.model || providers.find((p) => p.id === a.provider_id)?.model || ''
+    return `${a.name}${model ? ` · ${model}` : ''}${a.reasoning_effort ? ` (${a.reasoning_effort})` : ''}`
+  }
+  const projectDefaultProvider = providers.find((p) => p.id === project?.default_provider_id)
   const inProjectView = [
     'welcome',
     'chat',
@@ -550,16 +559,24 @@ export default function App() {
             </div>
             <div className="topbar-right">
               <select value={agentId} onChange={(e) => setAgentId(e.target.value)}>
-                <option value="">Default agent</option>
+                <option value="">
+                  {chatDefaultAgent
+                    ? `${agentLabel(chatDefaultAgent)} · chat default`
+                    : 'Default agent'}
+                </option>
                 {agents.map((a) => (
                   <option key={a.id} value={a.id}>
-                    {a.name}
+                    {agentLabel(a)}
                   </option>
                 ))}
               </select>
-              {!agentId && (
+              {!agentId && !chatDefaultAgent && (
                 <select value={providerId} onChange={(e) => setProviderId(e.target.value)}>
-                  <option value="">Default provider</option>
+                  <option value="">
+                    {projectDefaultProvider
+                      ? `Project default (${projectDefaultProvider.name})`
+                      : 'Default provider'}
+                  </option>
                   {providers.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name} ({p.model})
@@ -633,7 +650,7 @@ export default function App() {
           )}
           {project && view.type === 'chat' && (
             <ChatView
-              key={`${project.id}:${chatSessionId ?? 'new'}:${chatKey}`}
+              key={`${project.id}:${chatKey}`}
               projectId={project.id}
               sessionId={chatSessionId}
               agentId={agentId}

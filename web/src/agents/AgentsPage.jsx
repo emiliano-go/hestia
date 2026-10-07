@@ -113,6 +113,7 @@ export function AgentForm({ providers, presets, initial, onSubmit, onCancel, sav
     name: initial?.name || '',
     provider_id: initial?.provider_id ? String(initial.provider_id) : '',
     model: initial?.model || '',
+    reasoning_effort: initial?.reasoning_effort || '',
     system_prompt: initial?.system_prompt || '',
     tools: toTools(initial?.tools),
     mode: initial?.mode || 'read',
@@ -127,6 +128,7 @@ export function AgentForm({ providers, presets, initial, onSubmit, onCancel, sav
     setForm((f) => ({
       ...f,
       name: f.name || p.name || key,
+      reasoning_effort: p.reasoning_effort || f.reasoning_effort,
       system_prompt: p.system_prompt || '',
       tools: toTools(p.tools),
       mode: p.mode || 'read',
@@ -139,6 +141,7 @@ export function AgentForm({ providers, presets, initial, onSubmit, onCancel, sav
       name: form.name,
       provider_id: form.provider_id ? parseInt(form.provider_id, 10) : undefined,
       model: form.model,
+      reasoning_effort: form.reasoning_effort || null,
       system_prompt: form.system_prompt,
       tools: form.tools,
       mode: form.mode,
@@ -192,6 +195,18 @@ export function AgentForm({ providers, presets, initial, onSubmit, onCancel, sav
               </option>
             ))}
           </select>
+        </label>
+        <label className="field">
+          <span className="field-label">Reasoning effort</span>
+          <select value={form.reasoning_effort} onChange={set('reasoning_effort')}>
+            <option value="">Model default</option>
+            <option value="none">None (thinking off)</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="max">Max</option>
+          </select>
+          <span className="field-hint">Sent as reasoning_effort. Some models reject medium.</span>
         </label>
       </div>
       <div className="field">
@@ -533,7 +548,9 @@ export function AgentsPage({ onOpenSettings }) {
                         {a.id === chatDefaultId && <span className="badge accent">default</span>}
                       </div>
                       <div className="agent-card-meta">
-                        {providerName(a.provider_id)} · {providerModel(a.provider_id) || 'model'} ·{' '}
+                        {providerName(a.provider_id)} ·{' '}
+                        {a.model || providerModel(a.provider_id) || 'model'}
+                        {a.reasoning_effort ? ` (${a.reasoning_effort})` : ''} ·{' '}
                         {a.mode || 'read'} mode · {toTools(a.tools).length} tool groups
                       </div>
                     </div>

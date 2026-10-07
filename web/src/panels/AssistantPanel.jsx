@@ -310,7 +310,7 @@ export function AssistantPanel() {
           checked={form.show_thinking !== '0'}
           onChange={(e) => field('show_thinking', e.target.checked ? '1' : '0')}
         />
-        Show the model's thinking when the provider returns it
+        Open the model's thinking cards by default (thinking is always recorded)
       </label>
       <div className="row" style={{ marginBottom: 0 }}>
         <button className="btn primary" disabled={saving}>
