@@ -116,6 +116,10 @@ query GitHub, and write workspace files (plans, specs), but they do not modify t
 - **Agent questions**: the agent can ask you a blocking question with `ask_user`
   (optionally with choices). The question is stored on the chat session, pushes
   a notification, and survives page reloads; your next message is the answer.
+- **Manual steps**: when the work is blocked on something only you can do (run a
+  sudo command, sign a commit with GPG, log into a service), `user_required` ends
+  the turn with a card showing the exact command to copy, and continues once you
+  confirm.
 - **Time aware assistant settings**: the system prompt carries the current time,
   your timezone, name, and standing instructions (Settings, Assistant tab).
 - **Reminders**: ask the agent ("remind me tomorrow at 9") or add one in the

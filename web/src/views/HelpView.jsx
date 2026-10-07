@@ -411,6 +411,12 @@ export function HelpView() {
           the session, so it survives reloads; your next message answers it and the agent
           continues. <em>Skip</em> dismisses it without an answer.
         </p>
+        <p>
+          When the work is blocked on something only you can do, the agent uses
+          <code>user_required</code> instead: the turn ends with an <strong>Action
+          needed</strong> card showing the exact command (for example a <code>sudo</code>
+          step or a GPG-signed commit) to copy and run, and continues once you confirm.
+        </p>
       </Doc>
 
       <Doc id="browser" title="Browser &amp; UI debugging">
