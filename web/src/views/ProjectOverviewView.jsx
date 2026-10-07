@@ -15,7 +15,7 @@ export const WELCOME_SUGGESTIONS = [
   'Draft a plan for a new feature',
 ]
 
-export function Stat({ icon, label, value, tone, onClick }) {
+export function Stat({ icon, label, value, tone, onClick, sub }) {
   const Tag = onClick ? 'button' : 'div'
   return (
     <Tag
@@ -27,7 +27,10 @@ export function Stat({ icon, label, value, tone, onClick }) {
         <Icon name={icon} size={14} className="stat-icon" />
         <span className="stat-label">{label}</span>
       </span>
-      <span className="stat-value">{value}</span>
+      <span className="stat-value-wrap">
+        <span className="stat-value">{value}</span>
+        {sub && <span className="stat-sub">{sub}</span>}
+      </span>
       {onClick && <Icon name="chevronRight" size={14} className="stat-arrow" />}
     </Tag>
   )
@@ -111,12 +114,21 @@ export function GitDetail({ id, git }) {
   if (id === 'commit') {
     const c = git.last_commit
     if (!c) return <p className="muted">No commits yet.</p>
+    const r = git.remote?.last_commit
     return (
       <>
-        <DetailRow label="Subject" value={c.subject} />
-        <DetailRow label="SHA" value={c.sha} />
+        <DetailRow label="Local subject" value={c.subject} />
+        <DetailRow label="Local SHA" value={c.sha} />
         <DetailRow label="Author" value={c.author} />
         <DetailRow label="Date" value={relDate(c.date)} />
+        {r && (
+          <>
+            <DetailRow label="Remote" value={git.remote.ref} />
+            <DetailRow label="Remote subject" value={r.subject} />
+            <DetailRow label="Remote SHA" value={r.sha} />
+            <DetailRow label="Remote date" value={relDate(r.date)} />
+          </>
+        )}
       </>
     )
   }
@@ -246,6 +258,10 @@ export function ProjectOverviewView({ project, since, onStart, onNavigate, onOpe
     .sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0))[0]
   const firstVisit = since === null
   const git = data?.git
+  const remoteCommit = git?.remote?.last_commit
+  const remoteSub = remoteCommit
+    ? `remote: ${truncate(remoteCommit.subject, 42)}${git.behind > 0 ? ` · ${git.behind} behind` : ''}`
+    : undefined
   const github = data?.github
   const repoEntries = data?.repos || []
   const multi = repoEntries.length > 1
@@ -369,6 +385,7 @@ export function ProjectOverviewView({ project, since, onStart, onNavigate, onOpe
             icon="git"
             label="Last commit"
             value={truncate(git?.last_commit?.subject, 42) || 'none'}
+            sub={remoteSub}
             onClick={() => setDetail({ id: 'commit', title: 'Last commit' })}
           />
           <Stat

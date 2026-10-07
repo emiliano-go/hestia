@@ -2668,14 +2668,30 @@ pre {
   color: var(--accent);
   transform: none;
 }
-.stat-value {
+.stat-value-wrap {
   margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 0;
+}
+.stat-value {
   font-size: 20px;
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--fg);
   text-align: right;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stat-sub {
+  font-size: 11.5px;
+  color: var(--faint);
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
