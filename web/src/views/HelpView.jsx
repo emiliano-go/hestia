@@ -64,6 +64,12 @@ export function HelpView() {
           projects, the latest conversations across all projects, and the newest files agents have
           generated.
         </p>
+        <p>
+          A project's overview shows its branch, last commit (the local clone and the remote tip,
+          with how far behind it is), sync state, tasks, token usage, and GitHub activity. Git
+          values come from your local clone while GitHub values are fetched live, so they can differ
+          until you pull.
+        </p>
       </Doc>
 
       <Doc id="quickstart" title="Quick start">
