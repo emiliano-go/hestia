@@ -169,6 +169,14 @@ def test_pull_pending_and_inbox(client):
     assert summary["behind"] == 1
     assert summary["ahead"] == 0
 
+    # local vs remote: the remote tip is the new upstream commit
+    assert summary["remote"]["ref"].endswith("master")
+    assert summary["remote"]["last_commit"]["subject"] == "more"
+    assert summary["last_commit"]["subject"] != "more"
+
+    status = client.get(f"/api/projects/{project['id']}/status").json()
+    assert status["git"]["remote"]["last_commit"]["subject"] == "more"
+
     # polling surfaces a "Pull pending" inbox item
     with Session(engine()) as db:
         inbox.check_pulls(db)
