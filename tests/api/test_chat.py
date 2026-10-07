@@ -573,3 +573,92 @@ def test_memory_checkpoint_accepts_written_memory(client, monkeypatch):
 
     titles = [m["title"] for m in totem_store.list_all(project["local_path"])]
     assert "Checkpoint gotcha" in titles
+
+
+def test_user_required_tool(client, monkeypatch):
+    from sqlmodel import Session as SqlSession
+
+    from hestia import notify
+    from hestia import questions as questions_mod
+    from hestia.agent.loop import AgentPause
+    from hestia.registry.db import engine
+    from hestia.registry.models import Session as ChatSession
+    from hestia.tools import questions as question_tools
+    from hestia.tools.registry import ProjectContext
+
+    project = _mk_project(client)
+    monkeypatch.setenv("NTFY_TOPIC", "home")
+
+    class FakeResp:
+        status_code = 200
+        text = "ok"
+
+    calls = []
+    monkeypatch.setattr(notify.httpx, "post", lambda url, **kw: calls.append(url) or FakeResp())
+
+    with SqlSession(engine()) as db:
+        chat = ChatSession(project_id=project["id"], title="u")
+        db.add(chat)
+        db.commit()
+        db.refresh(chat)
+        ctx = ProjectContext(
+            project_id=project["id"],
+            name=project["name"],
+            repo_url=project["repo_url"],
+            local_path=Path(project["local_path"]),
+            session_id=chat.id,
+        )
+        tools = {t.name: t for t in question_tools.make_tools(db)}
+        with pytest.raises(AgentPause) as exc:
+            tools["user_required"].handler(ctx, {
+                "action": "Sign the release commit with GPG",
+                "command": "git commit -S -m 'release'",
+                "details": "The release tag needs a signed commit.",
+            })
+        payload = exc.value.payload
+        assert payload["kind"] == "user_required"
+        assert payload["question"] == "Sign the release commit with GPG"
+        assert payload["meta"]["command"] == "git commit -S -m 'release'"
+        assert payload["options"] == ["Done", "Skip"]
+        rows = questions_mod.list_for_session(db, chat.id)
+        assert len(rows) == 1
+        assert rows[0].kind == "user_required" and rows[0].status == "open"
+        assert questions_mod.as_dict(rows[0])["meta"]["command"] == "git commit -S -m 'release'"
+
+        bare = ProjectContext(project_id=1, name="x", repo_url="", local_path=Path("."))
+        with pytest.raises(ValueError):
+            tools["user_required"].handler(bare, {"action": "x"})
+
+    assert calls == ["https://ntfy.sh/home"]
+
+
+def test_chat_user_required_event(client, monkeypatch):
+    from hestia.agent import loop as agent_loop
+    from hestia.agent.loop import AgentPause
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+    calls = {"n": 0}
+
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            try:
+                registry.get("user_required").handler(
+                    ctx, {"action": "Run the migration", "command": "sudo migrate"}
+                )
+            except AgentPause as pause:
+                yield {"type": "question", **pause.payload}
+                return
+        yield {"type": "message", "content": "ok", "tool_calls": []}
+
+    monkeypatch.setattr(agent_loop, "run_turn", fake_run_turn)
+
+    resp = client.post(
+        f"/api/projects/{project['id']}/chat",
+        json={"message": "go", "provider_id": provider["id"]},
+    )
+    assert resp.status_code == 200
+    assert '"event": "question"' in resp.text
+    assert '"kind": "user_required"' in resp.text
+    assert "sudo migrate" in resp.text
