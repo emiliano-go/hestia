@@ -25,7 +25,8 @@ def test_memory_fix(client, monkeypatch):
     async def fake_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
         # memory-only registry, catalog in system prompt, instruction in user msg
         assert set(registry._tools) == {"memory_search", "memory_get", "memory_list",
-                                        "memory_create", "memory_update", "memory_delete"}
+                                        "memory_create", "memory_update", "memory_delete",
+                                        "memory_relate", "memory_relations", "memory_history"}
         assert "Old fact" in messages[0]["content"]
         assert "fix it" in messages[-1]["content"]
         yield {"type": "message", "content": "Fixed 1 memory.", "tool_calls": []}

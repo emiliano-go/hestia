@@ -63,6 +63,34 @@ def register(registry: Registry) -> None:
             "details": {"type": "string"},
             "confidence": {"type": "number"},
             "importance": {"type": "number"},
+            "asserted_by": {
+                "type": "string",
+                "description": (
+                    "provenance: user, test, source, git, doc, runtime, agent "
+                    "(default agent); sets a default confidence when omitted"
+                ),
+            },
+            "applicability": {
+                "type": "string",
+                "description": "current, legacy, deprecated, planned",
+            },
+            "scope": {
+                "type": "string",
+                "description": "user, project, path, task, or JSON {kind, value}",
+            },
+            "supersedes_id": {
+                "type": "string",
+                "description": "id of a memory this one replaces (marks it superseded)",
+            },
+            "related_memory_ids": {"type": "array", "items": {"type": "string"}},
+            "evidence": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": (
+                    "evidence objects: path, startLine, endLine, contentHash, "
+                    "symbol, blobHash"
+                ),
+            },
             "metadata": {
                 "type": "object",
                 "description": (
@@ -84,20 +112,43 @@ def register(registry: Registry) -> None:
             details=a.get("details"),
             confidence=a.get("confidence"),
             importance=a.get("importance", 0.5),
-            metadata=a.get("metadata"),
             asserted_by=a.get("asserted_by") or "agent",
+            applicability=a.get("applicability"),
+            scope=a.get("scope"),
+            supersedes_id=a.get("supersedes_id"),
+            related_memory_ids=a.get("related_memory_ids"),
+            evidence=a.get("evidence"),
+            metadata=a.get("metadata"),
         ),
         group="memory",
         effect="write",
     ))
     registry.register(Tool(
         name="memory_update",
-        description="Update an existing memory item (statement, details, title, confidence, importance).",
+        description=(
+            "Update an existing memory item (statement, details, title, tags, "
+            "confidence, importance, status, scope, applicability, evidence, "
+            "metadata). Illegal lifecycle transitions are rejected."
+        ),
         parameters=schema({
             "id": {"type": "string"},
             "title": {"type": "string"},
             "statement": {"type": "string"},
             "details": {"type": "string"},
+            "tags": {"type": "array", "items": {"type": "string"}},
+            "confidence": {"type": "number"},
+            "importance": {"type": "number"},
+            "status": {
+                "type": "string",
+                "description": "active, potentially_stale, invalidated, resolved, superseded",
+            },
+            "scope": {"type": "string"},
+            "applicability": {
+                "type": "string",
+                "description": "current, legacy, deprecated, planned",
+            },
+            "evidence": {"type": "array", "items": {"type": "object"}},
+            "metadata": {"type": "object"},
             "reason": {"type": "string", "description": "why this update"},
         }, ["id"]),
         handler=lambda ctx, a: totem_store.update(
@@ -106,6 +157,14 @@ def register(registry: Registry) -> None:
             title=a.get("title"),
             statement=a.get("statement"),
             details=a.get("details"),
+            tags=a.get("tags"),
+            confidence=a.get("confidence"),
+            importance=a.get("importance"),
+            status=a.get("status"),
+            scope=a.get("scope"),
+            applicability=a.get("applicability"),
+            evidence=a.get("evidence"),
+            metadata=a.get("metadata"),
         ),
         group="memory",
         effect="write",
@@ -120,6 +179,41 @@ def register(registry: Registry) -> None:
         handler=lambda ctx, a: totem_store.delete(ctx.memory_path, a["id"], a["reason"]),
         group="memory",
         effect="write",
+    ))
+    registry.register(Tool(
+        name="memory_relate",
+        description=(
+            "Create a typed relation between two project memories: supersedes, "
+            "contradicts, invalidates, derived_from, verified_by, refines, "
+            "depends_on. supersedes/invalidates update the target's status."
+        ),
+        parameters=schema({
+            "from_id": {"type": "string"},
+            "to_id": {"type": "string"},
+            "kind": {"type": "string"},
+        }, ["from_id", "to_id", "kind"]),
+        handler=lambda ctx, a: totem_store.relate(
+            ctx.memory_path, a["from_id"], a["to_id"], a["kind"]
+        ),
+        group="memory",
+        effect="write",
+    ))
+    registry.register(Tool(
+        name="memory_relations",
+        description="List the typed relations involving a memory.",
+        parameters=schema({"id": {"type": "string"}}, ["id"]),
+        handler=lambda ctx, a: totem_store.relations(ctx.memory_path, a["id"]),
+        group="memory",
+    ))
+    registry.register(Tool(
+        name="memory_history",
+        description=(
+            "The immutable audit timeline of a memory (who changed what, when), "
+            "for explaining why the agent believed something."
+        ),
+        parameters=schema({"id": {"type": "string"}}, ["id"]),
+        handler=lambda ctx, a: totem_store.history(ctx.memory_path, a["id"]),
+        group="memory",
     ))
 
 

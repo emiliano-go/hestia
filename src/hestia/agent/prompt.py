@@ -20,7 +20,9 @@ the user the path.
 Memory workflow: before answering, use memory_search to recall relevant
 project context. After substantive discussion (decisions made, facts learned,
 architecture explained), use memory_create so future sessions benefit. Write
-memories as durable facts, not transcripts.
+memories as durable facts, not transcripts. Link related memories with
+memory_relate (supersedes, depends_on, contradicts, refines); use
+memory_relations and memory_history to inspect links and a memory's timeline.
 
 Task board: the project has a Kanban board of tasks, independent of this chat.
 Use task_list to see the board, task_create to turn a request or plan into

@@ -86,3 +86,23 @@ def test_workspace_write_read_list_and_escape(registry, repo, tmp_path):
     assert registry.get("workspace_list").handler(ctx, {"pattern": "plans/*.md"}) == ["plans/spec.md"]
     with pytest.raises(PermissionError):
         registry.get("workspace_write").handler(ctx, {"path": "../../evil.md", "content": "x"})
+
+
+def test_memory_relate_relations_history_via_tools(registry, repo):
+    a = registry.get("memory_create").handler(repo, {
+        "type": "decision", "title": "A", "statement": "claim A", "tags": ["x"],
+        "scope": "project", "asserted_by": "user",
+    })
+    b = registry.get("memory_create").handler(repo, {
+        "type": "gotcha", "title": "B", "statement": "claim B", "tags": ["x"],
+    })
+    rel = registry.get("memory_relate").handler(repo, {
+        "from_id": a["id"], "to_id": b["id"], "kind": "depends_on",
+    })
+    assert rel["kind"] == "depends_on"
+
+    relations = registry.get("memory_relations").handler(repo, {"id": a["id"]})
+    assert any(r["to_id"] == b["id"] for r in relations)
+
+    history = registry.get("memory_history").handler(repo, {"id": a["id"]})
+    assert any(h["event"] == "related" for h in history)

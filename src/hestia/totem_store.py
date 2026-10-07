@@ -17,8 +17,11 @@ from totem_mcp.tools import (
     memory_create,
     memory_delete,
     memory_get,
+    memory_history,
     memory_list,
     memory_recent,
+    memory_relate,
+    memory_relations,
     memory_search,
     memory_update,
 )
@@ -181,3 +184,23 @@ def update(project_dir: Path, memory_id: str, **kwargs) -> dict | None:
 def delete(project_dir: Path, memory_id: str, reason: str) -> dict:
     with totem(project_dir) as conn:
         return memory_delete(conn, memory_id, reason)
+
+
+def relate(
+    project_dir: Path, from_id: str, to_id: str, kind: str, **kwargs
+) -> dict:
+    """Create a typed relation between two project memories."""
+    with totem(project_dir) as conn:
+        return memory_relate(conn, from_id, to_id, kind, **kwargs)
+
+
+def relations(project_dir: Path, memory_id: str) -> list[dict]:
+    """All typed relations involving one project memory."""
+    with totem(project_dir) as conn:
+        return memory_relations(conn, memory_id)
+
+
+def history(project_dir: Path, memory_id: str) -> list[dict]:
+    """The immutable timeline (audit) of one project memory."""
+    with totem(project_dir) as conn:
+        return memory_history(conn, memory_id)
