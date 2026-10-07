@@ -2600,6 +2600,7 @@ pre {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   align-items: stretch;
+  margin-bottom: 22px;
 }
 /* an odd number of cards leaves one full-width card instead of a lopsided row */
 .stat-grid > :last-child:nth-child(odd) {
