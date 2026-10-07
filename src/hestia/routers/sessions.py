@@ -105,7 +105,12 @@ def fix_memory(project_id: int, body: dict, s: Session = Depends(session)):
     ) or "(memory is empty)"
     system = FIXER_PROMPT + catalog
 
-    client = OpenAIClient(provider.base_url, resolve_api_key(provider), provider.model)
+    client = OpenAIClient(
+        provider.base_url,
+        resolve_api_key(provider),
+        provider.model,
+        reasoning_effort=getattr(provider, "reasoning_effort", None),
+    )
     registry = build_registry().filtered(["memory"])
     ctx = ProjectContext.from_project(project)
     messages = [

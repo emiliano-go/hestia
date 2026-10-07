@@ -188,7 +188,10 @@ async def _run_goal_agent(s: Session, goal: Goal, provider: Provider, system: st
     for tool in task_tools.make_tools(s):
         registry.register(tool)
     client = OpenAIClient(
-        provider.base_url, resolve_api_key(provider), provider.model
+        provider.base_url,
+        resolve_api_key(provider),
+        provider.model,
+        reasoning_effort=getattr(provider, "reasoning_effort", None),
     )
     messages = [
         {"role": "system", "content": system},

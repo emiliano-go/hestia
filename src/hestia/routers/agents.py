@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from hestia.actions import ACTIONS, ACTIONS_BY_KEY, action_defaults
+from hestia.providers.base import REASONING_EFFORTS
 from hestia.registry.db import session
 from hestia.registry.models import ActionDefault, AgentConfig
 
@@ -21,6 +22,7 @@ PRESETS = {
         "tools": "repo,files",
         "mode": "read",
         "max_turns": 6,
+        "reasoning_effort": "low",
     },
     "github-scan": {
         "name": "github-scan",
@@ -32,6 +34,7 @@ PRESETS = {
         "tools": "github,repo",
         "mode": "read",
         "max_turns": 6,
+        "reasoning_effort": "low",
     },
     "memory-keeper": {
         "name": "memory-keeper",
@@ -43,6 +46,7 @@ PRESETS = {
         "tools": "memory",
         "mode": "write",
         "max_turns": 6,
+        "reasoning_effort": "low",
     },
     "writer": {
         "name": "writer",
@@ -56,6 +60,7 @@ PRESETS = {
         "tools": "workspace,repo,files,writes",
         "mode": "write",
         "max_turns": 8,
+        "reasoning_effort": "high",
     },
     "bulk-editor": {
         "name": "bulk-editor",
@@ -69,6 +74,7 @@ PRESETS = {
         "tools": "repo,files,writes,workspace",
         "mode": "write",
         "max_turns": 12,
+        "reasoning_effort": "high",
     },
     "code-reviewer": {
         "name": "code-reviewer",
@@ -79,6 +85,7 @@ PRESETS = {
         "tools": "repo,files,github",
         "mode": "read",
         "max_turns": 8,
+        "reasoning_effort": "high",
     },
     "image": {
         "name": "image",
@@ -91,6 +98,7 @@ PRESETS = {
         "tools": "images,workspace",
         "mode": "write",
         "max_turns": 4,
+        "reasoning_effort": "low",
     },
     "browser": {
         "name": "browser",
@@ -102,6 +110,7 @@ PRESETS = {
         "tools": "browser",
         "mode": "write",
         "max_turns": 8,
+        "reasoning_effort": "low",
     },
     "memory-writer": {
         "name": "memory-writer",
@@ -114,6 +123,7 @@ PRESETS = {
         "tools": "memory",
         "mode": "write",
         "max_turns": 6,
+        "reasoning_effort": "low",
     },
     "image-reader": {
         "name": "image-reader",
@@ -126,6 +136,7 @@ PRESETS = {
         "tools": "browser",
         "mode": "read",
         "max_turns": 3,
+        "reasoning_effort": "low",
     },
 }
 
@@ -135,6 +146,17 @@ def _mode(body: dict) -> str:
     if mode not in ("read", "write"):
         raise HTTPException(400, "mode must be 'read' or 'write'")
     return mode
+
+
+def _effort(value) -> str | None:
+    effort = str(value or "").strip().lower()
+    if not effort:
+        return None
+    if effort not in REASONING_EFFORTS:
+        raise HTTPException(
+            400, f"reasoning_effort must be one of {', '.join(REASONING_EFFORTS)}"
+        )
+    return effort
 
 
 @router.get("/presets")
@@ -162,6 +184,7 @@ def create_agent(body: dict, s: Session = Depends(session)):
         system_prompt=body.get("system_prompt", ""),
         provider_id=body["provider_id"],
         model=(body.get("model") or "").strip() or None,
+        reasoning_effort=_effort(body.get("reasoning_effort")),
         tools=tools,
         mode=_mode(body),
         max_turns=body.get("max_turns", 6),
@@ -185,6 +208,8 @@ def update_agent(agent_id: int, body: dict, s: Session = Depends(session)):
         config.provider_id = body["provider_id"]
     if "model" in body:
         config.model = (body.get("model") or "").strip() or None
+    if "reasoning_effort" in body:
+        config.reasoning_effort = _effort(body.get("reasoning_effort"))
     if "tools" in body:
         tools = body["tools"]
         config.tools = ",".join(tools) if isinstance(tools, list) else tools

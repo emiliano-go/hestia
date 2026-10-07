@@ -9,7 +9,7 @@ import fnmatch
 import os
 from pathlib import Path
 
-from hestia.tools.registry import ProjectContext, Registry, Tool, schema
+from hestia.tools.registry import ProjectContext, Registry, Tool, schema, write_allowed
 
 _MAX_BYTES = 100_000
 
@@ -75,6 +75,10 @@ def register(registry: Registry) -> None:
 
 
 def _write(ctx: ProjectContext, rel: str, content: str) -> dict:
+    if not write_allowed(ctx, rel):
+        raise PermissionError(
+            f"write scope: {rel} is outside the allowed files {ctx.write_allowlist}"
+        )
     path = _resolve(ctx, rel)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)

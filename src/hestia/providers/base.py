@@ -8,6 +8,10 @@ import httpx
 
 USER_AGENT = "hestia-agent/1.0"
 
+# Accepted reasoning_effort values. Some Go models reject "medium" (e.g. GLM);
+# "none" disables thinking entirely on models that allow it.
+REASONING_EFFORTS = ("none", "low", "medium", "high", "max")
+
 
 class ProviderError(RuntimeError):
     pass
@@ -21,11 +25,14 @@ class OpenAIClient:
         model: str,
         timeout: float = 120.0,
         session: str | None = None,
+        reasoning_effort: str | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
         self.timeout = timeout
+        # none | low | medium | high | max; omitted from the payload when unset
+        self.reasoning_effort = reasoning_effort or None
         # OpenCode Go wants a stable per-conversation session id for routing;
         # callers pass the chat/session id when they have one.
         self.session = session or secrets.token_urlsafe(12)
@@ -38,12 +45,11 @@ class OpenAIClient:
             headers["x-opencode-session"] = self.session
         return headers
 
-    async def stream_chat(
+    def _payload(
         self,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
-    ) -> AsyncIterator[dict[str, Any]]:
-        """Yield raw SSE chunks from /chat/completions."""
+    ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
@@ -52,6 +58,17 @@ class OpenAIClient:
         }
         if tools:
             payload["tools"] = tools
+        if self.reasoning_effort:
+            payload["reasoning_effort"] = self.reasoning_effort
+        return payload
+
+    async def stream_chat(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Yield raw SSE chunks from /chat/completions."""
+        payload = self._payload(messages, tools)
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             async with client.stream(
                 "POST",

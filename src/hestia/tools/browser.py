@@ -368,6 +368,7 @@ def _describe_image(ctx, db, fallback_provider, png_b64: str, question: str, con
         resolve_api_key(provider),
         provider.model,
         session=f"image-reader-{ctx.session_id or ctx.project_id}",
+        reasoning_effort=getattr(provider, "reasoning_effort", None),
     )
 
     async def run() -> tuple[str, dict]:

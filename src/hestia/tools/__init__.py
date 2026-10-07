@@ -4,7 +4,7 @@
 project has ``allow_git_writes`` set.
 """
 
-from hestia.tools import files, github, memory, notify, repo, webfetch, workspace
+from hestia.tools import files, github, memory, notify, plan, repo, webfetch, workspace
 from hestia.tools import gitwrites, preferences, skills
 from hestia.tools.registry import Registry
 
@@ -16,6 +16,7 @@ def build_registry(writes: bool = False, db=None) -> Registry:
     github.register(registry)
     memory.register(registry)
     workspace.register(registry)
+    plan.register(registry)
     notify.register(registry)
     webfetch.register(registry)
     skills.register(registry)

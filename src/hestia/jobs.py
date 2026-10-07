@@ -115,6 +115,7 @@ def submit(
     instruction: str,
     description: str,
     action: str = "chat",
+    payload: str = "{}",
 ) -> int:
     with Session(engine()) as db:
         job = BackgroundTask(
@@ -124,6 +125,7 @@ def submit(
             instruction=instruction,
             description=description or instruction[:80],
             action=action or "chat",
+            payload=payload,
         )
         db.add(job)
         db.commit()
@@ -218,10 +220,49 @@ class JobManager:
         await _deliver(job_id)
 
 
+async def _execute_swarm(
+    db: Session, job: BackgroundTask, project: Project
+) -> tuple[str, str | None, dict]:
+    from hestia.tools.subagents import run_swarm
+
+    try:
+        data = json.loads(job.payload or "{}")
+    except ValueError:
+        data = {}
+    tasks = data.get("tasks") or []
+    if not tasks:
+        return "", "swarm job has no tasks", {}
+    ctx = ProjectContext.from_project(project)
+    ctx.session_id = job.session_id
+    results = await asyncio.to_thread(
+        run_swarm,
+        ctx,
+        db,
+        str(data.get("directive") or ""),
+        tasks,
+        int(data.get("max_parallel") or 3),
+        data.get("write_scope") or None,
+    )
+    lines = []
+    failed = False
+    for r in results:
+        ok = r.get("status") != "error"
+        failed = failed or not ok
+        lines.append(f"- [{'ok' if ok else 'error'}] {r.get('agent', '?')}: "
+                     f"{(r.get('summary') or r.get('error') or '').strip()[:400]}")
+    # Include the structured roster so the UI can rebuild the swarm card.
+    lines.append("")
+    lines.append("<agent_swarm_result>" + json.dumps(results) + "</agent_swarm_result>")
+    return "\n".join(lines), ("some swarm tasks failed" if failed else None), {}
+
+
 async def _execute_job(
     db: Session, job: BackgroundTask, project: Project
 ) -> tuple[str, str | None, dict]:
     from hestia.tools.subagents import SUBAGENT_PROMPT, subagent_system
+
+    if job.kind == "swarm":
+        return await _execute_swarm(db, job, project)
 
     agent = _agent_for(db, job.action or "chat")
     provider = _provider_for(db, project, agent)
@@ -230,6 +271,11 @@ async def _execute_job(
     ctx = ProjectContext.from_project(project)
     ctx.session_id = job.session_id
     instruction = job.instruction or job.description or "Do the background task."
+    try:
+        job_payload = json.loads(job.payload or "{}")
+    except ValueError:
+        job_payload = {}
+    write_scope = job_payload.get("write_scope") or None
 
     mode = None
     if job.kind == "subagent":
@@ -268,6 +314,7 @@ async def _execute_job(
         tasks_db=db,
         writes=bool(project.allow_git_writes),
         mode=mode,
+        write_allowlist=tuple(write_scope) if write_scope else None,
     )
     usage.record(
         db,
@@ -406,7 +453,10 @@ async def _continue(session_id: str, project_id: int) -> None:
             system += "\n\n" + BACKGROUND_NOTE
             registry = build_registry(writes=bool(project.allow_git_writes), db=db)
             client = OpenAIClient(
-                provider.base_url, resolve_api_key(provider), provider.model
+                provider.base_url,
+                resolve_api_key(provider),
+                provider.model,
+                reasoning_effort=getattr(provider, "reasoning_effort", None),
             )
             messages = _replay(db, session_id, system)
             final = ""

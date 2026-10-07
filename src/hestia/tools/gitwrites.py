@@ -18,7 +18,7 @@ import httpx
 from sqlmodel import Session, select
 
 from hestia import config, overview, urls
-from hestia.tools.registry import ProjectContext, Registry, Tool, schema
+from hestia.tools.registry import ProjectContext, Registry, Tool, schema, write_allowed
 
 GITHUB_API = "https://api.github.com"
 _MAX_WRITE_BYTES = 1_000_000
@@ -71,6 +71,10 @@ def _write_file(ctx: ProjectContext, args: dict) -> dict:
     if len(content.encode("utf-8")) > _MAX_WRITE_BYTES:
         raise ValueError(f"content exceeds {_MAX_WRITE_BYTES} bytes")
     repo = args.get("repo")
+    if not write_allowed(ctx, rel):
+        raise PermissionError(
+            f"write scope: {rel} is outside the allowed files {ctx.write_allowlist}"
+        )
     path = _resolve(ctx, rel, repo)
     if path.is_dir():
         raise ValueError(f"path is a directory: {rel}")

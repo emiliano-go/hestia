@@ -16,11 +16,13 @@ subagents.
 """
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
+import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 
 from sqlmodel import Session, select
 
-from hestia import actions, runs
+from hestia import actions, runs, usage
 from hestia.agent import loop as agent_loop
 from hestia.agent.prompt import POLICY
 from hestia.providers.base import OpenAIClient, resolve_api_key
@@ -89,6 +91,132 @@ def subagent_system(config: AgentConfig) -> str:
     return f"{SUBAGENT_PROMPT}\n{note}\n## Agent instructions\n{config.system_prompt}"
 
 
+def _parent_event(ctx: ProjectContext, event: dict) -> None:
+    """Forward a subagent/swarm lifecycle event to the parent chat run."""
+    if not ctx.run_id:
+        return
+    parent = runs.manager.get(ctx.run_id)
+    if parent is not None:
+        runs.manager.emit(parent, event)
+
+
+def _resolve_config(db: Session, action: str | None, agent: str | None) -> AgentConfig | None:
+    config = actions.resolve_action(db, action) if action else None
+    if config is None and agent:
+        config = db.exec(select(AgentConfig).where(AgentConfig.name == agent)).first()
+    return config
+
+
+def _spawn(
+    ctx: ProjectContext,
+    db: Session,
+    config: AgentConfig,
+    task: str,
+    *,
+    directive: str = "",
+    write_scope: list[str] | None = None,
+    index: int | None = None,
+) -> dict:
+    """Run one delegated subagent to completion and report its child run."""
+    provider = db.get(Provider, config.provider_id)
+    if provider is None:
+        raise ValueError(f"agent profile '{config.name}' has no valid provider")
+    provider = actions.effective_provider(config, provider)
+    client = OpenAIClient(
+        provider.base_url,
+        resolve_api_key(provider),
+        provider.model,
+        session=f"subagent-{ctx.session_id or ctx.project_id}",
+        reasoning_effort=getattr(provider, "reasoning_effort", None),
+    )
+    registry = delegated_registry(config.tools, config.mode, writes=ctx.allow_git_writes, db=db)
+    if not registry.all():
+        raise ValueError(
+            f"agent profile '{config.name}' has no delegable tools "
+            f"(tools={config.tools!r}, mode={config.mode!r})"
+        )
+    system = subagent_system(config)
+    if directive:
+        system += f"\n\n## Swarm directive\n{directive}"
+    child = runs.manager.create(
+        "subagent",
+        project_id=ctx.project_id,
+        session_id=ctx.session_id,
+        parent_run_id=ctx.run_id,
+        title=task[:120],
+    )
+    _parent_event(ctx, {
+        "type": "subagent", "tool_call_id": ctx.tool_call_id, "run_id": child.id,
+        "index": index, "name": config.name, "title": task[:80], "status": "running",
+    })
+    sub_ctx = replace(
+        ctx,
+        write_allowlist=tuple(write_scope) if write_scope else ctx.write_allowlist,
+    )
+    result = _run_subagent_in_thread(
+        sub_ctx, client, registry,
+        [{"role": "system", "content": system}, {"role": "user", "content": task}],
+        child,
+        max_turns=config.max_turns,
+    )
+    tokens = result.get("tokens") or {}
+    if tokens:
+        try:
+            usage.record(db, ctx.project_id, session_id=ctx.session_id,
+                         action="subagent", model=provider.model, usage=tokens)
+        except Exception:
+            pass
+    error = result.get("error")
+    out = {
+        "index": index, "agent": config.name, "task": task, "run_id": child.id,
+        "status": "error" if error else "done",
+        "summary": result.get("summary", ""), "error": error or "",
+    }
+    _parent_event(ctx, {
+        "type": "subagent", "tool_call_id": ctx.tool_call_id, "run_id": child.id,
+        "index": index, "name": config.name, "status": out["status"],
+        "summary": (out["summary"] or out["error"])[:2000],
+    })
+    return out
+
+
+def run_swarm(
+    ctx: ProjectContext,
+    db: Session,
+    directive: str,
+    tasks: list,
+    max_parallel: int = 3,
+    write_scope: list[str] | None = None,
+) -> list[dict]:
+    """Fan out a shared directive to several subagents, each with its own task."""
+    if not tasks:
+        raise ValueError("tasks must be a non-empty list")
+    specs = []
+    for i, item in enumerate(tasks):
+        if not isinstance(item, dict) or not str(item.get("task") or "").strip():
+            raise ValueError(f"task {i} needs a 'task' string")
+        action = item.get("action") or ("explore" if not item.get("agent") else None)
+        config = _resolve_config(db, action, item.get("agent"))
+        if config is None:
+            raise ValueError(f"task {i}: unknown agent/action {item.get('action') or item.get('agent')}")
+        specs.append((i, str(item["task"]).strip(), config))
+    workers = max(1, min(int(max_parallel or 3), len(specs)))
+    out: list = [None] * len(specs)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(_spawn, ctx, db, config, task,
+                        directive=directive, write_scope=write_scope, index=i): i
+            for (i, task, config) in specs
+        }
+        for fut in as_completed(futures):
+            i = futures[fut]
+            try:
+                out[i] = fut.result()
+            except Exception as e:  # noqa: BLE001
+                out[i] = {"index": i, "status": "error", "error": f"{type(e).__name__}: {e}"}
+    return out
+
+
 def make_tools(db: Session) -> list[Tool]:
     def run_handler(ctx: ProjectContext, args: dict) -> dict:
         config = None
@@ -100,6 +228,7 @@ def make_tools(db: Session) -> list[Tool]:
             raise ValueError(
                 f"unknown agent profile or action: {args.get('action') or args.get('agent')}"
             )
+        write_scope = [str(g).strip() for g in (args.get("write_scope") or []) if str(g).strip()]
         if args.get("run_in_background"):
             from hestia import jobs
 
@@ -111,45 +240,52 @@ def make_tools(db: Session) -> list[Tool]:
                 instruction=args["task"],
                 description=args.get("description") or args["task"][:60],
                 action=key,
+                payload=json.dumps({"agent": config.name, "write_scope": write_scope or None}),
             )
             return {
                 "job_id": job_id,
                 "status": "queued",
                 "note": "Subagent running in the background; you will be notified when it finishes.",
             }
-        provider = db.get(Provider, config.provider_id)
-        if provider is None:
-            raise ValueError(f"agent profile '{config.name}' has no valid provider")
-        provider = actions.effective_provider(config, provider)
-        client = OpenAIClient(
-            provider.base_url,
-            resolve_api_key(provider),
-            provider.model,
-            session=f"subagent-{ctx.session_id or ctx.project_id}",
-        )
-        registry = delegated_registry(
-            config.tools, config.mode, writes=ctx.allow_git_writes, db=db
-        )
-        if not registry.all():
-            raise ValueError(
-                f"agent profile '{config.name}' has no delegable tools "
-                f"(tools={config.tools!r}, mode={config.mode!r})"
-            )
-        messages = [
-            {"role": "system", "content": subagent_system(config)},
-            {"role": "user", "content": args["task"]},
-        ]
-        child = runs.manager.create(
-            "subagent",
-            project_id=ctx.project_id,
-            session_id=ctx.session_id,
-            parent_run_id=ctx.run_id,
-            title=args["task"],
-        )
-        result = _run_subagent_in_thread(ctx, client, registry, messages, child)
-        if "error" in result:
+        result = _spawn(ctx, db, config, args["task"], write_scope=write_scope or None)
+        if result.get("error"):
             raise RuntimeError(result["error"])
-        return result
+        return {"summary": result["summary"], "run_id": result["run_id"], "status": result["status"]}
+
+    def swarm_handler(ctx: ProjectContext, args: dict) -> dict:
+        directive = str(args.get("directive") or "").strip()
+        tasks = args.get("tasks") or []
+        if not directive:
+            raise ValueError("directive is required")
+        if not isinstance(tasks, list) or not 1 <= len(tasks) <= 8:
+            raise ValueError("tasks must be a list of 1 to 8 items")
+        write_scope = [str(g).strip() for g in (args.get("write_scope") or []) if str(g).strip()]
+        parallel = int(args.get("max_parallel") or 3)
+        if args.get("run_in_background"):
+            from hestia import jobs
+
+            job_id = jobs.submit(
+                project_id=ctx.project_id,
+                session_id=ctx.session_id,
+                kind="swarm",
+                instruction=directive,
+                description=args.get("description") or directive[:60],
+                action="swarm",
+                payload=json.dumps({
+                    "directive": directive,
+                    "tasks": tasks,
+                    "max_parallel": parallel,
+                    "write_scope": write_scope or None,
+                }),
+            )
+            return {
+                "job_id": job_id,
+                "count": len(tasks),
+                "status": "queued",
+                "note": "Swarm running in the background; you will be notified when it finishes.",
+            }
+        results = run_swarm(ctx, db, directive, tasks, parallel, write_scope or None)
+        return {"count": len(results), "results": results}
 
     def list_handler(ctx: ProjectContext, args: dict) -> list[dict]:
         configs = db.exec(select(AgentConfig)).all()
@@ -204,9 +340,69 @@ def make_tools(db: Session) -> list[Tool]:
                     "type": "string",
                     "description": "short 3 to 5 word label (required with run_in_background)",
                 },
+                "write_scope": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "optional repo/workspace globs the subagent may write "
+                        "(e.g. ['src/foo/**']); omit for no restriction"
+                    ),
+                },
             }, ["task"]),
             handler=run_handler,
             group="agents",
+        ),
+        Tool(
+            name="run_swarm",
+            description=(
+                "Fan out one main directive to several subagents in parallel, each "
+                "with its own specific task (e.g. directive 'audit the codebase', "
+                "tasks ['agent A audits src/x.py', 'agent B audits src/y.py']). "
+                "Returns per-agent status, run id, and summary. Subagents can never "
+                "branch/commit/push; you do that after reviewing their work."
+            ),
+            parameters=schema({
+                "directive": {
+                    "type": "string",
+                    "description": "the shared main directive every subagent receives",
+                },
+                "tasks": {
+                    "type": "array",
+                    "description": "1 to 8 specific tasks",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "task": {"type": "string", "description": "this agent's specific task"},
+                            "action": {
+                                "type": "string",
+                                "description": "configured role (default explore)",
+                            },
+                            "agent": {"type": "string", "description": "agent profile name"},
+                        },
+                        "required": ["task"],
+                    },
+                },
+                "max_parallel": {
+                    "type": "integer",
+                    "description": "how many subagents run at once (default 3)",
+                },
+                "write_scope": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "optional globs the write-mode subagents may write",
+                },
+                "run_in_background": {
+                    "type": "boolean",
+                    "description": "detach the whole swarm and get a job id + notification",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "short label (with run_in_background)",
+                },
+            }, ["directive", "tasks"]),
+            handler=swarm_handler,
+            group="agents",
+            delegable=False,
         ),
         Tool(
             name="agent_list",
@@ -228,16 +424,22 @@ def _progress(parent_run, tool_call_id: str | None, text: str) -> None:
     )
 
 
-async def _run_subagent(ctx, client, registry, messages, run=None) -> dict:
+async def _run_subagent(ctx, client, registry, messages, run=None, max_turns=None) -> dict:
     final = ""
     status, error = "done", ""
     parent = runs.manager.get(ctx.run_id) if ctx.run_id else None
     steps = 0
+    tokens: dict = {}
     try:
-        async for event in agent_loop.run_turn(ctx, client, registry, messages, run=run):
+        async for event in agent_loop.run_turn(
+            ctx, client, registry, messages, run=run, max_turns=max_turns
+        ):
             if run is not None:
                 runs.manager.emit(run, event)
             etype = event["type"]
+            if etype == "usage":
+                usage.merge(tokens, event.get("usage"))
+                continue
             if etype == "tool_call":
                 steps += 1
                 _progress(parent, ctx.tool_call_id, f"step {steps} · {event.get('name')}")
@@ -251,11 +453,11 @@ async def _run_subagent(ctx, client, registry, messages, run=None) -> dict:
         if run is not None:
             runs.manager.finish(run, status, result=final, error=error)
     if error:
-        return {"error": error}
-    return {"summary": final}
+        return {"error": error, "tokens": tokens}
+    return {"summary": final, "tokens": tokens}
 
 
-def _run_subagent_in_thread(ctx, client, registry, messages, run=None) -> dict:
+def _run_subagent_in_thread(ctx, client, registry, messages, run=None, max_turns=None) -> dict:
     """Run the subagent loop off the main event loop.
 
     Tool handlers are sync, so this is called from inside the parent's running
@@ -264,5 +466,5 @@ def _run_subagent_in_thread(ctx, client, registry, messages, run=None) -> dict:
     """
     with ThreadPoolExecutor(max_workers=1) as pool:
         return pool.submit(
-            asyncio.run, _run_subagent(ctx, client, registry, messages, run)
+            asyncio.run, _run_subagent(ctx, client, registry, messages, run, max_turns)
         ).result()

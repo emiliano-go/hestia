@@ -39,12 +39,17 @@ _DELEGATION_NOTE = """\
 You can delegate subtasks via run_subagent: read mode for exploration,
 scanning, and review; write mode for workspace deliverables, memory curation,
 and bulk file edits (doc sweeps, renames, typo fixes) when git writes are
-enabled. Prefer an action (explore, github-scan, memory-keeper, writer,
-code-reviewer, bulk-edit) so the app uses the agent assigned to that role;
-list profiles with agent_list. Send large mechanical edits to a cheap
-bulk-edit agent, then review the diff and commit/push/open the PR yourself:
-subagents can edit files but never run mutating git commands. Images, the
-browser, the task board, automations, and notifications are yours alone too."""
+enabled. For several parallel agents, use run_swarm with one shared directive
+plus a specific task per agent (1 to 8 agents), optionally detached with
+run_in_background. Both tools accept an optional write_scope: a list of repo
+or workspace globs the subagent may write (e.g. ['src/audit/**']); anything
+outside is refused, so you can fixate what each agent may touch. Prefer an
+action (explore, github-scan, memory-keeper, writer, code-reviewer, bulk-edit)
+so the app uses the agent assigned to that role; list profiles with
+agent_list. Send large mechanical edits to a cheap bulk-edit agent, then
+review the diff and commit/push/open the PR yourself: subagents can edit files
+but never run mutating git commands. Images, the browser, the task board,
+automations, and notifications are yours alone too."""
 
 _GOAL_NOTE = """\
 ## Goal mode
@@ -78,7 +83,10 @@ Memory checkpoint. Before this turn ends, record what future sessions must
 know, and nothing else:
 - memory_create for durable engineering facts: decisions (include rationale),
   gotchas, invariants (include verificationMethod), contracts, constraints,
-  bugs, architecture.
+  bugs, architecture (metadata: component).
+- Required metadata: architecture (component), implementation (subject, kind,
+  path), assumption (claimCategory, basis); evidence entries need path,
+  startLine, endLine, contentHash.
 - memory_update to correct an existing memory instead of duplicating it.
 - If there is genuinely nothing durable, call memory_none with a one-line reason.
 Do not restate the conversation; write only what survived it."""
@@ -88,6 +96,9 @@ You are the memory writer for this project. Read the finished turn below and
 store only what future sessions need:
 - memory_create for durable engineering facts (decision + rationale, gotcha,
   invariant + verificationMethod, contract, constraint, bug, architecture).
+- Required metadata: architecture (component), implementation (subject, kind,
+  path), assumption (claimCategory, basis); evidence entries need path,
+  startLine, endLine, contentHash.
 - memory_candidate for uncertain or lower-confidence items (observations,
   hypotheses, assumptions, ambiguities).
 - memory_update to correct an existing memory instead of duplicating it.
@@ -111,12 +122,17 @@ def _sse(event: dict) -> str:
 def _replay_messages(rows, system: str) -> list[dict]:
     messages: list[dict] = [{"role": "system", "content": system}]
     for m in rows:
-        if m.role == "assistant" and m.tool_calls:
-            try:
-                calls = json.loads(m.tool_calls)
-            except ValueError:
-                calls = []
-            messages.append({"role": "assistant", "content": m.content, "tool_calls": calls})
+        if m.role == "assistant":
+            msg: dict = {"role": "assistant", "content": m.content}
+            if getattr(m, "thinking", None):
+                # Thinking models require their reasoning echoed back.
+                msg["reasoning_content"] = m.thinking
+            if m.tool_calls:
+                try:
+                    msg["tool_calls"] = json.loads(m.tool_calls)
+                except ValueError:
+                    msg["tool_calls"] = []
+            messages.append(msg)
         elif m.role == "tool":
             messages.append(
                 {"role": "tool", "tool_call_id": m.tool_call_id, "content": m.content}
@@ -167,7 +183,7 @@ def _candidate_from_turn(s: Session, ctx, user_text: str, full_text: str, source
 
 
 async def _memory_checkpoint(
-    run, ctx, client, registry, messages, tokens, show_thinking: bool = True
+    run, ctx, client, registry, messages, tokens
 ) -> tuple[int, int, bool]:
     """Blocking memory step: the agent must write memory or acknowledge none."""
     checkpoint = messages + [{"role": "user", "content": CHECKPOINT_PROMPT}]
@@ -178,8 +194,6 @@ async def _memory_checkpoint(
         if etype == "usage":
             usage.merge(tokens, event.get("usage"))
             runs.manager.emit(run, event)
-            continue
-        if etype == "thinking" and not show_thinking:
             continue
         if etype == "tool_call":
             name = event.get("name")
@@ -232,6 +246,7 @@ async def _execute_memory_writer(writer_run, project_id: int, session_id: str, u
                 resolve_api_key(provider),
                 provider.model,
                 session=f"memory-{writer_run.id}",
+                reasoning_effort=getattr(provider, "reasoning_effort", None),
             )
             registry = build_registry(db=s).filtered(["memory"])
             turn = (
@@ -307,6 +322,7 @@ async def _execute_chat(
                 resolve_api_key(provider),
                 provider.model,
                 session=f"chat-{chat_session.id}",
+                reasoning_effort=getattr(provider, "reasoning_effort", None),
             )
             registry = build_registry(writes=bool(project.allow_git_writes), db=s)
             for tool in image_tools.make_tools(provider):
@@ -348,7 +364,6 @@ async def _execute_chat(
             if action_key == "goal":
                 system += "\n\n" + _GOAL_NOTE
 
-            show_thinking = settings.get_bool(s, "show_thinking", True)
             rows = s.exec(
                 select(Message)
                 .where(Message.session_id == chat_session.id)
@@ -358,6 +373,8 @@ async def _execute_chat(
 
             tokens: dict = {}
             pending_turns: list[dict] = []
+            pending_thinking: list[str] = []
+            full_thinking = ""
             paused = False
             memory_writes = 0
             memory_candidates = 0
@@ -368,8 +385,8 @@ async def _execute_chat(
                     usage.merge(tokens, event.get("usage"))
                     runs.manager.emit(run, event)
                     continue
-                if etype == "thinking" and not show_thinking:
-                    continue
+                if etype == "thinking":
+                    pending_thinking.append(event.get("text") or "")
                 if etype == "tool_call":
                     name = event.get("name")
                     if name in ("memory_create", "memory_update"):
@@ -382,15 +399,24 @@ async def _execute_chat(
                     asked = event.get("question", "")
                     full_text = f"{full_text}\n\n{asked}".strip() if full_text else asked
                     pending_turns = []
+                    pending_thinking = []
                     paused = True
                 elif etype == "message":
                     calls = event.get("tool_calls") or []
                     if calls:
                         pending_turns.append(
-                            {"content": event.get("content") or "", "calls": calls, "results": []}
+                            {
+                                "content": event.get("content") or "",
+                                "calls": calls,
+                                "results": [],
+                                "thinking": "".join(pending_thinking),
+                            }
                         )
+                        pending_thinking = []
                     elif event.get("content"):
                         full_text = event["content"]
+                        full_thinking = "".join(pending_thinking)
+                        pending_thinking = []
                 elif etype == "tool_result" and pending_turns:
                     pending_turns[-1]["results"].append(event)
                 if etype in ("error", "stopped", "timed_out"):
@@ -410,6 +436,7 @@ async def _execute_chat(
                         session_id=chat_session.id,
                         role="assistant",
                         content=turn["content"],
+                        thinking=turn.get("thinking") or None,
                         tool_calls=json.dumps(turn["calls"]),
                     )
                 )
@@ -425,7 +452,14 @@ async def _execute_chat(
                         )
                     )
             if full_text.strip():
-                s.add(Message(session_id=chat_session.id, role="assistant", content=full_text))
+                s.add(
+                    Message(
+                        session_id=chat_session.id,
+                        role="assistant",
+                        content=full_text,
+                        thinking=full_thinking or None,
+                    )
+                )
             s.commit()
             usage.record(
                 s,
@@ -445,7 +479,7 @@ async def _execute_chat(
                     runs.manager.emit(run, {"type": "memory", "writer": True, "written": 0})
                 else:
                     memory_writes, memory_candidates, memory_acked = await _memory_checkpoint(
-                        run, ctx, client, registry, messages, tokens, show_thinking
+                        run, ctx, client, registry, messages, tokens
                     )
                     if not (memory_writes or memory_candidates or memory_acked):
                         _candidate_from_turn(s, ctx, user_text, full_text, "checkpoint")
@@ -628,6 +662,7 @@ def btw(project_id: int, body: dict, s: Session = Depends(session)):
         resolve_api_key(provider),
         provider.model,
         session=f"btw-{chat_session.id if chat_session else project.id}",
+        reasoning_effort=getattr(provider, "reasoning_effort", None),
     )
     registry = build_registry().filtered(_BTW_GROUPS).readonly()
     messages = [

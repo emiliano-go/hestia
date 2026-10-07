@@ -103,21 +103,85 @@ def user_delete(memory_id: str, reason: str) -> dict:
         return memory_delete(conn, memory_id, reason)
 
 
-def digest(project_dir: Path, task: str, tags: list[str] | None = None) -> dict:
-    """Ranked memory context for a task: user memory, then project memory."""
+DIGEST_TOKEN_BUDGET = 1200
+DIGEST_ITEM_CHARS = 600
+DIGEST_TASK_HITS = 6
+_STOPWORDS = {
+    "the", "a", "an", "of", "to", "in", "on", "is", "are", "and", "or", "for",
+    "how", "does", "do", "this", "that", "it", "with", "what", "which", "when",
+    "where", "why", "codebase", "code", "work", "works",
+}
+
+
+def _task_words(text: str) -> set[str]:
+    import re
+
+    return {w for w in re.findall(r"[a-z0-9_]+", (text or "").lower()) if w not in _STOPWORDS}
+
+
+def digest(
+    project_dir: Path,
+    task: str,
+    tags: list[str] | None = None,
+    token_budget: int = DIGEST_TOKEN_BUDGET,
+) -> dict:
+    """Ranked memory context for a task: user memory, then project memory.
+
+    Bounded by ``token_budget`` and per-item caps so a few large invariants
+    cannot crowd out the task-relevant facts; task-ranked search hits are
+    appended so the digest actually targets the question at hand.
+    """
     with totem(project_dir) as conn:
-        result = engineering_context(
-            conn,
-            tags=tags or [],
-            task=task,
-            current_task=task,
-        )
-    # Totem already emits USER CONTEXT (from the user DB) and PROJECT CONTEXT
-    # sections; Hestia only appends project-level standing notes.
+        try:
+            result = engineering_context(
+                conn,
+                tags=tags or [],
+                task=task,
+                current_task=task,
+                token_budget=token_budget,
+                max_item_chars=DIGEST_ITEM_CHARS,
+            )
+        except TypeError:
+            # Older Totem without per-item caps: still bound the budget.
+            result = engineering_context(
+                conn,
+                tags=tags or [],
+                task=task,
+                current_task=task,
+                token_budget=token_budget,
+            )
+        try:
+            hits = memory_search(conn, task, limit=DIGEST_TASK_HITS * 3) or []
+        except Exception:
+            hits = []
     blocks = []
     context = (result.get("context") or "").strip()
     if context:
         blocks.append(context)
+
+    task_words = _task_words(task)
+    ranked = []
+    for h in hits:
+        title = str(h.get("title") or "")
+        if not title or title in context:
+            continue
+        text = f"{title} {h.get('statement') or ''}"
+        overlap = len(task_words & _task_words(text))
+        ranked.append((overlap, h))
+    ranked.sort(key=lambda x: (-x[0], -(x[1].get("importance") or 0)))
+    lines, seen = [], set()
+    for _, h in ranked:
+        title = str(h.get("title") or "")
+        if title in seen:
+            continue
+        seen.add(title)
+        statement = str(h.get("statement") or "").strip().replace("\n", " ")
+        lines.append(f"- [{h.get('type')}] {title}: {statement[:300]}")
+        if len(lines) >= DIGEST_TASK_HITS:
+            break
+    if lines:
+        blocks.append("## Task-relevant memories\n" + "\n".join(lines))
+
     always = always_on(project_dir)
     if always:
         block = "\n".join(f"- {m['title']}: {m['statement']}" for m in always)

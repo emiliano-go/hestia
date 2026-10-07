@@ -103,7 +103,7 @@ def test_subagent_action_uses_assigned_agent_model(tmp_path, monkeypatch):
     monkeypatch.setattr(
         subagents,
         "_run_subagent_in_thread",
-        lambda ctx, client, registry, messages, max_turns: {"summary": "ok"},
+        lambda ctx, client, registry, messages, run=None, max_turns=None: {"summary": "ok"},
     )
 
     from hestia import actions
@@ -156,7 +156,7 @@ def test_subagent_uses_agent_model_override(tmp_path, monkeypatch):
     monkeypatch.setattr(
         subagents,
         "_run_subagent_in_thread",
-        lambda ctx, client, registry, messages, max_turns: {"summary": "ok"},
+        lambda ctx, client, registry, messages, run=None, max_turns=None: {"summary": "ok"},
     )
 
     with Session(engine()) as s:

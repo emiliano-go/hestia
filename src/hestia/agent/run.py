@@ -25,6 +25,7 @@ async def run_once(
     writes: bool = False,
     model: str | None = None,
     mode: str | None = None,
+    write_allowlist: tuple[str, ...] | None = None,
 ) -> tuple[str, str | None, dict]:
     """Run one agent turn to completion.
 
@@ -37,6 +38,8 @@ async def run_once(
     Returns ``(final_text, error, token_usage)``.
     """
     ctx = ProjectContext.from_project(project)
+    if write_allowlist:
+        ctx.write_allowlist = tuple(write_allowlist)
     if mode is not None:
         from hestia.tools.subagents import delegated_registry
 
@@ -79,7 +82,10 @@ async def run_once(
                     for tool in builder(tasks_db):
                         registry.register(tool)
     client = OpenAIClient(
-        provider.base_url, resolve_api_key(provider), model or provider.model
+        provider.base_url,
+        resolve_api_key(provider),
+        model or provider.model,
+        reasoning_effort=getattr(provider, "reasoning_effort", None),
     )
     messages = [
         {"role": "system", "content": system},

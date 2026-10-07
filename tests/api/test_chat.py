@@ -477,7 +477,7 @@ def test_btw_streams_answer_with_compacted_context(client, monkeypatch):
     assert '"event": "done"' in resp.text
 
 
-def test_chat_streams_thinking_with_setting(client, monkeypatch):
+def test_chat_always_streams_thinking(client, monkeypatch):
     from hestia.agent import loop as agent_loop
 
     project = _mk_project(client)
@@ -496,13 +496,22 @@ def test_chat_streams_thinking_with_setting(client, monkeypatch):
     assert '"event": "thinking"' in resp.text
     assert "pondering the question" in resp.text
 
+    # The setting now only controls the UI default-open state, not the stream.
     client.put("/api/settings", json={"show_thinking": "0"})
     resp = client.post(
         f"/api/projects/{project['id']}/chat",
         json={"message": "hi again", "provider_id": provider["id"]},
     )
-    assert '"event": "thinking"' not in resp.text
+    assert '"event": "thinking"' in resp.text
+    assert "pondering the question" in resp.text
     assert '"event": "message"' in resp.text
+
+    # Thinking is persisted with the assistant reply (survives reload), and is
+    # not replayed to the provider.
+    sid = client.get(f"/api/projects/{project['id']}/sessions").json()[0]["id"]
+    rows = client.get(f"/api/sessions/{sid}/messages").json()
+    assistant = [m for m in rows if m["role"] == "assistant" and m["content"] == "answer"]
+    assert assistant and assistant[-1]["thinking"] == "pondering the question"
 
 
 def test_memory_checkpoint_creates_candidate(client, monkeypatch):

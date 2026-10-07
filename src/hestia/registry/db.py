@@ -56,6 +56,10 @@ def _migrate() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE project ADD COLUMN allow_local_browser BOOLEAN DEFAULT 0"
             )
+        if columns and "require_plan" not in columns:
+            conn.exec_driver_sql(
+                "ALTER TABLE project ADD COLUMN require_plan BOOLEAN DEFAULT 0"
+            )
         if columns and "description" not in columns:
             conn.exec_driver_sql("ALTER TABLE project ADD COLUMN description TEXT DEFAULT ''")
 
@@ -128,6 +132,16 @@ def _migrate() -> None:
                 "UPDATE agentconfig SET mode = 'write' "
                 "WHERE tools LIKE '%workspace%' OR tools LIKE '%memory%'"
             )
+        if agent_columns and "reasoning_effort" not in agent_columns:
+            conn.exec_driver_sql("ALTER TABLE agentconfig ADD COLUMN reasoning_effort TEXT")
+
+        msg_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(message)")}
+        if msg_columns and "thinking" not in msg_columns:
+            conn.exec_driver_sql("ALTER TABLE message ADD COLUMN thinking TEXT")
+
+        bt_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(backgroundtask)")}
+        if bt_columns and "payload" not in bt_columns:
+            conn.exec_driver_sql("ALTER TABLE backgroundtask ADD COLUMN payload TEXT DEFAULT '{}'")
 
         message_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(message)")}
         if message_columns and "tool_call_id" not in message_columns:

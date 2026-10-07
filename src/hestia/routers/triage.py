@@ -113,7 +113,10 @@ def review_item(project_id: int, body: dict, s: Session = Depends(session)):
 
     ctx = ProjectContext.from_project(project)
     client = OpenAIClient(
-        provider.base_url, resolve_api_key(provider), provider.model
+        provider.base_url,
+        resolve_api_key(provider),
+        provider.model,
+        reasoning_effort=getattr(provider, "reasoning_effort", None),
     )
     registry = build_registry()
     for tool in task_tools.make_tools(s):
@@ -210,7 +213,10 @@ def triage(project_id: int, body: dict, s: Session = Depends(session)):
 
     ctx = ProjectContext.from_project(project)
     client = OpenAIClient(
-        provider.base_url, resolve_api_key(provider), provider.model
+        provider.base_url,
+        resolve_api_key(provider),
+        provider.model,
+        reasoning_effort=getattr(provider, "reasoning_effort", None),
     )
     registry = build_registry()
     for tool in task_tools.make_tools(s):

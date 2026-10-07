@@ -21,6 +21,7 @@ import time
 from typing import Any, AsyncIterator
 
 from hestia.providers.base import OpenAIClient
+from hestia.tools import plan as plan_tools
 from hestia.tools.registry import ProjectContext, Registry
 
 RUN_TIMEOUT = float(os.environ.get("HESTIA_RUN_TIMEOUT", "1800"))
@@ -90,13 +91,24 @@ async def run_turn(
                     yield event
             content = turn.get("content", "")
             tool_calls = turn.get("tool_calls", [])
+            reasoning = turn.get("reasoning", "")
             usage = turn.get("usage")
             if usage:
                 yield {"type": "usage", "usage": usage}
             yield {"type": "message", "content": content, "tool_calls": tool_calls}
             if not tool_calls:
                 return
-            messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
+            assistant_msg: dict[str, Any] = {
+                "role": "assistant",
+                "content": content,
+                "tool_calls": tool_calls,
+            }
+            # Thinking models (DeepSeek/MiMo/Kimi on OpenCode Go) require the
+            # reasoning to be echoed back on assistant messages, or the next
+            # request is rejected with "reasoning_content must be passed back".
+            if reasoning:
+                assistant_msg["reasoning_content"] = reasoning
+            messages.append(assistant_msg)
             for call in tool_calls:
                 name = call["function"]["name"]
                 raw = call["function"].get("arguments") or "{}"
@@ -187,6 +199,7 @@ async def _stream_turn(
 ) -> AsyncIterator[dict[str, Any]]:
     """Stream one provider turn: token events, then a final ``_turn`` dict."""
     content_parts: list[str] = []
+    reasoning_parts: list[str] = []
     calls: dict[int, dict[str, Any]] = {}
     usage: dict[str, Any] | None = None
     async for chunk in client.stream_chat(messages, tools=tools):
@@ -201,6 +214,7 @@ async def _stream_turn(
         for key in ("reasoning_content", "reasoning", "thinking"):
             reasoning = delta.get(key)
             if isinstance(reasoning, str) and reasoning:
+                reasoning_parts.append(reasoning)
                 yield {"type": "thinking", "text": reasoning}
                 break
         for dtc in delta.get("tool_calls") or []:
@@ -216,6 +230,7 @@ async def _stream_turn(
     yield {
         "type": "_turn",
         "content": "".join(content_parts),
+        "reasoning": "".join(reasoning_parts),
         "tool_calls": [calls[i] for i in sorted(calls)],
         "usage": usage,
     }
@@ -225,11 +240,16 @@ def _execute(registry: Registry, ctx: ProjectContext, name: str, args: dict[str,
     tool = registry.get(name)
     if tool is None:
         return False, f"unknown tool: {name}"
+    blocked = plan_tools.check_gate(ctx, name, registry)
+    if blocked:
+        return False, blocked
     try:
-        return True, tool.handler(ctx, args)
+        result = tool.handler(ctx, args)
     except AgentPause:
         raise  # ends the turn; handled by run_turn
     except PermissionError as e:
         return False, f"blocked by sandbox: {e}"
     except Exception as e:
         return False, f"{type(e).__name__}: {e}"
+    plan_tools.after_write(ctx, name, True, registry)
+    return True, result

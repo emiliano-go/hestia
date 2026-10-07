@@ -178,14 +178,18 @@ def resolve_action(db: Session, key: str) -> AgentConfig | None:
 
 
 def effective_provider(agent, provider):
-    """The provider with its model overridden by the agent's chosen model.
+    """The provider with its model and reasoning effort from the agent.
 
     Lets every downstream ``provider.model`` use the right model without
-    threading it through each call site.
+    threading it through each call site; the effort rides along as an extra
+    attribute on the returned copy (not a Provider column).
     """
     if provider is None:
         return None
     model = resolve_model(agent, provider)
-    if model and model != provider.model:
-        return provider.model_copy(update={"model": model})
+    effort = getattr(agent, "reasoning_effort", None) or getattr(
+        provider, "reasoning_effort", None
+    )
+    if (model and model != provider.model) or effort:
+        return provider.model_copy(update={"model": model, "reasoning_effort": effort})
     return provider

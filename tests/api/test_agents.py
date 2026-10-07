@@ -15,6 +15,42 @@ def test_agent_presets_expose_modes(client):
     assert presets["image"]["tools"] == "images,workspace"
 
 
+def test_agent_reasoning_effort_roundtrip_and_validation(client):
+    provider = _mk_provider(client)
+    created = client.post(
+        "/api/agents",
+        json={
+            "name": "mimo",
+            "provider_id": provider["id"],
+            "model": "mimo-v2.5",
+            "reasoning_effort": "high",
+        },
+    ).json()
+    assert created["reasoning_effort"] == "high"
+
+    updated = client.put(
+        f"/api/agents/{created['id']}", json={"reasoning_effort": "low"}
+    ).json()
+    assert updated["reasoning_effort"] == "low"
+
+    cleared = client.put(
+        f"/api/agents/{created['id']}", json={"reasoning_effort": ""}
+    ).json()
+    assert cleared["reasoning_effort"] is None
+
+    resp = client.post(
+        "/api/agents",
+        json={"name": "turbo", "provider_id": provider["id"], "reasoning_effort": "turbo"},
+    )
+    assert resp.status_code == 400
+
+
+def test_agent_presets_carry_effort(client):
+    presets = client.get("/api/agents/presets").json()
+    for name, preset in presets.items():
+        assert preset.get("reasoning_effort") in ("none", "low", "medium", "high", "max"), name
+
+
 def test_agent_mode_roundtrip_and_validation(client):
     provider = _mk_provider(client)
     created = client.post(

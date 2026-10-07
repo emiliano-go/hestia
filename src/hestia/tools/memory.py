@@ -99,7 +99,8 @@ def register(registry: Registry) -> None:
                     "(verificationMethod), assumption (claimCategory, basis), "
                     "open_question (question, impact, blocking), ambiguity "
                     "(question, interpretations, impact), rejected_idea "
-                    "(proposal, reasonRejected), implementation (subject, kind, path)"
+                    "(proposal, reasonRejected), implementation (subject, kind, path), "
+                    "architecture (component)"
                 ),
             },
         }, ["type", "title", "statement", "tags"]),

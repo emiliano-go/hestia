@@ -28,6 +28,7 @@ class Project(SQLModel, table=True):
     last_opened_at: Optional[datetime] = None
     allow_git_writes: bool = False  # explicit opt-in: agent may modify the clone
     require_write_approval: bool = False  # hard gate: push/PR need an approved request
+    require_plan: bool = False  # hard gate: writes need a plan + per-step drift check
     allow_local_browser: bool = False  # explicit opt-in: browser may reach localhost
     token_budget: Optional[int] = None  # monthly token budget (None = unlimited)
     budget_enforced: bool = False  # skip scheduled runs once the budget is spent
@@ -65,6 +66,7 @@ class Message(SQLModel, table=True):
     session_id: str = Field(foreign_key="session.id", index=True)
     role: str
     content: str
+    thinking: Optional[str] = None  # model reasoning shown in the UI only
     tool_calls: Optional[str] = None  # JSON: OpenAI tool-call list
     tool_call_id: Optional[str] = None  # for role=tool rows
     ok: Optional[bool] = None  # tool result success (role=tool)
@@ -95,6 +97,7 @@ class AgentConfig(SQLModel, table=True):
     system_prompt: str = ""
     provider_id: int = Field(foreign_key="provider.id")
     model: Optional[str] = Field(default=None)  # overrides the provider's model when set
+    reasoning_effort: Optional[str] = Field(default=None)  # none|low|medium|high|max
     tools: str = "repo,files"  # comma-separated tool groups: repo, files, github, memory
     mode: str = "read"  # delegation mode: read (no writes) | write (workspace + memory)
     max_turns: int = 6
@@ -339,9 +342,10 @@ class BackgroundTask(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     project_id: int = Field(foreign_key="project.id", index=True)
     session_id: Optional[str] = Field(default=None, foreign_key="session.id", index=True)
-    kind: str = "agent"  # agent | subagent
+    kind: str = "agent"  # agent | subagent | swarm
     description: str = ""
     instruction: str = ""
+    payload: str = "{}"  # JSON extras for kind="swarm" (directive, tasks, scope)
     action: str = "chat"  # action key, or agent profile name for subagents
     status: str = "queued"  # queued | running | done | error | stopped | lost
     result: str = ""

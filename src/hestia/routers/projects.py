@@ -361,6 +361,8 @@ def update_project(project_id: int, body: dict, s: Session = Depends(session)):
         project.budget_enforced = bool(body["budget_enforced"])
     if "require_write_approval" in body:
         project.require_write_approval = bool(body["require_write_approval"])
+    if "require_plan" in body:
+        project.require_plan = bool(body["require_plan"])
     if "allow_local_browser" in body:
         project.allow_local_browser = bool(body["allow_local_browser"])
     if "description" in body:

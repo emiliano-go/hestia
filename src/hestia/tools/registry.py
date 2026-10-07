@@ -30,6 +30,9 @@ class ProjectContext:
     run_id: str | None = None  # RunManager run backing this execution
     tool_call_id: str | None = None  # current tool call (set by the agent loop)
     allow_git_writes: bool = False  # project opt-in; gates write-mode clone edits
+    require_plan: bool = False  # project opt-in; writes need a plan + step checks
+    plan_check_pending: bool = False  # runtime: a gated write awaits its drift check
+    write_allowlist: tuple[str, ...] | None = None  # subagent write scope (globs)
     allow_local_browser: bool = False  # project opt-in; allows localhost browsing
     repos: list[RepoRef] = field(default_factory=list)
 
@@ -140,9 +143,24 @@ class ProjectContext:
             local_path=primary.local_path if primary else workspace,
             workspace_path=workspace,
             allow_git_writes=bool(getattr(project, "allow_git_writes", False)),
+            require_plan=bool(getattr(project, "require_plan", False)),
             allow_local_browser=bool(getattr(project, "allow_local_browser", False)),
             repos=refs,
         )
+
+
+def write_allowed(ctx: ProjectContext, rel: str) -> bool:
+    """Whether a write to ``rel`` is inside the context's write scope.
+
+    No scope set means unrestricted. Otherwise globs match POSIX-style relative
+    paths against the repo root or workspace root.
+    """
+    if not ctx.write_allowlist:
+        return True
+    from pathlib import PurePosixPath
+
+    rel = rel.replace("\\", "/").lstrip("./")
+    return any(PurePosixPath(rel).full_match(p) for p in ctx.write_allowlist)
 
 
 @dataclass
