@@ -76,8 +76,7 @@ def _git(cwd: Path, args: list[str], timeout: int = 15) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
-def _last_commit(cwd: Path) -> dict | None:
-    out = _git(cwd, ["log", "-1", "--format=%H%x1f%h%x1f%an%x1f%cI%x1f%s"])
+def _parse_commit(out: str | None) -> dict | None:
     if not out:
         return None
     parts = out.split("\x1f")
@@ -85,6 +84,26 @@ def _last_commit(cwd: Path) -> dict | None:
         return None
     sha, short, author, date, subject = parts[:5]
     return {"sha": sha, "short": short, "author": author, "date": date, "subject": subject}
+
+
+def _last_commit(cwd: Path) -> dict | None:
+    return _parse_commit(_git(cwd, ["log", "-1", "--format=%H%x1f%h%x1f%an%x1f%cI%x1f%s"]))
+
+
+def _upstream_ref(cwd: Path) -> str | None:
+    """The upstream ref name (e.g. origin/master), or None when there is none."""
+    return _git(cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
+
+
+def _remote_commit(cwd: Path) -> tuple[str | None, dict | None]:
+    """The last-known remote tip (remote-tracking ref; no fetch here)."""
+    ref = _upstream_ref(cwd)
+    if not ref:
+        return None, None
+    commit = _parse_commit(
+        _git(cwd, ["log", "-1", "--format=%H%x1f%h%x1f%an%x1f%cI%x1f%s", ref])
+    )
+    return ref, commit
 
 
 def _ahead_behind(cwd: Path) -> tuple[int, int]:
@@ -133,10 +152,12 @@ def recent_commits(cwd: Path, limit: int = 20) -> list[dict]:
 
 def git_summary(path: Path) -> dict:
     ahead, behind = _ahead_behind(path)
+    ref, remote = _remote_commit(path)
     return {
         "branch": _git(path, ["rev-parse", "--abbrev-ref", "HEAD"]),
         "head": _git(path, ["rev-parse", "--short", "HEAD"]),
         "last_commit": _last_commit(path),
+        "remote": {"ref": ref, "last_commit": remote} if ref else None,
         "ahead": ahead,
         "behind": behind,
         "dirty": bool(_git(path, ["status", "--porcelain"])),
