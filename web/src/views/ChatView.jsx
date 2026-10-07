@@ -34,6 +34,7 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
   const [pending, setPending] = useState(null) // 'working' | 'streaming' | null
   const [error, setError] = useState(null)
   const [questions, setQuestions] = useState([])
+  const [copiedId, setCopiedId] = useState(null)
   const [answers, setAnswers] = useState({})
   const [streamingText, setStreamingText] = useState('')
   const [rememberedId, setRememberedId] = useState(null)
@@ -281,6 +282,14 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
       .catch((e) => setError(e.message || String(e)))
   }
 
+  const copyCommand = (question) => {
+    const text = question.meta?.command || ''
+    if (!text) return
+    navigator.clipboard?.writeText(text)
+    setCopiedId(question.id)
+    setTimeout(() => setCopiedId((id) => (id === question.id ? null : id)), 1500)
+  }
+
   return (
     <div className="chat">
       {action === 'goal' && (
@@ -379,10 +388,28 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
             .map((q) => (
               <div key={q.id} className="question-card">
                 <div className="question-head">
-                  <Icon name={q.kind === 'approval' ? 'alert' : 'help'} size={14} />
-                  {q.kind === 'approval' ? 'Approval needed' : 'The agent needs input'}
+                  <Icon
+                    name={q.kind === 'approval' ? 'alert' : q.kind === 'user_required' ? 'flag' : 'help'}
+                    size={14}
+                  />
+                  {q.kind === 'approval'
+                    ? 'Approval needed'
+                    : q.kind === 'user_required'
+                      ? 'Action needed'
+                      : 'The agent needs input'}
                 </div>
                 <div className="question-text">{q.question}</div>
+                {q.kind === 'user_required' && q.meta?.details && (
+                  <div className="question-text">{q.meta.details}</div>
+                )}
+                {q.kind === 'user_required' && q.meta?.command && (
+                  <div className="cmd-block">
+                    <code>{q.meta.command}</code>
+                    <button className="btn" onClick={() => copyCommand(q)}>
+                      {copiedId === q.id ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                )}
                 {q.options?.length > 0 && (
                   <div className="question-options">
                     {q.options.map((o) => (

@@ -3701,6 +3701,22 @@ pre {
 .question-card input {
   flex: 1;
 }
+.cmd-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+}
+.cmd-block code {
+  flex: 1;
+  font-family: var(--mono, monospace);
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
 
 /* ---------- reminders ---------- */
 
