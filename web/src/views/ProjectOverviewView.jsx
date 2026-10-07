@@ -260,7 +260,7 @@ export function ProjectOverviewView({ project, since, onStart, onNavigate, onOpe
   const git = data?.git
   const remoteCommit = git?.remote?.last_commit
   const remoteSub = remoteCommit
-    ? `remote: ${truncate(remoteCommit.subject, 42)}${git.behind > 0 ? ` · ${git.behind} behind` : ''}`
+    ? `${git.behind > 0 ? `${git.behind} behind · ` : ''}remote: ${truncate(remoteCommit.subject, 40)}`
     : undefined
   const github = data?.github
   const repoEntries = data?.repos || []
