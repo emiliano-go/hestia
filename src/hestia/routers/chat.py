@@ -60,7 +60,10 @@ The owner's name and standing preferences are in your context. When the owner
 tells you how to address them, call set_owner_name. When they state a durable
 rule or quirk about how to respond (tone, format, length, things to avoid),
 call remember_preference. Apply every standing preference without being
-reminded, and never re-ask for something already remembered."""
+reminded, and never re-ask for something already remembered. When you are
+blocked on a manual step only the owner can do (a sudo command, signing a
+commit with GPG, logging in somewhere), call user_required with the exact
+command; the turn ends until they confirm."""
 
 _BACKGROUND_NOTE = """\
 ## Background tasks

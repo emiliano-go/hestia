@@ -166,8 +166,8 @@ class Question(SQLModel, table=True):
     session_id: str = Field(foreign_key="session.id", index=True)
     project_id: int = Field(foreign_key="project.id", index=True)
     question: str
-    kind: str = "question"  # question | approval
-    meta: str = "{}"  # JSON: action key for approvals
+    kind: str = "question"  # question | approval | user_required
+    meta: str = "{}"  # JSON: action key for approvals; command/details for user_required
     options: str = "[]"  # JSON list of suggested answers
     status: str = "open"  # open | answered | dismissed
     answer: Optional[str] = None

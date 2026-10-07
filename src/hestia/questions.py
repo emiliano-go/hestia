@@ -72,8 +72,8 @@ def create(
     question = (question or "").strip()
     if not question:
         raise InvalidQuestion("question is required")
-    if kind not in ("question", "approval"):
-        raise InvalidQuestion("kind must be question or approval")
+    if kind not in ("question", "approval", "user_required"):
+        raise InvalidQuestion("kind must be question, approval, or user_required")
     row = Question(
         session_id=session_id,
         project_id=project_id,
