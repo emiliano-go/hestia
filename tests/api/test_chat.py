@@ -22,7 +22,7 @@ def test_chat_goal_action(client, monkeypatch):
             seen["system"] = messages[0]["content"]
             yield {"choices": [{"delta": {"content": "ok"}}]}
 
-    monkeypatch.setattr(chat_router, "OpenAIClient", FakeClient)
+    monkeypatch.setattr(chat_router, "provider_client", FakeClient)
     resp = client.post(
         f"/api/projects/{project['id']}/chat",
         json={"message": "hi", "provider_id": provider["id"], "action": "goal"},
@@ -273,7 +273,7 @@ def test_goal_action_persists_on_session(client, monkeypatch):
             seen["system"] = messages[0]["content"]
             yield {"choices": [{"delta": {"content": "ok"}}]}
 
-    monkeypatch.setattr(chat_router, "OpenAIClient", FakeClient)
+    monkeypatch.setattr(chat_router, "provider_client", FakeClient)
     resp = client.post(
         f"/api/projects/{project['id']}/chat",
         json={"message": "continue", "session_id": session_id, "provider_id": provider["id"]},
@@ -389,7 +389,7 @@ def test_chat_usage_tracking(client, monkeypatch):
             yield {"choices": [{"delta": {"content": "world"}}]}
             yield {"choices": [], "usage": {"prompt_tokens": 11, "completion_tokens": 5}}
 
-    monkeypatch.setattr(chat_router, "OpenAIClient", FakeClient)
+    monkeypatch.setattr(chat_router, "provider_client", FakeClient)
 
     resp = client.post(
         f"/api/projects/{project['id']}/chat",
@@ -427,7 +427,7 @@ def test_user_note_in_chat_prompt(client, monkeypatch):
             seen["system"] = messages[0]["content"]
             yield {"choices": [{"delta": {"content": "ok"}}]}
 
-    monkeypatch.setattr(chat_router, "OpenAIClient", FakeClient)
+    monkeypatch.setattr(chat_router, "provider_client", FakeClient)
     client.post(
         f"/api/projects/{project['id']}/chat",
         json={"message": "call me Sam", "provider_id": provider["id"]},
@@ -671,3 +671,76 @@ def test_chat_user_required_event(client, monkeypatch):
     assert '"event": "question"' in resp.text
     assert '"kind": "user_required"' in resp.text
     assert "sudo migrate" in resp.text
+
+
+def test_chat_decision_feedback_retry(client, monkeypatch):
+    from hestia.agent import loop as agent_loop
+    from hestia.decision.config import Settings
+    from hestia.decision.scoring import Failure
+    from hestia.decision.service import Evaluation
+    from hestia.routers import chat as chat_router
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+    calls = {"n": 0}
+
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
+        calls["n"] += 1
+        yield {"type": "message", "content": f"attempt {calls['n']}", "tool_calls": []}
+
+    class FakeDecision:
+        def __init__(self):
+            self.evaluated = 0
+
+        def settings(self):
+            return Settings(enabled=True, base_url="http://laya", max_feedback_retries=1)
+
+        async def evaluate(self, turn):
+            self.evaluated += 1
+            if self.evaluated == 1:
+                return Evaluation("answer", "fail", 0.3, [], [Failure("requirements_met", "do the thing", 0.2, 0.9)], [], {}, None, None)
+            return Evaluation("answer", "pass", 0.9, [], [], [], {}, None, None)
+
+    fake = FakeDecision()
+    monkeypatch.setattr(agent_loop, "run_turn", fake_run_turn)
+    monkeypatch.setattr(chat_router, "DecisionService", lambda: fake)
+
+    resp = client.post(
+        f"/api/projects/{project['id']}/chat",
+        json={"message": "do the thing", "provider_id": provider["id"]},
+    )
+    assert resp.status_code == 200
+    assert '"event": "decision"' in resp.text
+    assert fake.evaluated == 2 and calls["n"] >= 2
+
+    sid = client.get(f"/api/projects/{project['id']}/sessions").json()[0]["id"]
+    messages = client.get(f"/api/sessions/{sid}/messages").json()
+    assert any(msg["role"] == "user" and "Decision engine evaluation" in (msg["content"] or "") for msg in messages)
+
+
+def test_chat_yolo_runs_in_sandbox(client, monkeypatch):
+    from pathlib import Path
+
+    from hestia.agent import loop as agent_loop
+
+    project = _mk_project(client)
+    provider = _mk_provider(client)
+    client.put(f"/api/projects/{project['id']}", json={"write_mode": "yolo"})
+    real_root = Path(project["local_path"])
+
+    async def fake_run_turn(ctx, client_, registry, messages, max_turns=None, run=None, timeout=None):
+        (ctx.repo_path() / "agent.txt").write_text("hi\n")
+        yield {"type": "message", "content": "done", "tool_calls": []}
+
+    monkeypatch.setattr(agent_loop, "run_turn", fake_run_turn)
+
+    resp = client.post(
+        f"/api/projects/{project['id']}/chat",
+        json={"message": "add a file", "provider_id": provider["id"]},
+    )
+    assert resp.status_code == 200
+    assert '"event": "sandbox"' in resp.text
+    assert not (real_root / "agent.txt").exists()  # real clone untouched
+
+    info = client.get(f"/api/projects/{project['id']}/sandbox").json()
+    assert any("agent.txt" in text for text in info["patches"].values())

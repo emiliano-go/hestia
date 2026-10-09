@@ -25,7 +25,7 @@ from sqlmodel import Session, select
 from hestia import actions, runs, usage
 from hestia.agent import loop as agent_loop
 from hestia.agent.prompt import POLICY
-from hestia.providers.base import OpenAIClient, resolve_api_key
+from hestia.providers.base import provider_client, resolve_api_key
 from hestia.registry.models import AgentConfig, Provider
 from hestia.tools import build_registry
 from hestia.tools.registry import ProjectContext, Registry, Tool, schema
@@ -122,10 +122,10 @@ def _spawn(
     if provider is None:
         raise ValueError(f"agent profile '{config.name}' has no valid provider")
     provider = actions.effective_provider(config, provider)
-    client = OpenAIClient(
-        provider.base_url,
-        resolve_api_key(provider),
+    client = provider_client(
+        provider,
         provider.model,
+        db=db,
         session=f"subagent-{ctx.session_id or ctx.project_id}",
         reasoning_effort=getattr(provider, "reasoning_effort", None),
     )

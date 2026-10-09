@@ -26,7 +26,8 @@ def test_memory_fix(client, monkeypatch):
         # memory-only registry, catalog in system prompt, instruction in user msg
         assert set(registry._tools) == {"memory_search", "memory_get", "memory_list",
                                         "memory_create", "memory_update", "memory_delete",
-                                        "memory_relate", "memory_relations", "memory_history"}
+                                        "memory_relate", "memory_relations", "memory_history",
+                                        "memory_export", "memory_import"}
         assert "Old fact" in messages[0]["content"]
         assert "fix it" in messages[-1]["content"]
         yield {"type": "message", "content": "Fixed 1 memory.", "tool_calls": []}

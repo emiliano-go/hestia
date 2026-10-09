@@ -16,14 +16,17 @@ from totem_mcp.db import db_connection
 from totem_mcp.tools import (
     memory_create,
     memory_delete,
+    memory_export,
     memory_get,
     memory_history,
+    memory_import,
     memory_list,
     memory_recent,
     memory_relate,
     memory_relations,
     memory_search,
     memory_update,
+    register_file_write,
 )
 
 
@@ -268,3 +271,29 @@ def history(project_dir: Path, memory_id: str) -> list[dict]:
     """The immutable timeline (audit) of one project memory."""
     with totem(project_dir) as conn:
         return memory_history(conn, memory_id)
+
+
+def register_write(
+    project_dir: Path,
+    path: str,
+    statement: str,
+    reason: str,
+    tags: list[str] | None = None,
+    **kwargs,
+) -> dict:
+    """Upsert the implementation memory for a file path (totem's locator dedup)."""
+    with totem(project_dir) as conn:
+        return register_file_write(
+            conn, path, statement, reason, tags or ["implementation"], **kwargs
+        )
+
+
+def export_all(project_dir: Path) -> dict:
+    """Export the project's memories, conflicts, and relations (archival format)."""
+    with totem(project_dir) as conn:
+        return memory_export(conn)
+
+
+def import_all(project_dir: Path, data: dict, mode: str = "normal", dry_run: bool = False) -> dict:
+    with totem(project_dir) as conn:
+        return memory_import(conn, data, mode=mode, dry_run=dry_run)

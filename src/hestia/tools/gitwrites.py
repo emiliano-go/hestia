@@ -18,6 +18,7 @@ import httpx
 from sqlmodel import Session, select
 
 from hestia import config, overview, urls
+from hestia import memory_autoreg
 from hestia.tools.registry import ProjectContext, Registry, Tool, schema, write_allowed
 
 GITHUB_API = "https://api.github.com"
@@ -58,8 +59,8 @@ def _resolve(ctx: ProjectContext, rel: str, repo: str | None = None) -> Path:
     if path != root and not str(path).startswith(str(root) + os.sep):
         raise PermissionError(f"path escapes the repository: {rel}")
     parts = path.relative_to(root).parts
-    if ".git" in parts or ".totem" in parts:
-        raise PermissionError("refusing to touch Hestia's metadata (.git, .totem)")
+    if ".git" in parts or ".totem" in parts or ".hestia" in parts:
+        raise PermissionError("refusing to touch Hestia's metadata (.git, .totem, .hestia)")
     return path
 
 
@@ -80,6 +81,7 @@ def _write_file(ctx: ProjectContext, args: dict) -> dict:
         raise ValueError(f"path is a directory: {rel}")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+    memory_autoreg.record(ctx.memory_path, path, "wrote")
     return {
         "path": str(path.relative_to(ctx.repo_path(repo).resolve())),
         "repo": ctx.repo(repo).alias,
@@ -141,7 +143,10 @@ def _require_approval(db, ctx: ProjectContext, action: str) -> None:
     from hestia.registry.models import Project, Question
 
     project = db.get(Project, ctx.project_id)
-    if project is None or not project.require_write_approval:
+    if project is None:
+        return
+    asks = bool(getattr(project, "require_write_approval", False)) or ctx.write_mode == "ask"
+    if not asks:
         return
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
     rows = db.exec(

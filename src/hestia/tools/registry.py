@@ -30,10 +30,12 @@ class ProjectContext:
     run_id: str | None = None  # RunManager run backing this execution
     tool_call_id: str | None = None  # current tool call (set by the agent loop)
     allow_git_writes: bool = False  # project opt-in; gates write-mode clone edits
+    write_mode: str = "read"  # read | ask | auto | yolo; refines allow_git_writes
     require_plan: bool = False  # project opt-in; writes need a plan + step checks
     plan_check_pending: bool = False  # runtime: a gated write awaits its drift check
     write_allowlist: tuple[str, ...] | None = None  # subagent write scope (globs)
     allow_local_browser: bool = False  # project opt-in; allows localhost browsing
+    memory_override: Path | None = None  # keep Totem on the real clone during a sandbox turn
     repos: list[RepoRef] = field(default_factory=list)
 
     @property
@@ -43,6 +45,8 @@ class ProjectContext:
     @property
     def memory_path(self) -> Path:
         """Totem lives in the primary clone, or the workspace when repo-less."""
+        if self.memory_override is not None:
+            return self.memory_override
         primary = self.primary_repo()
         if primary is not None:
             return primary.local_path
@@ -136,6 +140,9 @@ class ProjectContext:
                 )
             ]
         primary = next((r for r in refs if r.is_primary), refs[0] if refs else None)
+        mode = (getattr(project, "write_mode", "") or "").strip().lower()
+        if mode not in ("read", "ask", "auto", "yolo"):
+            mode = "auto" if getattr(project, "allow_git_writes", False) else "read"
         return cls(
             project_id=project.id,
             name=project.name,
@@ -143,6 +150,7 @@ class ProjectContext:
             local_path=primary.local_path if primary else workspace,
             workspace_path=workspace,
             allow_git_writes=bool(getattr(project, "allow_git_writes", False)),
+            write_mode=mode,
             require_plan=bool(getattr(project, "require_plan", False)),
             allow_local_browser=bool(getattr(project, "allow_local_browser", False)),
             repos=refs,

@@ -27,6 +27,7 @@ class Project(SQLModel, table=True):
     default_provider_id: Optional[int] = None
     last_opened_at: Optional[datetime] = None
     allow_git_writes: bool = False  # explicit opt-in: agent may modify the clone
+    write_mode: str = ""  # read | ask | auto | yolo; "" derives from allow_git_writes
     require_write_approval: bool = False  # hard gate: push/PR need an approved request
     require_plan: bool = False  # hard gate: writes need a plan + per-step drift check
     allow_local_browser: bool = False  # explicit opt-in: browser may reach localhost
@@ -80,7 +81,10 @@ class Provider(SQLModel, table=True):
     base_url: str
     api_key_env: str = ""  # optional env var name holding the key
     api_key: Optional[str] = Field(default=None)  # key stored from the UI (optional)
+    keys: str = "[]"  # JSON list of extra API keys (rotation pool)
+    key_state: str = "{}"  # JSON rotation state: {suspended: {hash: until}, revoked: [hash]}
     model: str = ""  # default model
+    small_model: str = ""  # cheap model for titles/summaries/distillation (falls back to model)
     models: str = "[]"  # JSON list of model ids configured for this provider
     created_at: datetime = Field(default_factory=_now)
 

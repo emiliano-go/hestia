@@ -4432,6 +4432,23 @@ pre {
   color: var(--faint);
 }
 
+.decision-note {
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.decision-note.decision-pass {
+  color: #4ade80;
+}
+
+.decision-note.decision-fail {
+  color: #f87171;
+}
+
+.decision-note.decision-needs_review {
+  color: #fbbf24;
+}
+
 .run-progress {
   font-family: var(--mono);
   font-size: 11.5px;

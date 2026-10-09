@@ -216,6 +216,30 @@ def register(registry: Registry) -> None:
         handler=lambda ctx, a: totem_store.history(ctx.memory_path, a["id"]),
         group="memory",
     ))
+    registry.register(Tool(
+        name="memory_export",
+        description="Export all project memories, conflicts, and relations as a portable JSON archive.",
+        parameters=schema({}, []),
+        handler=lambda ctx, a: totem_store.export_all(ctx.memory_path),
+        group="memory",
+    ))
+    registry.register(Tool(
+        name="memory_import",
+        description=(
+            "Import a memory archive produced by memory_export. mode: normal (skip "
+            "invalid), strict (abort on any error), or replace (clear first)."
+        ),
+        parameters=schema({
+            "data": {"type": "object"},
+            "mode": {"type": "string", "enum": ["normal", "strict", "replace"]},
+            "dry_run": {"type": "boolean"},
+        }, ["data"]),
+        handler=lambda ctx, a: totem_store.import_all(
+            ctx.memory_path, a["data"], mode=a.get("mode", "normal"), dry_run=bool(a.get("dry_run"))
+        ),
+        group="memory",
+        effect="write",
+    ))
 
 
 def register_candidates(registry: Registry, db) -> None:

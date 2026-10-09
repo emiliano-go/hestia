@@ -26,7 +26,7 @@ from hestia import actions, notify, settings, totem_store, usage
 from hestia.agent import loop as agent_loop
 from hestia.agent.prompt import build_system_prompt
 from hestia.agent.run import run_once
-from hestia.providers.base import OpenAIClient, resolve_api_key
+from hestia.providers.base import provider_client, resolve_api_key
 from hestia.registry.db import engine
 from hestia.registry.models import (
     AgentConfig,
@@ -452,10 +452,10 @@ async def _continue(session_id: str, project_id: int) -> None:
                 system += f"\n\n## Agent instructions\n{agent.system_prompt}"
             system += "\n\n" + BACKGROUND_NOTE
             registry = build_registry(writes=bool(project.allow_git_writes), db=db)
-            client = OpenAIClient(
-                provider.base_url,
-                resolve_api_key(provider),
+            client = provider_client(
+                provider,
                 provider.model,
+                db=db,
                 reasoning_effort=getattr(provider, "reasoning_effort", None),
             )
             messages = _replay(db, session_id, system)

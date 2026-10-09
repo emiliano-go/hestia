@@ -123,3 +123,22 @@ def test_action_resolution_falls_back_to_chat(client):
     client.post("/api/agents", json={"name": "explore", "provider_id": provider["id"]})
     with SqlSession(engine()) as db:
         assert actions_mod.resolve_action(db, "explore").name == "explore"
+
+
+def test_provider_key_pool(client):
+    from tests.api.conftest import _mk_provider
+
+    provider = _mk_provider(client)
+    resp = client.put(f"/api/providers/{provider['id']}/keys", json={"keys": "k1, k2\nk3"})
+    assert resp.status_code == 200
+    assert resp.json()["key_count"] == 3
+    assert client.get("/api/providers").json()[0]["key_count"] == 3
+
+
+def test_provider_small_model(client):
+    from tests.api.conftest import _mk_provider
+
+    provider = _mk_provider(client)
+    resp = client.patch(f"/api/providers/{provider['id']}", json={"small_model": "mini"})
+    assert resp.status_code == 200
+    assert resp.json()["small_model"] == "mini"

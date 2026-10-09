@@ -22,6 +22,8 @@ export function AboutView({ projectId, onDeleted }) {
   const [enforce, setEnforce] = useState(false)
   const [savingBudget, setSavingBudget] = useState(false)
   const [testingNotify, setTestingNotify] = useState(false)
+  const [undoing, setUndoing] = useState(false)
+  const [sandboxBusy, setSandboxBusy] = useState(false)
   const [notifyResult, setNotifyResult] = useState(null)
   const [notifyError, setNotifyError] = useState(null)
 
@@ -61,6 +63,36 @@ export function AboutView({ projectId, onDeleted }) {
         reload()
       })
       .catch((e) => setActionError(e.message || String(e)))
+  }
+
+  const undoTurn = () => {
+    setUndoing(true)
+    setActionError(null)
+    api
+      .revertProject(project.id)
+      .then(() => reload())
+      .catch((e) => setActionError(e.message || String(e)))
+      .finally(() => setUndoing(false))
+  }
+
+  const promoteSandbox = () => {
+    setSandboxBusy(true)
+    setActionError(null)
+    api
+      .promoteSandbox(project.id)
+      .then(() => reload())
+      .catch((e) => setActionError(e.message || String(e)))
+      .finally(() => setSandboxBusy(false))
+  }
+
+  const discardSandbox = () => {
+    setSandboxBusy(true)
+    setActionError(null)
+    api
+      .discardSandbox(project.id)
+      .then(() => reload())
+      .catch((e) => setActionError(e.message || String(e)))
+      .finally(() => setSandboxBusy(false))
   }
 
   const saveBudget = () => {
@@ -250,6 +282,41 @@ export function AboutView({ projectId, onDeleted }) {
             />
             Require a written plan, with a drift check after each step
           </label>
+          <label className="dep-item" style={{ flex: 'none' }}>
+            <span className="muted">Write mode</span>
+            <select
+              value={project.write_mode || 'auto'}
+              onChange={(e) =>
+                api
+                  .updateProject(project.id, { write_mode: e.target.value })
+                  .then(reload)
+                  .catch((err) => setActionError(err.message))
+              }
+            >
+              <option value="ask">ask — approve each edit and command</option>
+              <option value="auto">auto — edits and shell run freely</option>
+              <option value="yolo">yolo — auto, for throwaway sandboxes</option>
+            </select>
+          </label>
+          <div className="row">
+            <button className="btn" onClick={undoTurn} disabled={undoing}>
+              {undoing ? 'Reverting…' : 'Undo last turn'}
+            </button>
+            <span className="muted">
+              Restores the clone to the snapshot taken before the last turn.
+            </span>
+          </div>
+          {project.write_mode === 'yolo' && (
+            <div className="row">
+              <button className="btn" onClick={promoteSandbox} disabled={sandboxBusy}>
+                Promote sandbox
+              </button>
+              <button className="btn danger" onClick={discardSandbox} disabled={sandboxBusy}>
+                Discard sandbox
+              </button>
+              <span className="muted">Yolo turns run against a throwaway /tmp clone.</span>
+            </div>
+          )}
           <div className="row">
             <button className="btn danger" onClick={() => setWrites(false)}>
               Disable git writes

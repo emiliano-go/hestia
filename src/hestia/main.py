@@ -17,6 +17,7 @@ from hestia.routers import (
     auth as auth_router,
     capture,
     chat,
+    decision,
     docs,
     github,
     goals,
@@ -104,6 +105,7 @@ def create_app() -> FastAPI:
     app.include_router(settings_router.router)
     app.include_router(github.router)
     app.include_router(skills.router)
+    app.include_router(decision.router)
 
     dist = find_web_dist()
     if dist:

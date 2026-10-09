@@ -20,10 +20,10 @@ def test_run_subagent_with_profile(tmp_path, monkeypatch):
         {"content": "Findings: use sqlite."},
     ]
 
-    def fake_client(base_url, api_key, model, **kwargs):
+    def fake_client(provider, model, **kwargs):
         return FakeClient(scripted)
 
-    monkeypatch.setattr(subagents, "OpenAIClient", fake_client)
+    monkeypatch.setattr(subagents, "provider_client", fake_client)
 
     with Session(engine()) as s:
         provider = Provider(name="fake", base_url="http://x", api_key_env="NOPE", model="m")
@@ -63,10 +63,10 @@ def test_run_subagent_inside_running_loop(tmp_path, monkeypatch):
 
     monkeypatch.setattr(subagents.agent_loop, "run_turn", fake_run_turn)
 
-    def fake_client(base_url, api_key, model, **kwargs):
+    def fake_client(provider, model, **kwargs):
         return FakeClient([])
 
-    monkeypatch.setattr(subagents, "OpenAIClient", fake_client)
+    monkeypatch.setattr(subagents, "provider_client", fake_client)
 
     with Session(engine()) as s:
         provider = Provider(name="fake2", base_url="http://x", api_key_env="NOPE", model="m")
@@ -94,12 +94,12 @@ def test_subagent_action_uses_assigned_agent_model(tmp_path, monkeypatch):
 
     captured = {}
 
-    def fake_client(base_url, api_key, model, **kwargs):
-        captured["base_url"] = base_url
+    def fake_client(provider, model, **kwargs):
+        captured["base_url"] = getattr(provider, "base_url", provider)
         captured["model"] = model
         return object()
 
-    monkeypatch.setattr(subagents, "OpenAIClient", fake_client)
+    monkeypatch.setattr(subagents, "provider_client", fake_client)
     monkeypatch.setattr(
         subagents,
         "_run_subagent_in_thread",
@@ -148,11 +148,11 @@ def test_subagent_uses_agent_model_override(tmp_path, monkeypatch):
 
     captured = {}
 
-    def fake_client(base_url, api_key, model, **kwargs):
+    def fake_client(provider, model, **kwargs):
         captured["model"] = model
         return object()
 
-    monkeypatch.setattr(subagents, "OpenAIClient", fake_client)
+    monkeypatch.setattr(subagents, "provider_client", fake_client)
     monkeypatch.setattr(
         subagents,
         "_run_subagent_in_thread",

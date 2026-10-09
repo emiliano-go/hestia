@@ -230,6 +230,19 @@ def test_allow_local_browser_roundtrip(client):
     assert fetched["allow_local_browser"] is True
 
 
+def test_write_mode_roundtrip(client):
+    project = _mk_project(client)
+    assert project["write_mode"] == ""
+
+    updated = client.put(
+        f"/api/projects/{project['id']}", json={"write_mode": "auto"}
+    ).json()
+    assert updated["write_mode"] == "auto"
+
+    rejected = client.put(f"/api/projects/{project['id']}", json={"write_mode": "bogus"})
+    assert rejected.status_code == 400
+
+
 def test_multi_repo_create_and_endpoints(client):
     import subprocess
     import tempfile
@@ -303,3 +316,39 @@ def test_workspace_only_project(client):
     assert project["repo_url"] == "" and project["local_path"] == ""
     assert client.get(f"/api/projects/{project['id']}/repos").json() == []
     assert client.post(f"/api/projects/{project['id']}/pull").status_code == 400
+
+
+def test_snapshot_revert_roundtrip(client):
+    from pathlib import Path
+
+    from hestia import snapshots
+
+    project = _mk_project(client)
+    root = Path(project["local_path"])
+    (root / "file.txt").write_text("one\n")
+    assert snapshots.create(root, "test-turn")
+
+    listing = client.get(f"/api/projects/{project['id']}/snapshots").json()
+    assert listing[-1]["label"] == "test-turn"
+
+    (root / "file.txt").write_text("two\n")
+    assert client.post(f"/api/projects/{project['id']}/revert", json={}).status_code == 200
+    assert (root / "file.txt").read_text() == "one\n"
+
+
+def test_sandbox_promote_and_discard(client):
+    from pathlib import Path
+
+    from hestia import sandbox
+
+    project = _mk_project(client)
+    root = Path(project["local_path"])
+    info = sandbox.create([("main", root)])
+    clone = Path(info["repos"]["main"])
+    (clone / "file.txt").write_text("sandboxed\n")
+    sandbox.record(root, info, {"main": sandbox.patch(clone, info["base"]["main"])})
+
+    assert client.get(f"/api/projects/{project['id']}/sandbox").json()["path"] == info["path"]
+    assert client.post(f"/api/projects/{project['id']}/sandbox/promote", json={}).status_code == 200
+    assert (root / "file.txt").read_text() == "sandboxed\n"
+    assert client.post(f"/api/projects/{project['id']}/sandbox/discard", json={}).status_code == 200

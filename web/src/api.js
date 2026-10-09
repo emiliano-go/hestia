@@ -81,6 +81,12 @@ export const api = {
     }),
   updateProject: (id, body) =>
     request(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  listSnapshots: (id) => request(`/projects/${id}/snapshots`),
+  revertProject: (id, sha) =>
+    request(`/projects/${id}/revert`, { method: 'POST', body: JSON.stringify(sha ? { sha } : {}) }),
+  getSandbox: (id) => request(`/projects/${id}/sandbox`),
+  promoteSandbox: (id) => request(`/projects/${id}/sandbox/promote`, { method: 'POST', body: '{}' }),
+  discardSandbox: (id) => request(`/projects/${id}/sandbox/discard`, { method: 'POST', body: '{}' }),
   deleteProject: (id) => request(`/projects/${id}`, { method: 'DELETE' }),
   activity: () => request('/activity'),
 
@@ -173,6 +179,8 @@ export const api = {
   removeProviderModel: (id, name) =>
     request(`/providers/${id}/models/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   createProvider: (body) => request('/providers', { method: 'POST', body: JSON.stringify(body) }),
+  updateProvider: (id, body) =>
+    request(`/providers/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteProvider: (id) => request(`/providers/${id}`, { method: 'DELETE' }),
   testProvider: (id) => request(`/providers/${id}/test`, { method: 'POST' }),
 
@@ -196,6 +204,9 @@ export const api = {
   getSettings: () => request('/settings'),
   updateSettings: (body) =>
     request('/settings', { method: 'PUT', body: JSON.stringify(body) }),
+  getDecision: () => request('/decision'),
+  patchDecision: (body) =>
+    request('/decision', { method: 'PATCH', body: JSON.stringify(body) }),
   implementTask: (taskId) =>
     request(`/tasks/${taskId}/implement`, { method: 'POST', body: '{}' }),
   runNextTask: (projectId) =>

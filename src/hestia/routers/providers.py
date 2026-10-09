@@ -37,14 +37,20 @@ def _save_models(provider: Provider, models: list[str]) -> None:
 
 
 def _public(provider: Provider) -> dict:
+    try:
+        extra = [k for k in json.loads(provider.keys or "[]") if isinstance(k, str) and k.strip()]
+    except ValueError:
+        extra = []
     return {
         "id": provider.id,
         "name": provider.name,
         "base_url": provider.base_url,
         "api_key_env": provider.api_key_env,
         "model": provider.model,
+        "small_model": provider.small_model,
         "models": _model_list(provider),
         "has_key": bool(provider.api_key),
+        "key_count": len(extra) + (1 if provider.api_key else 0),
         "created_at": provider.created_at,
     }
 
@@ -70,6 +76,8 @@ def create_provider(body: dict, s: Session = Depends(session)):
         base_url=base_url.rstrip("/"),
         api_key_env=(body.get("api_key_env") or "").strip(),
         api_key=(body.get("api_key") or "").strip() or None,
+        model=(body.get("model") or "").strip(),
+        small_model=(body.get("small_model") or "").strip(),
     )
     models = body.get("models")
     if isinstance(models, str):
@@ -77,6 +85,12 @@ def create_provider(body: dict, s: Session = Depends(session)):
     if not models and body.get("model"):
         models = [body["model"]]
     _save_models(provider, models or [])
+    raw_keys = body.get("keys")
+    if isinstance(raw_keys, str):
+        raw_keys = [part for line in raw_keys.splitlines() for part in line.split(",")]
+    keys = [str(k).strip() for k in (raw_keys or []) if str(k).strip()]
+    if keys:
+        provider.keys = json.dumps(keys)
     s.add(provider)
     s.commit()
     s.refresh(provider)
@@ -106,6 +120,49 @@ def remove_model(provider_id: int, name: str, s: Session = Depends(session)):
     if not provider:
         raise HTTPException(404, "provider not found")
     _save_models(provider, [m for m in _model_list(provider) if m != name])
+    s.add(provider)
+    s.commit()
+    s.refresh(provider)
+    return _public(provider)
+
+
+@router.put("/{provider_id}/keys")
+def set_keys(provider_id: int, body: dict, s: Session = Depends(session)):
+    """Replace the provider's extra key pool (rotation; state is reset)."""
+    provider = s.get(Provider, provider_id)
+    if not provider:
+        raise HTTPException(404, "provider not found")
+    raw = body.get("keys")
+    if isinstance(raw, str):
+        raw = [part for line in raw.splitlines() for part in line.split(",")]
+    keys: list[str] = []
+    for key in raw or []:
+        key = str(key).strip()
+        if key and key not in keys:
+            keys.append(key)
+    provider.keys = json.dumps(keys)
+    provider.key_state = "{}"  # a changed pool invalidates old suspensions
+    s.add(provider)
+    s.commit()
+    s.refresh(provider)
+    return _public(provider)
+
+
+@router.patch("/{provider_id}")
+def update_provider(provider_id: int, body: dict, s: Session = Depends(session)):
+    provider = s.get(Provider, provider_id)
+    if not provider:
+        raise HTTPException(404, "provider not found")
+    if "name" in body:
+        provider.name = (body.get("name") or provider.name).strip()
+    if "base_url" in body:
+        provider.base_url = (body.get("base_url") or provider.base_url).strip().rstrip("/")
+    if "api_key_env" in body:
+        provider.api_key_env = (body.get("api_key_env") or "").strip()
+    if "small_model" in body:
+        provider.small_model = (body.get("small_model") or "").strip()
+    if "model" in body and (body.get("model") or "").strip():
+        provider.model = (body.get("model") or "").strip()
     s.add(provider)
     s.commit()
     s.refresh(provider)

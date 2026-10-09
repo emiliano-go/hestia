@@ -67,6 +67,8 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
   const [stopped, setStopped] = useState(false)
   const [btwMinimized, setBtwMinimized] = useState(false)
   const [memoryNote, setMemoryNote] = useState(null)
+  const [decisionNote, setDecisionNote] = useState(null)
+  const [sandboxNote, setSandboxNote] = useState(null)
   const sessionRef = useRef(sessionId)
   const busyRef = useRef(false)
   const initialSentRef = useRef(false)
@@ -116,6 +118,8 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
     setStopped(false)
     setBtwMinimized(false)
     setMemoryNote(null)
+    setDecisionNote(null)
+      setSandboxNote(null)
     setPhrase(randomPhrase())
     if (sessionId) {
       api
@@ -240,6 +244,8 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
       setReconnecting(false)
       setStopped(false)
       setMemoryNote(null)
+      setDecisionNote(null)
+      setSandboxNote(null)
       setMessages((prev) => [...prev, { id: `u-${Date.now()}`, role: 'user', content: text }])
       api
         .chatStream(
@@ -307,6 +313,15 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
                     `Memory: ${evt.candidates} candidate${evt.candidates > 1 ? 's' : ''} to review`
                   )
                 else setMemoryNote('Memory checkpoint: nothing durable')
+              } else if (evt.event === 'decision') {
+                setDecisionNote({
+                  verdict: evt.verdict,
+                  composite: evt.composite,
+                  vetoes: evt.vetoes || [],
+                })
+              } else if (evt.event === 'sandbox') {
+                const lines = Object.values(evt.changed || {}).reduce((a, b) => a + b, 0)
+                setSandboxNote(lines ? `Yolo sandbox: ${lines} changed lines in /tmp` : 'Yolo sandbox: no changes')
               } else if (
                 evt.event === 'tool_call' ||
                 evt.event === 'tool_result' ||
@@ -598,6 +613,14 @@ export function ChatView({ projectId, sessionId, agentId, providerId, onSessionC
       <div className="composer-wrap">
         {reconnecting && <div className="chat-note">Reconnecting…</div>}
         {memoryNote && <div className="chat-note">{memoryNote}</div>}
+        {sandboxNote && <div className="chat-note">{sandboxNote}</div>}
+        {decisionNote && (
+          <div className={`chat-note decision-note decision-${decisionNote.verdict}`}>
+            Decision: {decisionNote.verdict}
+            {decisionNote.composite != null ? ` · ${decisionNote.composite.toFixed(2)}` : ''}
+            {decisionNote.vetoes.length ? ` · vetoed: ${decisionNote.vetoes.join(', ')}` : ''}
+          </div>
+        )}
         {stopped && !pending && <div className="chat-note">Stopped by you.</div>}
         {btw && !btwMinimized && (
           <div className="btw-box">

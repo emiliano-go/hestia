@@ -50,7 +50,7 @@ def test_prompt_includes_context(client, monkeypatch):
             seen["system"] = messages[0]["content"]
             yield {"choices": [{"delta": {"content": "ok"}}]}
 
-    monkeypatch.setattr(chat_router, "OpenAIClient", FakeClient)
+    monkeypatch.setattr(chat_router, "provider_client", FakeClient)
     resp = client.post(
         f"/api/projects/{project['id']}/chat",
         json={"message": "hi", "provider_id": provider["id"]},
@@ -100,7 +100,7 @@ def test_preferences_in_prompt(client, monkeypatch):
             seen["system"] = messages[0]["content"]
             yield {"choices": [{"delta": {"content": "ok"}}]}
 
-    monkeypatch.setattr(chat_router, "OpenAIClient", FakeClient)
+    monkeypatch.setattr(chat_router, "provider_client", FakeClient)
     resp = client.post(
         f"/api/projects/{project['id']}/chat",
         json={"message": "hi", "provider_id": provider["id"]},

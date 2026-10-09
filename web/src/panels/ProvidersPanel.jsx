@@ -5,7 +5,7 @@ import { Spinner } from '../components/primitives.jsx'
 import { Icon } from '../icons.jsx'
 import { useAsync } from '../lib/hooks.js'
 
-const EMPTY = { name: '', base_url: '', api_key: '', models: [] }
+const EMPTY = { name: '', base_url: '', api_key: '', keys: '', models: [] }
 const STEPS = ['Provider', 'API key', 'Models']
 
 function ModelChecklist({ models, selected, onToggle }) {
@@ -29,6 +29,7 @@ function ModelManager({ provider, onClose, onSaved }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const [custom, setCustom] = useState('')
+  const [smallModel, setSmallModel] = useState(provider.small_model || '')
 
   useEffect(() => {
     api
@@ -56,6 +57,7 @@ function ModelManager({ provider, onClose, onSaved }) {
     Promise.all([
       toAdd.length ? api.addProviderModels(provider.id, toAdd) : null,
       ...toRemove.map((m) => api.removeProviderModel(provider.id, m)),
+      api.updateProvider(provider.id, { small_model: smallModel }),
     ])
       .then(onSaved)
       .catch((e) => setError(e.message || String(e)))
@@ -66,6 +68,14 @@ function ModelManager({ provider, onClose, onSaved }) {
     <Modal title={`Models · ${provider.name}`} onClose={onClose}>
       {loading && <p className="note">Loading models...</p>}
       {error && <p className="error-text">{error}</p>}
+      <label className="field">
+        <span className="field-label">Small model</span>
+        <input
+          value={smallModel}
+          onChange={(e) => setSmallModel(e.target.value)}
+          placeholder="Cheap model for titles, summaries, and memory distillation"
+        />
+      </label>
       <ModelChecklist models={available} selected={selected} onToggle={toggle} />
       <div className="row" style={{ marginTop: 10, marginBottom: 0 }}>
         <input
@@ -123,6 +133,7 @@ export function ProvidersPanel() {
       name: p.name || key,
       base_url: p.base_url || '',
       api_key: '',
+      keys: '',
       models: p.model ? [p.model] : [],
     })
     setAvailable([])
@@ -255,6 +266,15 @@ export function ProvidersPanel() {
                 onChange={set('api_key')}
                 placeholder="Paste your API key (blank for local endpoints)"
                 autoFocus
+              />
+            </label>
+            <label className="field">
+              <span className="field-label">Extra keys (rotation)</span>
+              <textarea
+                rows={2}
+                value={form.keys}
+                onChange={set('keys')}
+                placeholder="Optional, one per line. Tried when a key is rate-limited or rejected."
               />
             </label>
             {formError && <div className="error-text">{formError}</div>}

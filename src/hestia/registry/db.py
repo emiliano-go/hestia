@@ -1,13 +1,26 @@
-"""Registry database access (SQLModel + sqlite at $DATA_DIR/hestia.db)."""
+"""Registry database access (SQLModel over Turso at $DATA_DIR/hestia.db).
 
+Turso is the default engine (shared sqlite-compatible format with totem/encoder,
+`multiprocess_wal` for the API + background worker + scheduler). Set
+`HESTIA_DB_DRIVER=sqlite` to fall back to the stdlib sqlite3 driver.
+"""
+
+import os
 from datetime import datetime, timezone
 from typing import Iterator
 
+from sqlalchemy.dialects import registry as _dialect_registry
 from sqlmodel import SQLModel, Session, create_engine
 
 from hestia import config
 
+_dialect_registry.register("sqlite+turso", "hestia.registry.turso_dialect", "TursoDialect")
+
 _engine = None
+
+
+def _driver() -> str:
+    return os.environ.get("HESTIA_DB_DRIVER", "turso").strip().lower()
 
 
 def engine():
@@ -19,11 +32,14 @@ def engine():
         legacy_db = data_dir / "home.db"
         if legacy_db.exists() and not new_db.exists():
             legacy_db.rename(new_db)  # one-time rename from the old app name
-        _engine = create_engine(
-            f"sqlite:///{new_db}",
-            echo=False,
-            connect_args={"check_same_thread": False},  # background job workers
-        )
+        if _driver() == "sqlite":
+            _engine = create_engine(
+                f"sqlite:///{new_db}",
+                echo=False,
+                connect_args={"check_same_thread": False},  # background job workers
+            )
+        else:
+            _engine = create_engine(f"sqlite+turso:///{new_db}", echo=False)
     return _engine
 
 
@@ -42,6 +58,8 @@ def _migrate() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE project ADD COLUMN allow_git_writes BOOLEAN DEFAULT 0"
             )
+        if columns and "write_mode" not in columns:
+            conn.exec_driver_sql("ALTER TABLE project ADD COLUMN write_mode TEXT DEFAULT ''")
         if columns and "token_budget" not in columns:
             conn.exec_driver_sql("ALTER TABLE project ADD COLUMN token_budget INTEGER")
         if columns and "budget_enforced" not in columns:
@@ -114,6 +132,12 @@ def _migrate() -> None:
         provider_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(provider)")}
         if provider_columns and "api_key" not in provider_columns:
             conn.exec_driver_sql("ALTER TABLE provider ADD COLUMN api_key TEXT")
+        if provider_columns and "keys" not in provider_columns:
+            conn.exec_driver_sql("ALTER TABLE provider ADD COLUMN keys TEXT DEFAULT '[]'")
+        if provider_columns and "key_state" not in provider_columns:
+            conn.exec_driver_sql("ALTER TABLE provider ADD COLUMN key_state TEXT DEFAULT '{}'")
+        if provider_columns and "small_model" not in provider_columns:
+            conn.exec_driver_sql("ALTER TABLE provider ADD COLUMN small_model TEXT DEFAULT ''")
         if provider_columns and "models" not in provider_columns:
             conn.exec_driver_sql("ALTER TABLE provider ADD COLUMN models TEXT DEFAULT '[]'")
             # seed the list from the existing single default model
